@@ -2,7 +2,7 @@
 
 Sistema simples de gestão de estoque, entradas, saídas e preços, pensado inicialmente para uma loja de celulares e acessórios. A primeira versão será priorizada para uso no celular e construída para ser demonstrada e validada com o responsável pela loja.
 
-> **Status:** planejamento funcional concluído para iniciar o primeiro protótipo. As funcionalidades serão implementadas e testadas por etapas; este README descreve o escopo e as regras acordadas, não afirma que elas já estejam implementadas.
+> **Status:** primeiro protótipo em desenvolvimento. A interface mobile-first, o login Firebase, o cadastro de produtos, as entradas de estoque e o tutorial inicial já foram adicionados ao código. Ainda precisam ser testados no navegador com o projeto Firebase.
 
 ## Objetivo
 
@@ -115,7 +115,7 @@ A prioridade imediata é permitir cadastrar produtos e registrar entradas. O res
 ## Decisões pendentes
 
 - Definir o comportamento para produtos não contados durante uma vistoria.
-- Definir e validar a estratégia de armazenamento persistente dos dados antes de implementar, para que eles não se percam ao atualizar ou fechar a página.
+- Validar as regras do Firestore, a autenticação e a persistência no navegador.
 - Confirmar com o responsável pela loja as necessidades adicionais após experimentar o protótipo.
 
 ## Critérios para validar a demonstração
@@ -133,3 +133,29 @@ A prioridade imediata é permitir cadastrar produtos e registrar entradas. O res
 O FayDai-Estoque começa como uma ferramenta simples para resolver necessidades reais da loja. A demonstração será usada para conversar com o responsável, observar o fluxo de trabalho e decidir quais melhorias são realmente necessárias.
 
 As funcionalidades e regras deste documento poderão evoluir com base nessa validação, mantendo o histórico dos dados e evitando complexidade antes da hora.
+
+
+## Protótipo atual
+
+Arquivos iniciais:
+- `index.html`: telas de login, produtos, entradas, ajuda e tutorial.
+- `styles.css`: layout responsivo com prioridade para celular.
+- `app.js`: autenticação Firebase, cadastro de produtos, registro de entradas e leitura/gravação no Cloud Firestore.
+
+### Configuração necessária no Firebase
+
+1. Em **Authentication → Sign-in method**, habilite o provedor **E-mail/senha**.
+2. Confirme que `contateste@gmail.com` existe no Firebase Authentication e que o e-mail está verificado, pois as regras atuais exigem `email_verified == true`.
+3. Confirme que o Firestore está criado e que as regras publicadas autorizam somente a conta de teste.
+4. Para publicar em um host como Vercel, adicione o domínio do site em **Authentication → Settings → Authorized domains**.
+
+### Como validar a primeira versão
+
+1. Abra o site publicado e entre com a conta de teste.
+2. Cadastre um produto com custo, percentual de ganho e quantidade inicial.
+3. Confira o preço sugerido e o saldo no catálogo.
+4. Registre uma entrada adicional e confira se o saldo aumenta.
+5. Atualize a página e confirme que o produto e o histórico continuam disponíveis.
+6. Teste o tutorial: fechar ou escolher “Entendi, começar” só o fecha naquela sessão; “Não mostrar novamente” impede a abertura automática neste navegador. A opção de Ajuda permite abri-lo novamente.
+
+**Importante:** este protótipo ainda não implementa vendas, cancelamentos, devoluções, dashboard ou vistoria. Esses módulos serão desenvolvidos após validar o fluxo de produtos e entradas.
