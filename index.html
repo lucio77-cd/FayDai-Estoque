@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#172554">
+  <title>FayDai Estoque</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section id="login-view" class="login-wrap">
+      <div class="brand-mark">FD</div>
+      <p class="eyebrow">GESTÃO SIMPLES</p>
+      <h1>FayDai Estoque</h1>
+      <p class="muted">Produtos e movimentações em um só lugar.</p>
+      <form id="login-form" class="panel form-stack">
+        <label for="login-email">E-mail</label>
+        <input id="login-email" type="email" autocomplete="username" value="contateste@gmail.com" required>
+        <label for="login-password">Senha</label>
+        <input id="login-password" type="password" autocomplete="current-password" required>
+        <button class="button primary" type="submit">Entrar</button>
+        <p id="login-error" class="feedback error" role="alert"></p>
+      </form>
+      <p class="small muted">Entre com a conta já criada no Firebase Authentication.</p>
+    </section>
+
+    <section id="app-view" hidden>
+      <header class="topbar">
+        <div class="brand-inline"><span class="brand-mark small-mark">FD</span><div><strong>FayDai</strong><span class="muted block">Estoque</span></div></div>
+        <button id="logout-button" class="button quiet" type="button">Sair</button>
+      </header>
+
+      <section class="welcome">
+        <p class="eyebrow">CONTROLE DA LOJA</p>
+        <h1>Seu estoque, organizado.</h1>
+        <p class="muted">Cadastre os produtos e registre cada entrada.</p>
+      </section>
+
+      <nav class="tabs" aria-label="Seções do sistema">
+        <button class="tab active" data-tab="products" type="button">Produtos</button>
+        <button class="tab" data-tab="entries" type="button">Entradas</button>
+        <button class="tab" data-tab="help" type="button">Ajuda</button>
+      </nav>
+
+      <section id="products-panel" class="tab-panel">
+        <div class="section-heading"><div><p class="eyebrow">CATÁLOGO</p><h2>Produtos</h2></div><span id="product-count" class="count-pill">0 itens</span></div>
+        <form id="product-form" class="panel form-stack">
+          <h3>Novo produto</h3>
+          <label for="product-name">Nome do produto *</label>
+          <input id="product-name" maxlength="100" placeholder="Ex.: Carregador USB-C" required>
+          <label for="product-description">Descrição</label>
+          <textarea id="product-description" rows="2" maxlength="500" placeholder="Marca, modelo ou detalhes"></textarea>
+          <div class="form-grid">
+            <div><label for="product-cost">Custo cadastrado (R$) *</label><input id="product-cost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00" required></div>
+            <div><label for="product-gain">Ganho sobre custo (%) *</label><input id="product-gain" type="number" min="0" step="0.01" inputmode="decimal" value="20" required></div>
+          </div>
+          <div class="suggested-price"><span>Preço sugerido</span><strong id="suggested-price">R$ 0,00</strong><small>Calculado sobre o custo cadastrado.</small></div>
+          <label for="product-quantity">Quantidade inicial *</label>
+          <input id="product-quantity" type="number" min="0" step="1" inputmode="numeric" value="0" required>
+          <button class="button primary" type="submit">Salvar produto</button>
+          <p id="product-feedback" class="feedback" role="status"></p>
+        </form>
+        <div class="list-heading"><h3>Produtos cadastrados</h3><button id="refresh-products" class="button quiet" type="button">Atualizar</button></div>
+        <div id="products-list" class="item-list"><div class="empty-state">Carregando produtos…</div></div>
+      </section>
+
+      <section id="entries-panel" class="tab-panel" hidden>
+        <div class="section-heading"><div><p class="eyebrow">REPOSIÇÃO</p><h2>Registrar entrada</h2></div></div>
+        <form id="entry-form" class="panel form-stack">
+          <label for="entry-product">Produto *</label>
+          <select id="entry-product" required><option value="">Selecione um produto</option></select>
+          <label for="entry-quantity">Quantidade recebida *</label>
+          <input id="entry-quantity" type="number" min="1" step="1" inputmode="numeric" required placeholder="Ex.: 10">
+          <label for="entry-cost">Custo unitário desta compra (R$) *</label>
+          <input id="entry-cost" type="number" min="0" step="0.01" inputmode="decimal" required placeholder="0,00">
+          <label for="entry-date">Data da entrada *</label>
+          <input id="entry-date" type="date" required>
+          <label for="entry-supplier">Fornecedor (opcional)</label>
+          <input id="entry-supplier" maxlength="120" placeholder="Nome do fornecedor">
+          <label for="entry-notes">Observação (opcional)</label>
+          <textarea id="entry-notes" rows="2" maxlength="500" placeholder="Detalhes da compra"></textarea>
+          <p class="notice">O custo desta compra fica no histórico. Ele não altera automaticamente o custo cadastrado do produto.</p>
+          <button class="button primary" type="submit">Registrar entrada</button>
+          <p id="entry-feedback" class="feedback" role="status"></p>
+        </form>
+        <div class="list-heading"><h3>Histórico de entradas</h3><button id="refresh-entries" class="button quiet" type="button">Atualizar</button></div>
+        <div id="entries-list" class="item-list"><div class="empty-state">Nenhuma entrada carregada.</div></div>
+      </section>
+
+      <section id="help-panel" class="tab-panel" hidden>
+        <div class="section-heading"><div><p class="eyebrow">PRIMEIROS PASSOS</p><h2>Ajuda</h2></div></div>
+        <div class="panel help-card">
+          <h3>Como usar o FayDai</h3>
+          <ol><li>Cadastre o produto com custo, percentual de ganho e quantidade inicial.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Confira o saldo no catálogo de produtos.</li></ol>
+          <p class="muted small">Esta é a primeira etapa do protótipo. Vendas, dashboard e vistoria serão adicionados depois.</p>
+          <button id="show-tutorial" class="button secondary" type="button">Ver tutorial inicial</button>
+        </div>
+      </section>
+      <footer class="footer-note">FayDai Estoque · Protótipo em validação</footer>
+    </section>
+  </main>
+
+  <div id="tutorial-overlay" class="overlay" hidden>
+    <section class="tutorial-card" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
+      <button id="tutorial-close" class="icon-button" type="button" aria-label="Fechar tutorial">×</button>
+      <div class="brand-mark">FD</div>
+      <p class="eyebrow">BEM-VINDO AO SISTEMA</p>
+      <h2 id="tutorial-title">Vamos organizar seu estoque?</h2>
+      <p class="muted">Você pode consultar este tutorial sempre que precisar.</p>
+      <div class="tutorial-step"><span>1</span><div><strong>Cadastre os produtos</strong><p>Informe nome, custo, ganho desejado e quantidade inicial.</p></div></div>
+      <div class="tutorial-step"><span>2</span><div><strong>Registre as entradas</strong><p>Quando receber mercadoria, registre quantidade, custo da compra e fornecedor.</p></div></div>
+      <div class="tutorial-step"><span>3</span><div><strong>Confira o saldo</strong><p>O estoque é atualizado conforme os registros salvos.</p></div></div>
+      <button id="tutorial-understood" class="button primary full" type="button">Entendi, começar</button>
+      <button id="tutorial-never" class="button quiet full" type="button">Não mostrar novamente</button>
+    </section>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
