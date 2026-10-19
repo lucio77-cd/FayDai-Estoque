@@ -110,7 +110,7 @@ function renderProducts() {
             <div><span>Custo cadastrado</span><strong>${money(product.custo)}</strong></div>
             <div><span>Preço sugerido</span><strong>${money(suggested)}</strong></div>
             <div><span>Ganho sobre custo</span><strong>${Number(product.percentualGanho).toLocaleString("pt-BR")}%</strong></div>
-            <div><span>Cadastro</span><strong>${product.criadoEm ? new Date(product.criadoEm).toLocaleDateString("pt-BR") : "—"}</strong></div>
+            <div><span>Cadastro</span><strong>${product.criadoEmData ? new Date(product.criadoEmData + "T12:00:00").toLocaleDateString("pt-BR") : "—"}</strong></div>
           </div>
         </article>`;
       }).join("");
