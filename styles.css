@@ -21,3 +21,16 @@
 /* Configurações e edição */
 .setting-toggle{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#f8faff}.setting-toggle input{width:18px;height:18px;min-height:auto;accent-color:var(--blue)}
 .product-actions{gap:8px;flex-wrap:wrap}.product-actions .button{font-size:12px;padding:8px 12px;min-height:38px}
+
+/* Pesquisa de produtos e histórico de saídas */
+.search-results{display:grid;gap:6px;max-height:260px;overflow:auto}
+.search-result{display:flex;justify-content:space-between;align-items:center;gap:12px;text-align:left;width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+.search-result:active,.search-result:hover{border-color:#9aadef;background:#f7f8ff}
+.search-result span:first-child{display:grid;gap:3px;min-width:0}
+.search-result strong{font-size:13px;overflow-wrap:anywhere}
+.search-result small{font-size:11px;color:var(--muted)}
+.search-result-stock{white-space:nowrap;font-size:12px;font-weight:800;color:var(--green)}
+.selected-product{display:flex;flex-direction:column;gap:4px;padding:12px;border:1px solid #b7e4cf;background:#f0fbf5;border-radius:10px;color:#176548}
+.selected-product strong{font-size:14px;overflow-wrap:anywhere}
+.selected-product span{font-size:12px}
+.exit-badge{background:#fff0ef;color:var(--red);font-size:12px;font-weight:800;border-radius:8px;padding:6px 8px;white-space:nowrap}
