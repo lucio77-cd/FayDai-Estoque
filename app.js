@@ -37,6 +37,7 @@ const STORE_SETTINGS_ID = "configuracoes_faydai";
 const INTERNAL_COUNTER_ID = "contador_codigo_interno_faydai";
 let storeSettings = { nome: "", responsavel: "", telefone: "", endereco: "", cnpj: "", codigoInternoAtivo: false, codigoBarrasAtivo: false, caixaAtivo: false, saidasAtivo: true };
 let editingProductId = null;
+let salePriceManuallyEdited = false;
 const SUGGESTED_CATEGORIES = [
   "Celulares",
   "Capas e películas",
@@ -197,6 +198,7 @@ function resetProductForm() {
   $("#product-category-new").hidden = true;
   $("#product-gain").value = "20";
   $("#product-quantity").value = "0";
+  salePriceManuallyEdited = false;
   updateSuggestedPrice();
 }
 
@@ -235,6 +237,7 @@ function renderProducts() {
           ${product.codigoInterno || (storeSettings.codigoBarrasAtivo && product.codigoBarras) ? `<p class="item-description">${product.codigoInterno ? `Código interno: ${escapeHtml(product.codigoInterno)}` : ""}${product.codigoInterno && storeSettings.codigoBarrasAtivo && product.codigoBarras ? " · " : ""}${storeSettings.codigoBarrasAtivo && product.codigoBarras ? `Código de barras: ${escapeHtml(product.codigoBarras)}` : ""}</p>` : ""}
           <div class="item-meta">
             <div><span>Custo cadastrado</span><strong>${money(product.custo)}</strong></div>
+            <div><span>Preço de venda cadastrado</span><strong>${money(product.precoVenda ?? suggested)}</strong></div>
             <div><span>Preço sugerido</span><strong>${money(suggested)}</strong></div>
             <div><span>Ganho sobre custo</span><strong>${(Number(product.percentualGanho) || 0).toLocaleString("pt-BR")}%</strong></div>
             <div><span>Cadastro</span><strong>${product.criadoEmData ? new Date(product.criadoEmData + "T12:00:00").toLocaleDateString("pt-BR") : "—"}</strong></div>
@@ -258,7 +261,10 @@ function renderProducts() {
 
 
 function getSuggestedSalePrice(product) {
-  return Math.round((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100) * 100) / 100;
+  const suggested = Math.round((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100) * 100) / 100;
+  return Number.isFinite(Number(product.precoVenda)) && product.precoVenda !== null && product.precoVenda !== ""
+    ? Number(product.precoVenda)
+    : suggested;
 }
 
 function renderSaleProductResults() {
@@ -539,10 +545,13 @@ document.querySelectorAll(".tab").forEach((button) => {
 const updateSuggestedPrice = () => {
   const cost = Number($("#product-cost").value) || 0;
   const gain = Number($("#product-gain").value) || 0;
-  $("#suggested-price").textContent = money(cost * (1 + gain / 100));
+  const suggested = Math.round(cost * (1 + gain / 100) * 100) / 100;
+  $("#suggested-price").textContent = money(suggested);
+  if (!salePriceManuallyEdited) $("#product-sale-price").value = suggested.toFixed(2);
 };
 $("#product-cost").addEventListener("input", updateSuggestedPrice);
 $("#product-gain").addEventListener("input", updateSuggestedPrice);
+$("#product-sale-price").addEventListener("input", () => { salePriceManuallyEdited = true; });
 
 $("#product-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -562,9 +571,10 @@ $("#product-form").addEventListener("submit", async (event) => {
   const descricao = $("#product-description").value.trim();
   const custo = Number($("#product-cost").value);
   const percentualGanho = Number($("#product-gain").value);
+  const precoVenda = Number($("#product-sale-price").value);
   const quantidade = Number($("#product-quantity").value);
-  if (!nome || !Number.isFinite(custo) || custo < 0 || !Number.isFinite(percentualGanho) || percentualGanho < 0 || !Number.isInteger(quantidade) || quantidade < 0) {
-    setFeedback("#product-feedback", "Confira os campos e informe quantidades inteiras não negativas.", true);
+  if (!nome || !Number.isFinite(custo) || custo < 0 || !Number.isFinite(percentualGanho) || percentualGanho < 0 || !Number.isFinite(precoVenda) || precoVenda < 0 || !Number.isInteger(quantidade) || quantidade < 0) {
+    setFeedback("#product-feedback", "Confira os campos, o preço de venda e informe quantidades inteiras não negativas.", true);
     button.disabled = false;
     return;
   }
@@ -600,7 +610,7 @@ $("#product-form").addEventListener("submit", async (event) => {
       if (!current.codigoInterno && codigoInterno) codigoGeradoNestaOperacao = codigoInterno;
 
       await updateDoc(doc(db, "produtos", editingProductId), {
-        nome, marca, categoria, descricao, custo, percentualGanho,
+        nome, marca, categoria, descricao, custo, percentualGanho, precoVenda,
         ...(codigoInterno ? { codigoInterno } : {}),
         ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
         atualizadoEm: serverTimestamp()
@@ -620,7 +630,7 @@ $("#product-form").addEventListener("submit", async (event) => {
     const codigoInterno = storeSettings.codigoInternoAtivo ? await generateInternalCode() : "";
     codigoGeradoNestaOperacao = codigoInterno;
     batch.set(productRef, {
-      nome, marca, categoria, descricao, custo, percentualGanho, quantidade,
+      nome, marca, categoria, descricao, custo, percentualGanho, precoVenda, quantidade,
       codigoInterno,
       ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
       criadoEm: serverTimestamp(),
@@ -932,6 +942,11 @@ $("#products-list").addEventListener("click", async (event) => {
     $("#product-description").value = product.descricao || "";
     $("#product-cost").value = Number(product.custo) || 0;
     $("#product-gain").value = Number(product.percentualGanho) || 0;
+    const calculatedSuggestedPrice = Math.round((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100) * 100) / 100;
+    $("#product-sale-price").value = Number.isFinite(Number(product.precoVenda)) && product.precoVenda !== null && product.precoVenda !== ""
+      ? Number(product.precoVenda).toFixed(2)
+      : calculatedSuggestedPrice.toFixed(2);
+    salePriceManuallyEdited = true;
     $("#product-quantity").value = Number(product.quantidade) || 0;
     $("#product-quantity").disabled = true;
     $("#product-internal-code").value = product.codigoInterno || "";
