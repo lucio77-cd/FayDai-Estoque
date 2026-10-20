@@ -33,6 +33,10 @@ const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, (char) => (
 }[char]));
 
 const CATALOG_OPTIONS_ID = "catalogo_opcoes_faydai";
+const STORE_SETTINGS_ID = "configuracoes_faydai";
+const INTERNAL_COUNTER_ID = "contador_codigo_interno_faydai";
+let storeSettings = { nome: "", responsavel: "", telefone: "", endereco: "", cnpj: "", codigoInternoAtivo: false, codigoBarrasAtivo: false };
+let editingProductId = null;
 const SUGGESTED_CATEGORIES = [
   "Celulares",
   "Capas e películas",
@@ -151,6 +155,48 @@ function closeTutorialForNow() {
   $("#tutorial-overlay").hidden = true;
 }
 
+function renderStoreSettings() {
+  $("#store-name").value = storeSettings.nome || "";
+  $("#store-manager").value = storeSettings.responsavel || "";
+  $("#store-phone").value = storeSettings.telefone || "";
+  $("#store-address").value = storeSettings.endereco || "";
+  $("#store-cnpj").value = storeSettings.cnpj || "";
+  $("#setting-internal-code").checked = Boolean(storeSettings.codigoInternoAtivo);
+  $("#setting-barcode").checked = Boolean(storeSettings.codigoBarrasAtivo);
+  $("#product-internal-code").placeholder = storeSettings.codigoInternoAtivo ? "Gerado ao salvar" : "Desativado nas configurações";
+  $("#product-barcode").disabled = !storeSettings.codigoBarrasAtivo && !editingProductId;
+}
+
+function resetProductForm() {
+  editingProductId = null;
+  $("#product-form").reset();
+  $("#product-form h3").textContent = "Novo produto";
+  $("#product-form button[type=submit]").textContent = "Salvar produto";
+  $("#product-quantity").disabled = false;
+  $("#product-internal-code").value = "";
+  $("#product-internal-code").placeholder = storeSettings.codigoInternoAtivo ? "Gerado ao salvar" : "Desativado nas configurações";
+  $("#product-barcode").disabled = !storeSettings.codigoBarrasAtivo;
+  $("#product-brand-new").hidden = true;
+  $("#product-category-new").hidden = true;
+  $("#product-gain").value = "20";
+  $("#product-quantity").value = "0";
+  updateSuggestedPrice();
+}
+
+async function generateInternalCode() {
+  const counterRef = doc(db, "produtos", INTERNAL_COUNTER_ID);
+  return runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(counterRef);
+    const existingMax = products.reduce((max, product) => {
+      const match = String(product.codigoInterno || "").match(/^FON(\d+)$/i);
+      return match ? Math.max(max, Number(match[1]) || 0) : max;
+    }, 0);
+    const next = Math.max(Number(snap.data()?.ultimoNumero) || 0, existingMax) + 1;
+    transaction.set(counterRef, { ultimoNumero: next, atualizadoEm: serverTimestamp() }, { merge: true });
+    return "FON" + String(next).padStart(3, "0");
+  });
+}
+
 function renderProducts() {
   const activeProducts = products.filter((product) => !product.arquivado);
   $("#product-count").textContent = `${activeProducts.length} ${activeProducts.length === 1 ? "item" : "itens"}`;
@@ -176,6 +222,7 @@ function renderProducts() {
             <div><span>Cadastro</span><strong>${product.criadoEmData ? new Date(product.criadoEmData + "T12:00:00").toLocaleDateString("pt-BR") : "—"}</strong></div>
           </div>
           <div class="product-actions">
+            <button class="button secondary" type="button" data-edit-product="${escapeHtml(product.id)}">Editar</button>
             <button class="button danger-outline" type="button" data-delete-product="${escapeHtml(product.id)}">Excluir produto</button>
           </div>
         </article>`;
@@ -228,17 +275,20 @@ async function loadData() {
       getDocs(collection(db, "entradas"))
     ]);
     const catalogOptionsDoc = productSnapshot.docs.find((item) => item.id === CATALOG_OPTIONS_ID);
+    const settingsDoc = productSnapshot.docs.find((item) => item.id === STORE_SETTINGS_ID);
+    storeSettings = { ...storeSettings, ...(settingsDoc?.data() || {}) };
     const catalogOptions = catalogOptionsDoc?.data() || {};
     brands = uniqueOptions(catalogOptions.marcas || []);
     categories = uniqueOptions(catalogOptions.categorias || []);
     products = productSnapshot.docs
-      .filter((item) => item.id !== CATALOG_OPTIONS_ID)
+      .filter((item) => ![CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID].includes(item.id))
       .map((item) => ({ id: item.id, ...item.data() }));
     entries = entrySnapshot.docs.map((item) => {
       const data = item.data();
       return { id: item.id, ...data, criadoEmMs: data.criadoEm?.toMillis?.() || 0 };
     });
     renderCatalogOptions();
+    renderStoreSettings();
     renderProducts();
     renderEntries();
   } catch (error) {
@@ -314,6 +364,7 @@ $("#product-form").addEventListener("submit", async (event) => {
   const marca = brands.find((item) => normalizeText(item) === normalizeText(marcaInformada)) || marcaInformada;
   const categoria = categories.concat(SUGGESTED_CATEGORIES)
     .find((item) => normalizeText(item) === normalizeText(categoriaInformada)) || categoriaInformada;
+  const barcode = storeSettings.codigoBarrasAtivo ? cleanOption($("#product-barcode").value) : "";
   const descricao = $("#product-description").value.trim();
   const custo = Number($("#product-cost").value);
   const percentualGanho = Number($("#product-gain").value);
@@ -326,6 +377,7 @@ $("#product-form").addEventListener("submit", async (event) => {
 
   const duplicate = products.find((product) =>
     !product.arquivado &&
+    product.id !== editingProductId &&
     normalizeText(product.nome) === normalizeText(nome) &&
     normalizeText(product.marca) === normalizeText(marca)
   );
@@ -335,12 +387,29 @@ $("#product-form").addEventListener("submit", async (event) => {
     return;
   }
 
+  const wasEditing = Boolean(editingProductId);
   try {
+    if (barcode) {
+      const barcodeDuplicate = products.find((product) => product.id !== editingProductId && !product.arquivado && String(product.codigoBarras || "") === barcode);
+      if (barcodeDuplicate) throw new Error(`Este código de barras já está associado ao produto "${barcodeDuplicate.nome}".`);
+    }
+    if (editingProductId) {
+      const current = products.find((product) => product.id === editingProductId);
+      if (!current) throw new Error("Produto não encontrado. Atualize a lista e tente novamente.");
+      await updateDoc(doc(db, "produtos", editingProductId), {
+        nome, marca, categoria, descricao, custo, percentualGanho,
+        ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
+        atualizadoEm: serverTimestamp()
+      });
+    } else {
     const batch = writeBatch(db);
     const productRef = doc(collection(db, "produtos"));
     const user = auth.currentUser;
+    const codigoInterno = storeSettings.codigoInternoAtivo ? await generateInternalCode() : "";
     batch.set(productRef, {
       nome, marca, categoria, descricao, custo, percentualGanho, quantidade,
+      codigoInterno,
+      ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
       criadoEm: serverTimestamp(),
       criadoEmData: dateToday(),
       criadoPor: user?.email || null,
@@ -370,17 +439,11 @@ $("#product-form").addEventListener("submit", async (event) => {
       });
     }
     await batch.commit();
-    form.reset();
-    $("#product-brand-new").hidden = true;
-    $("#product-category-new").hidden = true;
-    $("#product-brand-new").value = "";
-    $("#product-category-new").value = "";
-    $("#product-gain").value = "20";
-    $("#product-quantity").value = "0";
-    updateSuggestedPrice();
-    setFeedback("#product-feedback", "Produto salvo com sucesso.");
+    }
+    resetProductForm();
+    setFeedback("#product-feedback", wasEditing ? "Produto atualizado." : "Produto salvo com sucesso.");
     await loadData();
-    showToast("Produto cadastrado.");
+    showToast(wasEditing ? "Produto atualizado." : "Produto cadastrado.");
   } catch (error) {
     console.error("Falha ao salvar produto:", error);
     setFeedback("#product-feedback", explainError(error), true);
@@ -445,6 +508,30 @@ $("#entry-form").addEventListener("submit", async (event) => {
 });
 
 $("#products-list").addEventListener("click", async (event) => {
+  const editButton = event.target.closest("[data-edit-product]");
+  if (editButton) {
+    const product = products.find((item) => item.id === editButton.dataset.editProduct);
+    if (!product) return;
+    editingProductId = product.id;
+    $("#product-form h3").textContent = "Editar produto";
+    $("#product-form button[type=submit]").textContent = "Salvar alterações";
+    $("#product-name").value = product.nome || "";
+    renderCatalogOptions();
+    $("#product-brand").value = product.marca || "";
+    $("#product-category").value = product.categoria || "";
+    $("#product-description").value = product.descricao || "";
+    $("#product-cost").value = Number(product.custo) || 0;
+    $("#product-gain").value = Number(product.percentualGanho) || 0;
+    $("#product-quantity").value = Number(product.quantidade) || 0;
+    $("#product-quantity").disabled = true;
+    $("#product-internal-code").value = product.codigoInterno || "";
+    $("#product-barcode").value = product.codigoBarras || "";
+    $("#product-barcode").disabled = !storeSettings.codigoBarrasAtivo;
+    updateSuggestedPrice();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setFeedback("#product-feedback", "Modo de edição: saldo e histórico de entradas não serão alterados.");
+    return;
+  }
   const button = event.target.closest("[data-delete-product]");
   if (!button) return;
 
@@ -482,6 +569,33 @@ $("#products-list").addEventListener("click", async (event) => {
     button.disabled = false;
     button.textContent = "Excluir produto";
   }
+});
+
+$("#store-settings-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const updated = {
+      nome: cleanOption($("#store-name").value), responsavel: cleanOption($("#store-manager").value),
+      telefone: cleanOption($("#store-phone").value), endereco: cleanOption($("#store-address").value),
+      cnpj: cleanOption($("#store-cnpj").value),
+      codigoInternoAtivo: $("#setting-internal-code").checked,
+      codigoBarrasAtivo: $("#setting-barcode").checked,
+      atualizadoEm: serverTimestamp(), atualizadoPor: auth.currentUser?.email || null
+    };
+    const settingsRef = doc(db, "produtos", STORE_SETTINGS_ID);
+    await runTransaction(db, async (transaction) => {
+      transaction.set(settingsRef, updated, { merge: true });
+    });
+    storeSettings = { ...storeSettings, ...updated };
+    renderStoreSettings();
+    setFeedback("#settings-feedback", "Configurações salvas.");
+    showToast("Configurações salvas.");
+  } catch (error) {
+    console.error("Falha ao salvar configurações:", error);
+    setFeedback("#settings-feedback", explainError(error), true);
+  } finally { button.disabled = false; }
 });
 
 $("#refresh-products").addEventListener("click", loadData);
