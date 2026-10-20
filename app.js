@@ -32,7 +32,7 @@ const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, (char) => (
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[char]));
 
-const CATALOG_OPTIONS_ID = "__catalogo_opcoes__";
+const CATALOG_OPTIONS_ID = "catalogo_opcoes_faydai";
 const SUGGESTED_CATEGORIES = [
   "Celulares",
   "Capas e películas",
