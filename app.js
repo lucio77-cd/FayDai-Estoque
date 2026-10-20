@@ -389,6 +389,7 @@ $("#product-form").addEventListener("submit", async (event) => {
   }
 
   const wasEditing = Boolean(editingProductId);
+  let codigoGeradoNestaOperacao = "";
   try {
     if (barcode) {
       const barcodeDuplicate = products.find((product) => product.id !== editingProductId && !product.arquivado && String(product.codigoBarras || "") === barcode);
@@ -403,6 +404,7 @@ $("#product-form").addEventListener("submit", async (event) => {
       const codigoInterno = storeSettings.codigoInternoAtivo && !current.codigoInterno
         ? await generateInternalCode()
         : current.codigoInterno || "";
+      if (!current.codigoInterno && codigoInterno) codigoGeradoNestaOperacao = codigoInterno;
 
       await updateDoc(doc(db, "produtos", editingProductId), {
         nome, marca, categoria, descricao, custo, percentualGanho,
@@ -423,6 +425,7 @@ $("#product-form").addEventListener("submit", async (event) => {
     const productRef = doc(collection(db, "produtos"));
     const user = auth.currentUser;
     const codigoInterno = storeSettings.codigoInternoAtivo ? await generateInternalCode() : "";
+    codigoGeradoNestaOperacao = codigoInterno;
     batch.set(productRef, {
       nome, marca, categoria, descricao, custo, percentualGanho, quantidade,
       codigoInterno,
@@ -458,9 +461,12 @@ $("#product-form").addEventListener("submit", async (event) => {
     await batch.commit();
     }
     resetProductForm();
-    setFeedback("#product-feedback", wasEditing ? "Produto atualizado." : "Produto salvo com sucesso.");
+    const successMessage = codigoGeradoNestaOperacao
+      ? `${wasEditing ? "Produto atualizado" : "Produto cadastrado"} com o código interno ${codigoGeradoNestaOperacao}.`
+      : (wasEditing ? "Produto atualizado." : "Produto cadastrado.");
+    setFeedback("#product-feedback", successMessage);
     await loadData();
-    showToast(wasEditing ? "Produto atualizado." : "Produto cadastrado.");
+    showToast(successMessage);
   } catch (error) {
     console.error("Falha ao salvar produto:", error);
     setFeedback("#product-feedback", explainError(error), true);
