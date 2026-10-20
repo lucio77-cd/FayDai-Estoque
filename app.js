@@ -4,7 +4,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
   getFirestore, collection, getDocs, doc, writeBatch, addDoc,
-  runTransaction, serverTimestamp
+  runTransaction, serverTimestamp, deleteDoc, updateDoc
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 // Configuração do aplicativo web FayDai-Estoque.
@@ -91,15 +91,16 @@ function closeTutorialForNow() {
 }
 
 function renderProducts() {
-  $("#product-count").textContent = `${products.length} ${products.length === 1 ? "item" : "itens"}`;
+  const activeProducts = products.filter((product) => !product.arquivado);
+  $("#product-count").textContent = `${activeProducts.length} ${activeProducts.length === 1 ? "item" : "itens"}`;
   const list = $("#products-list");
-  if (!products.length) {
-    list.innerHTML = '<div class="empty-state">Nenhum produto cadastrado ainda.<br>Use o formulário acima para adicionar o primeiro.</div>';
+  if (!activeProducts.length) {
+    list.innerHTML = '<div class="empty-state">Nenhum produto ativo cadastrado.<br>Use o formulário acima para adicionar o primeiro.</div>';
   } else {
-    list.innerHTML = [...products]
+    list.innerHTML = [...activeProducts]
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
       .map((product) => {
-        const suggested = product.custo * (1 + product.percentualGanho / 100);
+        const suggested = (Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100);
         return `<article class="product-card">
           <div class="item-title-row">
             <div class="item-title">${escapeHtml(product.nome)}</div>
@@ -109,8 +110,11 @@ function renderProducts() {
           <div class="item-meta">
             <div><span>Custo cadastrado</span><strong>${money(product.custo)}</strong></div>
             <div><span>Preço sugerido</span><strong>${money(suggested)}</strong></div>
-            <div><span>Ganho sobre custo</span><strong>${Number(product.percentualGanho).toLocaleString("pt-BR")}%</strong></div>
+            <div><span>Ganho sobre custo</span><strong>${(Number(product.percentualGanho) || 0).toLocaleString("pt-BR")}%</strong></div>
             <div><span>Cadastro</span><strong>${product.criadoEmData ? new Date(product.criadoEmData + "T12:00:00").toLocaleDateString("pt-BR") : "—"}</strong></div>
+          </div>
+          <div class="product-actions">
+            <button class="button danger-outline" type="button" data-delete-product="${escapeHtml(product.id)}">Excluir produto</button>
           </div>
         </article>`;
       }).join("");
@@ -118,11 +122,11 @@ function renderProducts() {
 
   const select = $("#entry-product");
   const previousValue = select.value;
-  select.innerHTML = '<option value="">Selecione um produto</option>' + [...products]
+  select.innerHTML = '<option value="">Selecione um produto</option>' + [...activeProducts]
     .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
     .map((product) => `<option value="${escapeHtml(product.id)}">${escapeHtml(product.nome)} — saldo: ${Number(product.quantidade) || 0}</option>`)
     .join("");
-  if (products.some((product) => product.id === previousValue)) select.value = previousValue;
+  if (activeProducts.some((product) => product.id === previousValue)) select.value = previousValue;
 }
 
 function renderEntries() {
@@ -232,6 +236,22 @@ $("#product-form").addEventListener("submit", async (event) => {
     button.disabled = false;
     return;
   }
+
+  const normalizeName = (value) => String(value || "")
+    .normalize("NFD")
+    .replace(/[\\u0300-\\u036f]/g, "")
+    .trim()
+    .replace(/\\s+/g, " ")
+    .toLocaleLowerCase("pt-BR");
+  const duplicate = products.find((product) =>
+    !product.arquivado && normalizeName(product.nome) === normalizeName(nome)
+  );
+  if (duplicate) {
+    setFeedback("#product-feedback", `Já existe um produto ativo chamado "${duplicate.nome}". Confira a lista antes de salvar outro.`, true);
+    button.disabled = false;
+    return;
+  }
+
   try {
     const batch = writeBatch(db);
     const productRef = doc(collection(db, "produtos"));
@@ -326,6 +346,46 @@ $("#entry-form").addEventListener("submit", async (event) => {
     setFeedback("#entry-feedback", explainError(error), true);
   } finally {
     button.disabled = false;
+  }
+});
+
+$("#products-list").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-delete-product]");
+  if (!button) return;
+
+  const productId = button.dataset.deleteProduct;
+  const product = products.find((item) => item.id === productId);
+  if (!product || product.arquivado) return;
+
+  const confirmed = window.confirm(
+    `Deseja excluir o produto "${product.nome}"?\\n\\nSe houver estoque ou histórico de entradas, ele será arquivado para preservar os registros. Caso contrário, será excluído permanentemente.`
+  );
+  if (!confirmed) return;
+
+  button.disabled = true;
+  button.textContent = "Processando…";
+  try {
+    const hasHistory = entries.some((entry) => entry.produtoId === productId);
+    const hasStock = (Number(product.quantidade) || 0) > 0;
+
+    if (hasHistory || hasStock) {
+      await updateDoc(doc(db, "produtos", productId), {
+        arquivado: true,
+        arquivadoEm: serverTimestamp(),
+        arquivadoPor: auth.currentUser?.email || null,
+        atualizadoEm: serverTimestamp()
+      });
+      showToast("Produto arquivado. O histórico foi preservado.");
+    } else {
+      await deleteDoc(doc(db, "produtos", productId));
+      showToast("Produto excluído.");
+    }
+    await loadData();
+  } catch (error) {
+    console.error("Falha ao excluir/arquivar produto:", error);
+    showToast(explainError(error));
+    button.disabled = false;
+    button.textContent = "Excluir produto";
   }
 });
 
