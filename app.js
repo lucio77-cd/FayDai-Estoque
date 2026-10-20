@@ -397,8 +397,16 @@ $("#product-form").addEventListener("submit", async (event) => {
     if (editingProductId) {
       const current = products.find((product) => product.id === editingProductId);
       if (!current) throw new Error("Produto não encontrado. Atualize a lista e tente novamente.");
+
+      // Produtos antigos também recebem código ao serem salvos, se o recurso estiver ativo.
+      // Códigos existentes são preservados; editar nunca gera um código novo para eles.
+      const codigoInterno = storeSettings.codigoInternoAtivo && !current.codigoInterno
+        ? await generateInternalCode()
+        : current.codigoInterno || "";
+
       await updateDoc(doc(db, "produtos", editingProductId), {
         nome, marca, categoria, descricao, custo, percentualGanho,
+        ...(codigoInterno ? { codigoInterno } : {}),
         ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
         atualizadoEm: serverTimestamp()
       });
