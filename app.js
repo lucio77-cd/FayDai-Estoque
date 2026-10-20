@@ -215,6 +215,7 @@ function renderProducts() {
           </div>
           ${product.marca || product.categoria ? `<p class="item-description">${[product.marca, product.categoria].filter(Boolean).map(escapeHtml).join(" · ")}</p>` : ""}
           ${product.descricao ? `<p class="item-description">${escapeHtml(product.descricao)}</p>` : ""}
+          ${product.codigoInterno || (storeSettings.codigoBarrasAtivo && product.codigoBarras) ? `<p class="item-description">${product.codigoInterno ? `Código interno: ${escapeHtml(product.codigoInterno)}` : ""}${product.codigoInterno && storeSettings.codigoBarrasAtivo && product.codigoBarras ? " · " : ""}${storeSettings.codigoBarrasAtivo && product.codigoBarras ? `Código de barras: ${escapeHtml(product.codigoBarras)}` : ""}</p>` : ""}
           <div class="item-meta">
             <div><span>Custo cadastrado</span><strong>${money(product.custo)}</strong></div>
             <div><span>Preço sugerido</span><strong>${money(suggested)}</strong></div>
@@ -401,6 +402,14 @@ $("#product-form").addEventListener("submit", async (event) => {
         ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
         atualizadoEm: serverTimestamp()
       });
+      const catalogUpdate = { atualizadoEm: serverTimestamp() };
+      if (marca) catalogUpdate.marcas = arrayUnion(marca);
+      if (categoria) catalogUpdate.categorias = arrayUnion(categoria);
+      if (marca || categoria) {
+        await runTransaction(db, async (transaction) => {
+          transaction.set(doc(db, "produtos", CATALOG_OPTIONS_ID), catalogUpdate, { merge: true });
+        });
+      }
     } else {
     const batch = writeBatch(db);
     const productRef = doc(collection(db, "produtos"));
