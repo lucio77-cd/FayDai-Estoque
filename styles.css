@@ -41,3 +41,29 @@
 .module-notice p{margin:0;font-size:13px;line-height:1.6}
 #caja-panel .notice{margin-top:2px}
 @media(max-width:520px){.tabs{overflow-x:auto;justify-content:flex-start}.tab{flex:0 0 auto;white-space:nowrap;padding-inline:12px}}
+
+
+/* Caixa em formato de ponto de venda: carrinho, subtotais e total geral */
+.sale-search-result{align-items:center}
+.sale-result-price{display:grid;gap:2px;text-align:right;white-space:nowrap;font-size:14px;font-weight:850;color:var(--navy)}
+.sale-result-price small{font-size:10px;font-weight:600;color:var(--muted)}
+.sale-cart-section{display:grid;gap:10px;margin-top:12px}
+.cart-heading{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.cart-heading h3{margin:0;font-size:16px}
+.sale-cart-list{display:grid;gap:8px}
+.cart-item{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}
+.cart-item-main{display:grid;gap:4px}
+.cart-item-main strong{font-size:14px;overflow-wrap:anywhere}
+.cart-item-main small{font-size:12px;color:var(--muted)}
+.cart-item-bottom{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid #edf0f5}
+.cart-quantity{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:3px}
+.cart-quantity span{min-width:18px;text-align:center;font-weight:800;font-size:13px}
+.quantity-button{display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:7px;background:#edf1ff;color:var(--navy);font-size:20px;font-weight:700}
+.cart-subtotal{margin-left:auto;font-size:15px;white-space:nowrap}
+.remove-cart-item{border:0;background:transparent;color:var(--red);font-size:12px;font-weight:750;padding:6px 0}
+.sale-total-panel{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:2px;padding:17px;background:var(--navy);border-radius:14px;color:white}
+.sale-total-panel span{font-size:14px;font-weight:700}
+.sale-total-panel strong{font-size:clamp(24px,5vw,30px);letter-spacing:-.8px;white-space:nowrap}
+#sale-finish-button{min-height:52px;font-size:15px}
+.sale-history-items{margin:10px 0 0;padding-left:19px;color:var(--ink);font-size:13px;line-height:1.7}
+@media(max-width:390px){.cart-item-bottom{gap:8px}.cart-subtotal{margin-left:auto}.remove-cart-item{margin-left:auto}.sale-total-panel{padding:14px}}
