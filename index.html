@@ -81,7 +81,10 @@
             <div><label for="product-cost">Custo cadastrado (R$) *</label><input id="product-cost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00" required></div>
             <div><label for="product-gain">Ganho sobre custo (%) *</label><input id="product-gain" type="number" min="0" step="0.01" inputmode="decimal" value="20" required></div>
           </div>
-          <div class="suggested-price"><span>Preço sugerido</span><strong id="suggested-price">R$ 0,00</strong><small>Calculado sobre o custo cadastrado.</small></div>
+          <div class="suggested-price"><span>Preço sugerido</span><strong id="suggested-price">R$ 0,00</strong><small>Calculado sobre o custo cadastrado e o percentual de ganho.</small></div>
+          <label for="product-sale-price">Preço de venda cadastrado (R$) *</label>
+          <input id="product-sale-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Calculado pelo preço sugerido; pode ajustar" required>
+          <p class="small muted">Este será o preço usado automaticamente no Caixa. Você pode definir um preço comercial diferente do sugerido.</p>
           <label for="product-quantity">Quantidade inicial *</label>
           <input id="product-quantity" type="number" min="0" step="1" inputmode="numeric" value="0" required>
           <button class="button primary" type="submit">Salvar produto</button>
