@@ -670,6 +670,16 @@ $("#product-form").addEventListener("submit", async (event) => {
 
 
 $("#sale-product-search").addEventListener("input", renderSaleProductResults);
+$("#sale-product-search").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  const query = normalizeText($("#sale-product-search").value);
+  if (!query) return;
+  const exactMatches = products.filter((product) => !product.arquivado && [
+    product.codigoBarras, product.codigoInterno, product.nome
+  ].some((value) => normalizeText(value) === query));
+  if (exactMatches.length === 1) addProductToSaleCart(exactMatches[0]);
+});
 $("#sale-product-results").addEventListener("click", (event) => {
   const button = event.target.closest("[data-select-sale-product]");
   if (!button) return;
