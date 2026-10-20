@@ -33,6 +33,14 @@ const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, (char) => (
 }[char]));
 
 const CATALOG_OPTIONS_ID = "__catalogo_opcoes__";
+const SUGGESTED_CATEGORIES = [
+  "Celulares",
+  "Capas e películas",
+  "Carregadores e cabos",
+  "Áudio",
+  "Peças e componentes",
+  "Outros"
+];
 let products = [];
 let entries = [];
 let brands = [];
@@ -64,7 +72,7 @@ function uniqueOptions(values = []) {
 function renderCatalogOptions() {
   $("#brand-options").innerHTML = uniqueOptions(brands)
     .map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
-  $("#category-options").innerHTML = uniqueOptions(categories)
+  $("#category-options").innerHTML = uniqueOptions([...SUGGESTED_CATEGORIES, ...categories])
     .map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
 }
 
@@ -272,8 +280,11 @@ $("#product-form").addEventListener("submit", async (event) => {
   button.disabled = true;
   setFeedback("#product-feedback", "Salvando…");
   const nome = cleanOption($("#product-name").value);
-  const marca = cleanOption($("#product-brand").value);
-  const categoria = cleanOption($("#product-category").value);
+  const marcaInformada = cleanOption($("#product-brand").value);
+  const categoriaInformada = cleanOption($("#product-category").value);
+  const marca = brands.find((item) => normalizeText(item) === normalizeText(marcaInformada)) || marcaInformada;
+  const categoria = categories.concat(SUGGESTED_CATEGORIES)
+    .find((item) => normalizeText(item) === normalizeText(categoriaInformada)) || categoriaInformada;
   const descricao = $("#product-description").value.trim();
   const custo = Number($("#product-cost").value);
   const percentualGanho = Number($("#product-gain").value);
