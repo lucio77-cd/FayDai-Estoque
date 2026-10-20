@@ -48,8 +48,21 @@
         <form id="product-form" class="panel form-stack">
           <h3>Novo produto</h3>
           <label for="product-name">Nome do produto *</label>
-          <input id="product-name" maxlength="100" placeholder="Ex.: Carregador USB-C" required>
-          <label for="product-description">Descrição</label>
+          <input id="product-name" maxlength="100" placeholder="Ex.: Carregador USB-C" autocomplete="off" required>
+          <div class="form-grid">
+            <div>
+              <label for="product-brand">Marca (opcional)</label>
+              <input id="product-brand" list="brand-options" maxlength="80" placeholder="Escolha ou digite uma marca" autocomplete="off">
+              <datalist id="brand-options"></datalist>
+            </div>
+            <div>
+              <label for="product-category">Categoria (opcional)</label>
+              <input id="product-category" list="category-options" maxlength="80" placeholder="Escolha ou digite uma categoria" autocomplete="off">
+              <datalist id="category-options"></datalist>
+            </div>
+          </div>
+          <p class="small muted">As marcas e categorias novas ficam salvas para os próximos cadastros.</p>
+          <label for="product-description">Descrição (opcional)</label>
           <textarea id="product-description" rows="2" maxlength="500" placeholder="Marca, modelo ou detalhes"></textarea>
           <div class="form-grid">
             <div><label for="product-cost">Custo cadastrado (R$) *</label><input id="product-cost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00" required></div>
@@ -108,7 +121,7 @@
       <p class="eyebrow">BEM-VINDO AO SISTEMA</p>
       <h2 id="tutorial-title">Vamos organizar seu estoque?</h2>
       <p class="muted">Você pode consultar este tutorial sempre que precisar.</p>
-      <div class="tutorial-step"><span>1</span><div><strong>Cadastre os produtos</strong><p>Informe nome, custo, ganho desejado e quantidade inicial.</p></div></div>
+      <div class="tutorial-step"><span>1</span><div><strong>Cadastre os produtos</strong><p>Informe nome, marca, categoria, custo, ganho desejado e quantidade inicial.</p></div></div>
       <div class="tutorial-step"><span>2</span><div><strong>Registre as entradas</strong><p>Quando receber mercadoria, registre quantidade, custo da compra e fornecedor.</p></div></div>
       <div class="tutorial-step"><span>3</span><div><strong>Confira o saldo</strong><p>O estoque é atualizado conforme os registros salvos.</p></div></div>
       <button id="tutorial-understood" class="button primary full" type="button">Entendi, começar</button>
