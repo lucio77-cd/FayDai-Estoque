@@ -70,12 +70,32 @@ function uniqueOptions(values = []) {
     .sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
 
+const NEW_BRAND_VALUE = "__nova_marca__";
+const NEW_CATEGORY_VALUE = "__nova_categoria__";
+
 function renderCatalogOptions() {
-  $("#brand-options").innerHTML = uniqueOptions(brands)
-    .map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
-  $("#category-options").innerHTML = uniqueOptions([...SUGGESTED_CATEGORIES, ...categories])
-    .map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
+  const brandSelect = $("#product-brand");
+  const categorySelect = $("#product-category");
+  brandSelect.innerHTML = '<option value="">Sem marca</option>' +
+    uniqueOptions(brands).map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("") +
+    `<option value="${NEW_BRAND_VALUE}">+ Cadastrar nova marca</option>`;
+  categorySelect.innerHTML = '<option value="">Sem categoria</option>' +
+    uniqueOptions([...SUGGESTED_CATEGORIES, ...categories]).map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("") +
+    `<option value="${NEW_CATEGORY_VALUE}">+ Cadastrar nova categoria</option>`;
 }
+
+function toggleNewCatalogInput(type) {
+  const isBrand = type === "brand";
+  const select = $(isBrand ? "#product-brand" : "#product-category");
+  const input = $(isBrand ? "#product-brand-new" : "#product-category-new");
+  const newValue = isBrand ? NEW_BRAND_VALUE : NEW_CATEGORY_VALUE;
+  input.hidden = select.value !== newValue;
+  if (input.hidden) input.value = "";
+  else input.focus();
+}
+
+$("#product-brand").addEventListener("change", () => toggleNewCatalogInput("brand"));
+$("#product-category").addEventListener("change", () => toggleNewCatalogInput("category"));
 
 function showToast(message) {
   const toast = $("#toast");
@@ -287,8 +307,10 @@ $("#product-form").addEventListener("submit", async (event) => {
   button.disabled = true;
   setFeedback("#product-feedback", "Salvando…");
   const nome = cleanOption($("#product-name").value);
-  const marcaInformada = cleanOption($("#product-brand").value);
-  const categoriaInformada = cleanOption($("#product-category").value);
+  const marcaSelecionada = $("#product-brand").value;
+  const categoriaSelecionada = $("#product-category").value;
+  const marcaInformada = cleanOption(marcaSelecionada === NEW_BRAND_VALUE ? $("#product-brand-new").value : marcaSelecionada);
+  const categoriaInformada = cleanOption(categoriaSelecionada === NEW_CATEGORY_VALUE ? $("#product-category-new").value : categoriaSelecionada);
   const marca = brands.find((item) => normalizeText(item) === normalizeText(marcaInformada)) || marcaInformada;
   const categoria = categories.concat(SUGGESTED_CATEGORIES)
     .find((item) => normalizeText(item) === normalizeText(categoriaInformada)) || categoriaInformada;
@@ -349,6 +371,10 @@ $("#product-form").addEventListener("submit", async (event) => {
     }
     await batch.commit();
     form.reset();
+    $("#product-brand-new").hidden = true;
+    $("#product-category-new").hidden = true;
+    $("#product-brand-new").value = "";
+    $("#product-category-new").value = "";
     $("#product-gain").value = "20";
     $("#product-quantity").value = "0";
     updateSuggestedPrice();
