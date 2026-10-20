@@ -40,6 +40,7 @@
       <nav class="tabs" aria-label="Seções do sistema">
         <button class="tab active" data-tab="products" type="button">Produtos</button>
         <button class="tab" data-tab="entries" type="button">Entradas</button>
+        <button class="tab" data-tab="settings" type="button">Configurações</button>
         <button class="tab" data-tab="help" type="button">Ajuda</button>
       </nav>
 
@@ -68,6 +69,10 @@
             </div>
           </div>
           <p class="small muted">As marcas e categorias novas ficam salvas para os próximos cadastros.</p>
+          <label for="product-internal-code">Código interno</label>
+          <input id="product-internal-code" readonly placeholder="Gerado automaticamente se ativado">
+          <label for="product-barcode">Código de barras (opcional)</label>
+          <input id="product-barcode" inputmode="numeric" maxlength="80" placeholder="Digite ou use um scanner conectado">
           <label for="product-description">Descrição (opcional)</label>
           <textarea id="product-description" rows="2" maxlength="500" placeholder="Marca, modelo ou detalhes"></textarea>
           <div class="form-grid">
@@ -106,6 +111,25 @@
         <div class="list-heading"><h3>Histórico de entradas</h3><button id="refresh-entries" class="button quiet" type="button">Atualizar</button></div>
         <label class="history-filter"><input id="show-archived-entries" type="checkbox"> Mostrar produtos arquivados</label>
         <div id="entries-list" class="item-list"><div class="empty-state">Nenhuma entrada carregada.</div></div>
+      </section>
+
+      <section id="settings-panel" class="tab-panel" hidden>
+        <div class="section-heading"><div><p class="eyebrow">DADOS E PREFERÊNCIAS</p><h2>Configurações</h2></div></div>
+        <form id="store-settings-form" class="panel form-stack">
+          <h3>Dados da loja</h3>
+          <label for="store-name">Nome da loja</label><input id="store-name" maxlength="120" placeholder="Nome comercial">
+          <label for="store-manager">Responsável</label><input id="store-manager" maxlength="120" placeholder="Nome do responsável">
+          <label for="store-phone">Telefone / WhatsApp</label><input id="store-phone" type="tel" maxlength="30" placeholder="(00) 00000-0000">
+          <label for="store-address">Endereço</label><textarea id="store-address" rows="2" maxlength="300" placeholder="Rua, número, bairro, cidade"></textarea>
+          <label for="store-cnpj">CNPJ (opcional)</label><input id="store-cnpj" inputmode="numeric" maxlength="18" placeholder="00.000.000/0000-00">
+          <h3>Identificação de produtos</h3>
+          <label class="setting-toggle"><input id="setting-internal-code" type="checkbox"> Gerar código interno automaticamente</label>
+          <p class="small muted">Novos códigos sequenciais, como FON001. Códigos já atribuídos serão preservados.</p>
+          <label class="setting-toggle"><input id="setting-barcode" type="checkbox"> Usar código de barras</label>
+          <p class="small muted">É possível digitar o código ou usar um scanner USB/Bluetooth que funcione como teclado. Leitura pela câmera será implementada na próxima etapa.</p>
+          <button class="button primary" type="submit">Salvar configurações</button>
+          <p id="settings-feedback" class="feedback" role="status"></p>
+        </form>
       </section>
 
       <section id="help-panel" class="tab-panel" hidden>
