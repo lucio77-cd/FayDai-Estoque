@@ -159,3 +159,26 @@ Arquivos iniciais:
 6. Teste o tutorial: fechar ou escolher “Entendi, começar” só o fecha naquela sessão; “Não mostrar novamente” impede a abertura automática neste navegador. A opção de Ajuda permite abri-lo novamente.
 
 **Importante:** este protótipo ainda não implementa vendas, cancelamentos, devoluções, dashboard ou vistoria. Esses módulos serão desenvolvidos após validar o fluxo de produtos e entradas.
+
+
+## Módulos Caixa e Saídas
+
+- **Caixa:** módulo opcional para registrar vendas, informar o preço realmente cobrado e baixar automaticamente a quantidade do estoque.
+- **Saídas:** registra retiradas manuais que não são vendas: perdas, devoluções ao fornecedor, uso interno e outras saídas.
+- Os dois módulos usam o mesmo cadastro e saldo dos produtos, mas mantêm históricos separados.
+- Em **Configurações**, Caixa e Saídas podem ser ativados ou desativados separadamente. As abas continuam visíveis; um módulo desativado exibe um aviso e não permite novos registros.
+- Desativar um módulo não apaga o histórico já registrado.
+- O sistema bloqueia vendas e saídas com quantidade maior que o saldo disponível.
+
+### Teste inicial dos módulos
+
+1. Entre no sistema e abra **Configurações**.
+2. Deixe **Caixa** desativado e salve. Abra a aba Caixa e confira se aparece o aviso.
+3. Ative **Caixa** e salve.
+4. Abra Caixa, selecione um produto, informe a quantidade, o preço realmente cobrado e a data. Registre a venda.
+5. Confira se a quantidade diminuiu em Produtos e se a venda aparece no histórico do Caixa.
+6. Tente vender mais unidades do que o saldo disponível; o sistema deve bloquear a operação.
+7. Em Saídas, teste uma retirada manual com motivo, por exemplo, perda ou uso interno. Confira a baixa e o histórico.
+8. Desative e reative os módulos para confirmar que o histórico permanece.
+
+**Atenção:** o registro de vendas usa a coleção `vendas` no Cloud Firestore. Se o Firebase negar leitura ou gravação, será necessário conferir as regras publicadas do Firestore para permitir o acesso autorizado a essa coleção. O código no GitHub não altera as regras diretamente no console do Firebase.
