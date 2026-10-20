@@ -161,7 +161,7 @@ async function loadData() {
     console.error("Falha ao carregar dados do Firestore:", error);
     showToast(explainError(error));
     if (error?.code?.includes("permission-denied")) {
-      showToast("Acesso negado. Confira se contateste@gmail.com está verificado e se publicou as regras.");
+      showToast("Acesso negado. Confira as regras do Firestore e se a conta autenticada tem permissão.");
     }
   }
 }
@@ -218,6 +218,7 @@ $("#product-gain").addEventListener("input", updateSuggestedPrice);
 
 $("#product-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   const button = event.currentTarget.querySelector('button[type="submit"]');
   button.disabled = true;
   setFeedback("#product-feedback", "Salvando…");
@@ -258,7 +259,7 @@ $("#product-form").addEventListener("submit", async (event) => {
       });
     }
     await batch.commit();
-    event.currentTarget.reset();
+    form.reset();
     $("#product-gain").value = "20";
     $("#product-quantity").value = "0";
     updateSuggestedPrice();
@@ -276,6 +277,7 @@ $("#product-form").addEventListener("submit", async (event) => {
 $("#entry-date").value = dateToday();
 $("#entry-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   const button = event.currentTarget.querySelector('button[type="submit"]');
   button.disabled = true;
   setFeedback("#entry-feedback", "Registrando entrada…");
@@ -314,7 +316,7 @@ $("#entry-form").addEventListener("submit", async (event) => {
         criadoPor: auth.currentUser?.email || null
       });
     });
-    event.currentTarget.reset();
+    form.reset();
     $("#entry-date").value = dateToday();
     setFeedback("#entry-feedback", "Entrada registrada e estoque atualizado.");
     await loadData();
