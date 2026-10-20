@@ -47,6 +47,8 @@ const SUGGESTED_CATEGORIES = [
 ];
 let products = [];
 let entries = [];
+let exits = [];
+let selectedExitProductId = "";
 let brands = [];
 let categories = [];
 let showArchivedEntries = false;
@@ -239,6 +241,52 @@ function renderProducts() {
   if (activeProducts.some((product) => product.id === previousValue)) select.value = previousValue;
 }
 
+
+function renderExitProductResults() {
+  const query = normalizeText($("#exit-product-search").value);
+  const results = $("#exit-product-results");
+  const selected = products.find((product) => product.id === selectedExitProductId && !product.arquivado);
+  if (selected) {
+    $("#exit-selected-product").innerHTML = `<strong>${escapeHtml(selected.nome)}</strong><span>Saldo disponível: ${Number(selected.quantidade) || 0} un.</span>`;
+    $("#exit-selected-product").hidden = false;
+  } else $("#exit-selected-product").hidden = true;
+  if (!query) {
+    results.innerHTML = '<div class="small muted">Digite o nome ou código do produto para pesquisar.</div>';
+    return;
+  }
+  const matches = products.filter((product) => !product.arquivado && [
+    product.nome, product.codigoInterno, product.codigoBarras, product.marca, product.categoria
+  ].some((value) => normalizeText(value).includes(query))).slice(0, 8);
+  if (!matches.length) {
+    results.innerHTML = '<div class="empty-state">Nenhum produto encontrado.</div>';
+    return;
+  }
+  results.innerHTML = matches.map((product) => `
+    <button class="search-result" type="button" data-select-exit-product="${escapeHtml(product.id)}">
+      <span><strong>${escapeHtml(product.nome)}</strong><small>${escapeHtml(product.codigoInterno || product.codigoBarras || "Sem código")}</small></span>
+      <span class="search-result-stock">${Number(product.quantidade) || 0} un.</span>
+    </button>`).join("");
+}
+
+function renderExits() {
+  const list = $("#exits-list");
+  if (!exits.length) {
+    list.innerHTML = '<div class="empty-state">Nenhuma saída registrada ainda.</div>';
+    return;
+  }
+  const labels = { venda: "Venda", perda: "Perda", devolucao: "Devolução ao fornecedor", uso_interno: "Uso interno" };
+  list.innerHTML = [...exits].sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || "")))
+    .map((exit) => {
+      const product = products.find((item) => item.id === exit.produtoId);
+      return `<article class="entry-card exit-card">
+        <div class="item-title-row"><div class="item-title">${escapeHtml(exit.produtoNome || product?.nome || "Produto")}</div><span class="exit-badge">−${Number(exit.quantidade) || 0} un.</span></div>
+        <p><strong>${escapeHtml(labels[exit.motivo] || exit.motivo || "Saída")}</strong> · ${escapeHtml(exit.dataHora || "Data não informada")}</p>
+        <p>Responsável: ${escapeHtml(exit.usuario || "Não identificado")}</p>
+        ${exit.observacao ? `<p>${escapeHtml(exit.observacao)}</p>` : ""}
+      </article>`;
+    }).join("");
+}
+
 function renderEntries() {
   const list = $("#entries-list");
   const visibleEntries = entries.filter((entry) => {
@@ -275,6 +323,15 @@ async function loadData() {
       getDocs(collection(db, "produtos")),
       getDocs(collection(db, "entradas"))
     ]);
+    let exitSnapshot = null;
+    try {
+      exitSnapshot = await getDocs(collection(db, "saidas"));
+    } catch (exitLoadError) {
+      console.error("Falha ao carregar histórico de saídas:", exitLoadError);
+      if (exitLoadError?.code?.includes("permission-denied")) {
+        setFeedback("#exit-feedback", "O histórico de saídas ainda não tem permissão de leitura nas regras do Firestore.", true);
+      }
+    }
     const catalogOptionsDoc = productSnapshot.docs.find((item) => item.id === CATALOG_OPTIONS_ID);
     const settingsDoc = productSnapshot.docs.find((item) => item.id === STORE_SETTINGS_ID);
     storeSettings = { ...storeSettings, ...(settingsDoc?.data() || {}) };
@@ -288,10 +345,13 @@ async function loadData() {
       const data = item.data();
       return { id: item.id, ...data, criadoEmMs: data.criadoEm?.toMillis?.() || 0 };
     });
+    exits = exitSnapshot ? exitSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })) : [];
     renderCatalogOptions();
     renderStoreSettings();
     renderProducts();
     renderEntries();
+    renderExitProductResults();
+    renderExits();
   } catch (error) {
     console.error("Falha ao carregar dados do Firestore:", error);
     showToast(explainError(error));
@@ -475,6 +535,70 @@ $("#product-form").addEventListener("submit", async (event) => {
   }
 });
 
+
+$("#exit-product-search").addEventListener("input", () => {
+  selectedExitProductId = "";
+  renderExitProductResults();
+});
+$("#exit-product-results").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-select-exit-product]");
+  if (!button) return;
+  const product = products.find((item) => item.id === button.dataset.selectExitProduct && !item.arquivado);
+  if (!product) return;
+  selectedExitProductId = product.id;
+  $("#exit-product-search").value = product.nome;
+  renderExitProductResults();
+});
+$("#exit-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  setFeedback("#exit-feedback", "Registrando saída…");
+  const productId = selectedExitProductId;
+  const quantity = Number($("#exit-quantity").value);
+  const motive = $("#exit-reason").value;
+  const date = $("#exit-date").value;
+  const notes = $("#exit-notes").value.trim();
+  if (!productId || !Number.isInteger(quantity) || quantity < 1 || !motive || !date) {
+    setFeedback("#exit-feedback", "Pesquise e selecione um produto, informe a quantidade, o motivo e a data.", true);
+    button.disabled = false;
+    return;
+  }
+  try {
+    const productRef = doc(db, "produtos", productId);
+    const exitRef = doc(collection(db, "saidas"));
+    const userEmail = auth.currentUser?.email || "Usuário não identificado";
+    const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    await runTransaction(db, async (transaction) => {
+      const productSnapshot = await transaction.get(productRef);
+      if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
+      const product = productSnapshot.data();
+      if (product.arquivado) throw new Error("Este produto está arquivado e não pode receber movimentações.");
+      const currentStock = Number(product.quantidade) || 0;
+      if (quantity > currentStock) throw new Error(`Saldo insuficiente. Disponível: ${currentStock} unidade(s); solicitado: ${quantity}.`);
+      transaction.update(productRef, { quantidade: currentStock - quantity, atualizadoEm: serverTimestamp() });
+      transaction.set(exitRef, {
+        produtoId: productId, produtoNome: product.nome || "",
+        codigoInterno: product.codigoInterno || "", codigoBarras: product.codigoBarras || "",
+        quantidade, motivo: motive, data, dataHora: dateTime, observacao: notes,
+        usuario: userEmail, criadoEm: serverTimestamp()
+      });
+    });
+    form.reset();
+    selectedExitProductId = "";
+    $("#exit-date").value = dateToday();
+    renderExitProductResults();
+    setFeedback("#exit-feedback", "Saída registrada e saldo atualizado.");
+    await loadData();
+    showToast("Saída registrada. Estoque atualizado.");
+  } catch (error) {
+    console.error("Falha ao registrar saída:", error);
+    setFeedback("#exit-feedback", explainError(error), true);
+  } finally { button.disabled = false; }
+});
+$("#exit-date").value = dateToday();
+
 $("#entry-date").value = dateToday();
 $("#entry-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -623,6 +747,7 @@ $("#store-settings-form").addEventListener("submit", async (event) => {
 
 $("#refresh-products").addEventListener("click", loadData);
 $("#refresh-entries").addEventListener("click", loadData);
+$("#refresh-exits").addEventListener("click", loadData);
 $("#show-archived-entries").addEventListener("change", (event) => {
   showArchivedEntries = event.currentTarget.checked;
   renderEntries();
