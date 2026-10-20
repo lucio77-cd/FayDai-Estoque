@@ -34,12 +34,13 @@
       <section class="welcome">
         <p class="eyebrow">CONTROLE DA LOJA</p>
         <h1>Seu estoque, organizado.</h1>
-        <p class="muted">Cadastre os produtos e registre cada entrada.</p>
+        <p class="muted">Cadastre produtos e controle entradas e saídas.</p>
       </section>
 
       <nav class="tabs" aria-label="Seções do sistema">
         <button class="tab active" data-tab="products" type="button">Produtos</button>
         <button class="tab" data-tab="entries" type="button">Entradas</button>
+        <button class="tab" data-tab="exits" type="button">Saídas</button>
         <button class="tab" data-tab="settings" type="button">Configurações</button>
         <button class="tab" data-tab="help" type="button">Ajuda</button>
       </nav>
@@ -113,6 +114,35 @@
         <div id="entries-list" class="item-list"><div class="empty-state">Nenhuma entrada carregada.</div></div>
       </section>
 
+      <section id="exits-panel" class="tab-panel" hidden>
+        <div class="section-heading"><div><p class="eyebrow">BAIXA DE ESTOQUE</p><h2>Registrar saída</h2></div></div>
+        <form id="exit-form" class="panel form-stack">
+          <label for="exit-product-search">Pesquisar produto por nome ou código *</label>
+          <input id="exit-product-search" type="search" autocomplete="off" placeholder="Nome, código interno ou código de barras" required>
+          <div id="exit-product-results" class="search-results" aria-live="polite"><div class="small muted">Digite para pesquisar.</div></div>
+          <div id="exit-selected-product" class="selected-product" hidden></div>
+          <label for="exit-quantity">Quantidade de saída *</label>
+          <input id="exit-quantity" type="number" min="1" step="1" inputmode="numeric" placeholder="Ex.: 1" required>
+          <label for="exit-reason">Motivo da saída *</label>
+          <select id="exit-reason" required>
+            <option value="">Selecione o motivo</option>
+            <option value="venda">Venda</option>
+            <option value="perda">Perda (danificado, vencido ou inutilizado)</option>
+            <option value="devolucao">Devolução ao fornecedor</option>
+            <option value="uso_interno">Uso interno da loja</option>
+          </select>
+          <label for="exit-date">Data da saída *</label>
+          <input id="exit-date" type="date" required>
+          <label for="exit-notes">Observação (opcional)</label>
+          <textarea id="exit-notes" rows="2" maxlength="500" placeholder="Detalhes da saída"></textarea>
+          <p class="notice">O sistema bloqueia quantidades maiores que o saldo disponível. A saída e a baixa serão salvas juntas.</p>
+          <button class="button primary" type="submit">Confirmar saída</button>
+          <p id="exit-feedback" class="feedback" role="status"></p>
+        </form>
+        <div class="list-heading"><h3>Histórico de saídas</h3><button id="refresh-exits" class="button quiet" type="button">Atualizar</button></div>
+        <div id="exits-list" class="item-list"><div class="empty-state">Nenhuma saída registrada.</div></div>
+      </section>
+
       <section id="settings-panel" class="tab-panel" hidden>
         <div class="section-heading"><div><p class="eyebrow">DADOS E PREFERÊNCIAS</p><h2>Configurações</h2></div></div>
         <form id="store-settings-form" class="panel form-stack">
@@ -136,7 +166,7 @@
         <div class="section-heading"><div><p class="eyebrow">PRIMEIROS PASSOS</p><h2>Ajuda</h2></div></div>
         <div class="panel help-card">
           <h3>Como usar o FayDai</h3>
-          <ol><li>Cadastre o produto com custo, percentual de ganho e quantidade inicial.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Confira o saldo no catálogo de produtos.</li></ol>
+          <ol><li>Cadastre o produto com custo, percentual de ganho e quantidade inicial.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Registre saídas escolhendo venda, perda, devolução ou uso interno.</li><li>Confira o saldo no catálogo de produtos.</li></ol>
           <p class="muted small">Esta é a primeira etapa do protótipo. Vendas, dashboard e vistoria serão adicionados depois.</p>
           <button id="show-tutorial" class="button secondary" type="button">Ver tutorial inicial</button>
         </div>
