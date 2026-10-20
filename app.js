@@ -4,7 +4,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
   getFirestore, collection, getDocs, doc, writeBatch, addDoc,
-  runTransaction, serverTimestamp, deleteDoc, updateDoc
+  runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 // Configuração do aplicativo web FayDai-Estoque.
@@ -32,9 +32,41 @@ const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, (char) => (
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[char]));
 
+const CATALOG_OPTIONS_ID = "__catalogo_opcoes__";
 let products = [];
 let entries = [];
+let brands = [];
+let categories = [];
 let toastTimeout;
+
+const normalizeText = (value = "") => String(value || "")
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .trim()
+  .replace(/\s+/g, " ")
+  .toLocaleLowerCase("pt-BR");
+
+const cleanOption = (value = "") => String(value || "").trim().replace(/\s+/g, " ");
+
+function uniqueOptions(values = []) {
+  const seen = new Set();
+  return values
+    .map(cleanOption)
+    .filter((value) => {
+      const key = normalizeText(value);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
+function renderCatalogOptions() {
+  $("#brand-options").innerHTML = uniqueOptions(brands)
+    .map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
+  $("#category-options").innerHTML = uniqueOptions(categories)
+    .map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
+}
 
 function showToast(message) {
   const toast = $("#toast");
@@ -106,6 +138,7 @@ function renderProducts() {
             <div class="item-title">${escapeHtml(product.nome)}</div>
             <span class="stock-badge">${Number(product.quantidade) || 0} un.</span>
           </div>
+          ${product.marca || product.categoria ? `<p class="item-description">${[product.marca, product.categoria].filter(Boolean).map(escapeHtml).join(" · ")}</p>` : ""}
           ${product.descricao ? `<p class="item-description">${escapeHtml(product.descricao)}</p>` : ""}
           <div class="item-meta">
             <div><span>Custo cadastrado</span><strong>${money(product.custo)}</strong></div>
@@ -137,13 +170,18 @@ function renderEntries() {
   }
   list.innerHTML = [...entries]
     .sort((a, b) => String(b.data || "").localeCompare(String(a.data || "")) || (b.criadoEmMs || 0) - (a.criadoEmMs || 0))
-    .map((entry) => `<article class="entry-card">
-      <div class="item-title-row"><div class="item-title">${escapeHtml(entry.produtoNome || "Produto")}</div><span class="stock-badge">+${Number(entry.quantidade) || 0} un.</span></div>
-      <p>${escapeHtml(entry.data || "Data não informada")} · Custo unitário: ${money(entry.custoUnitario)}</p>
+    .map((entry) => {
+      const linkedProduct = products.find((product) => product.id === entry.produtoId);
+      const archived = Boolean(linkedProduct?.arquivado);
+      const typeLabel = entry.tipo === "estoque_inicial" ? "Estoque inicial" : "Entrada de mercadoria";
+      return `<article class="entry-card">
+      <div class="item-title-row"><div class="item-title">${escapeHtml(entry.produtoNome || linkedProduct?.nome || "Produto")}${archived ? '<span class="archived-label">Produto arquivado</span>' : ""}</div><span class="stock-badge">+${Number(entry.quantidade) || 0} un.</span></div>
+      <p>${escapeHtml(typeLabel)} · ${escapeHtml(entry.data || "Data não informada")} · Custo unitário: ${money(entry.custoUnitario)}</p>
       ${entry.fornecedor ? `<p>Fornecedor: ${escapeHtml(entry.fornecedor)}</p>` : ""}
       ${entry.observacao ? `<p>${escapeHtml(entry.observacao)}</p>` : ""}
       <div class="item-meta"><div><span>Total informado da compra</span><strong>${money((Number(entry.quantidade) || 0) * (Number(entry.custoUnitario) || 0))}</strong></div><div><span>Registro</span><strong>${entry.data ? escapeHtml(entry.data.split("-").reverse().join("/")) : "—"}</strong></div></div>
-    </article>`).join("");
+    </article>`;
+    }).join("");
 }
 
 async function loadData() {
@@ -154,11 +192,18 @@ async function loadData() {
       getDocs(collection(db, "produtos")),
       getDocs(collection(db, "entradas"))
     ]);
-    products = productSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+    const catalogOptionsDoc = productSnapshot.docs.find((item) => item.id === CATALOG_OPTIONS_ID);
+    const catalogOptions = catalogOptionsDoc?.data() || {};
+    brands = uniqueOptions(catalogOptions.marcas || []);
+    categories = uniqueOptions(catalogOptions.categorias || []);
+    products = productSnapshot.docs
+      .filter((item) => item.id !== CATALOG_OPTIONS_ID)
+      .map((item) => ({ id: item.id, ...item.data() }));
     entries = entrySnapshot.docs.map((item) => {
       const data = item.data();
       return { id: item.id, ...data, criadoEmMs: data.criadoEm?.toMillis?.() || 0 };
     });
+    renderCatalogOptions();
     renderProducts();
     renderEntries();
   } catch (error) {
@@ -226,7 +271,9 @@ $("#product-form").addEventListener("submit", async (event) => {
   const button = event.currentTarget.querySelector('button[type="submit"]');
   button.disabled = true;
   setFeedback("#product-feedback", "Salvando…");
-  const nome = $("#product-name").value.trim();
+  const nome = cleanOption($("#product-name").value);
+  const marca = cleanOption($("#product-brand").value);
+  const categoria = cleanOption($("#product-category").value);
   const descricao = $("#product-description").value.trim();
   const custo = Number($("#product-cost").value);
   const percentualGanho = Number($("#product-gain").value);
@@ -237,17 +284,13 @@ $("#product-form").addEventListener("submit", async (event) => {
     return;
   }
 
-  const normalizeName = (value) => String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLocaleLowerCase("pt-BR");
   const duplicate = products.find((product) =>
-    !product.arquivado && normalizeName(product.nome) === normalizeName(nome)
+    !product.arquivado &&
+    normalizeText(product.nome) === normalizeText(nome) &&
+    normalizeText(product.marca) === normalizeText(marca)
   );
   if (duplicate) {
-    setFeedback("#product-feedback", `Já existe um produto ativo chamado "${duplicate.nome}". Confira a lista antes de salvar outro.`, true);
+    setFeedback("#product-feedback", `Já existe um produto ativo chamado "${duplicate.nome}" com essa marca${marca ? ` (${marca})` : ""}. Confira a lista antes de salvar outro.`, true);
     button.disabled = false;
     return;
   }
@@ -257,12 +300,20 @@ $("#product-form").addEventListener("submit", async (event) => {
     const productRef = doc(collection(db, "produtos"));
     const user = auth.currentUser;
     batch.set(productRef, {
-      nome, descricao, custo, percentualGanho, quantidade,
+      nome, marca, categoria, descricao, custo, percentualGanho, quantidade,
       criadoEm: serverTimestamp(),
       criadoEmData: dateToday(),
       criadoPor: user?.email || null,
       atualizadoEm: serverTimestamp()
     });
+
+    const catalogUpdate = { atualizadoEm: serverTimestamp() };
+    if (marca) catalogUpdate.marcas = arrayUnion(marca);
+    if (categoria) catalogUpdate.categorias = arrayUnion(categoria);
+    if (marca || categoria) {
+      batch.set(doc(db, "produtos", CATALOG_OPTIONS_ID), catalogUpdate, { merge: true });
+    }
+
     if (quantidade > 0) {
       const entryRef = doc(collection(db, "entradas"));
       batch.set(entryRef, {
