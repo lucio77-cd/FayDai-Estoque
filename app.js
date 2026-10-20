@@ -45,6 +45,7 @@ let products = [];
 let entries = [];
 let brands = [];
 let categories = [];
+let showArchivedEntries = false;
 let toastTimeout;
 
 const normalizeText = (value = "") => String(value || "")
@@ -172,11 +173,17 @@ function renderProducts() {
 
 function renderEntries() {
   const list = $("#entries-list");
-  if (!entries.length) {
-    list.innerHTML = '<div class="empty-state">Nenhuma entrada registrada ainda.</div>';
+  const visibleEntries = entries.filter((entry) => {
+    const linkedProduct = products.find((product) => product.id === entry.produtoId);
+    return showArchivedEntries || !linkedProduct?.arquivado;
+  });
+  if (!visibleEntries.length) {
+    list.innerHTML = entries.length
+      ? '<div class="empty-state">Nenhuma entrada ativa para mostrar. Ative “Mostrar produtos arquivados” para consultar o histórico preservado.</div>'
+      : '<div class="empty-state">Nenhuma entrada registrada ainda.</div>';
     return;
   }
-  list.innerHTML = [...entries]
+  list.innerHTML = [...visibleEntries]
     .sort((a, b) => String(b.data || "").localeCompare(String(a.data || "")) || (b.criadoEmMs || 0) - (a.criadoEmMs || 0))
     .map((entry) => {
       const linkedProduct = products.find((product) => product.id === entry.produtoId);
@@ -453,6 +460,10 @@ $("#products-list").addEventListener("click", async (event) => {
 
 $("#refresh-products").addEventListener("click", loadData);
 $("#refresh-entries").addEventListener("click", loadData);
+$("#show-archived-entries").addEventListener("change", (event) => {
+  showArchivedEntries = event.currentTarget.checked;
+  renderEntries();
+});
 $("#show-tutorial").addEventListener("click", () => { $("#tutorial-overlay").hidden = false; });
 $("#tutorial-close").addEventListener("click", closeTutorialForNow);
 $("#tutorial-understood").addEventListener("click", closeTutorialForNow);
