@@ -34,3 +34,10 @@
 .selected-product strong{font-size:14px;overflow-wrap:anywhere}
 .selected-product span{font-size:12px}
 .exit-badge{background:#fff0ef;color:var(--red);font-size:12px;font-weight:800;border-radius:8px;padding:6px 8px;white-space:nowrap}
+
+/* Módulos opcionais */
+.module-notice{border:1px solid #f0d7a6;background:#fff8e8;color:#76551a;border-radius:16px;padding:20px;margin-bottom:16px}
+.module-notice h3{margin:0 0 8px;font-size:17px}
+.module-notice p{margin:0;font-size:13px;line-height:1.6}
+#caja-panel .notice{margin-top:2px}
+@media(max-width:520px){.tabs{overflow-x:auto;justify-content:flex-start}.tab{flex:0 0 auto;white-space:nowrap;padding-inline:12px}}
