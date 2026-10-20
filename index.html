@@ -40,6 +40,7 @@
       <nav class="tabs" aria-label="Seções do sistema">
         <button class="tab active" data-tab="products" type="button">Produtos</button>
         <button class="tab" data-tab="entries" type="button">Entradas</button>
+        <button class="tab" data-tab="caja" type="button">Caixa</button>
         <button class="tab" data-tab="exits" type="button">Saídas</button>
         <button class="tab" data-tab="settings" type="button">Configurações</button>
         <button class="tab" data-tab="help" type="button">Ajuda</button>
@@ -114,7 +115,40 @@
         <div id="entries-list" class="item-list"><div class="empty-state">Nenhuma entrada carregada.</div></div>
       </section>
 
+
+      <section id="caja-panel" class="tab-panel" hidden>
+        <div id="caja-disabled-notice" class="module-notice" hidden>
+          <h3>Caixa não ativado</h3>
+          <p>Este módulo está desativado nas configurações. As vendas ainda não podem ser registradas por aqui. As retiradas manuais continuam disponíveis na aba Saídas.</p>
+        </div>
+        <div id="caja-content">
+          <div class="section-heading"><div><p class="eyebrow">VENDAS</p><h2>Caixa</h2></div></div>
+          <form id="sale-form" class="panel form-stack">
+            <label for="sale-product-search">Pesquisar produto por nome ou código *</label>
+            <input id="sale-product-search" type="search" autocomplete="off" placeholder="Nome, código interno ou código de barras" required>
+            <div id="sale-product-results" class="search-results" aria-live="polite"><div class="small muted">Digite para pesquisar.</div></div>
+            <div id="sale-selected-product" class="selected-product" hidden></div>
+            <label for="sale-quantity">Quantidade vendida *</label>
+            <input id="sale-quantity" type="number" min="1" step="1" inputmode="numeric" placeholder="Ex.: 1" required>
+            <label for="sale-unit-price">Preço de venda por unidade (R$) *</label>
+            <input id="sale-unit-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Informe o preço praticado" required>
+            <label for="sale-date">Data da venda *</label>
+            <input id="sale-date" type="date" required>
+            <p class="notice">Informe o preço realmente cobrado. Ao confirmar, o sistema registra a venda e desconta a quantidade do estoque. Não permite vender acima do saldo disponível.</p>
+            <button class="button primary" type="submit">Registrar venda</button>
+            <p id="sale-feedback" class="feedback" role="status"></p>
+          </form>
+          <div class="list-heading"><h3>Histórico de vendas</h3><button id="refresh-sales" class="button quiet" type="button">Atualizar</button></div>
+          <div id="sales-list" class="item-list"><div class="empty-state">Nenhuma venda registrada ainda.</div></div>
+        </div>
+      </section>
+
       <section id="exits-panel" class="tab-panel" hidden>
+        <div id="exits-disabled-notice" class="module-notice" hidden>
+          <h3>Saídas não ativado</h3>
+          <p>Este módulo está desativado nas configurações. Ative-o para registrar perdas, devoluções ao fornecedor, uso interno e outras retiradas manuais.</p>
+        </div>
+        <div id="exit-content">
         <div class="section-heading"><div><p class="eyebrow">BAIXA DE ESTOQUE</p><h2>Registrar saída</h2></div></div>
         <form id="exit-form" class="panel form-stack">
           <label for="exit-product-search">Pesquisar produto por nome ou código *</label>
@@ -126,10 +160,10 @@
           <label for="exit-reason">Motivo da saída *</label>
           <select id="exit-reason" required>
             <option value="">Selecione o motivo</option>
-            <option value="venda">Venda</option>
             <option value="perda">Perda (danificado, vencido ou inutilizado)</option>
             <option value="devolucao">Devolução ao fornecedor</option>
             <option value="uso_interno">Uso interno da loja</option>
+            <option value="outro">Outra saída</option>
           </select>
           <label for="exit-date">Data da saída *</label>
           <input id="exit-date" type="date" required>
@@ -141,6 +175,7 @@
         </form>
         <div class="list-heading"><h3>Histórico de saídas</h3><button id="refresh-exits" class="button quiet" type="button">Atualizar</button></div>
         <div id="exits-list" class="item-list"><div class="empty-state">Nenhuma saída registrada.</div></div>
+        </div>
       </section>
 
       <section id="settings-panel" class="tab-panel" hidden>
@@ -152,6 +187,10 @@
           <label for="store-phone">Telefone / WhatsApp</label><input id="store-phone" type="tel" maxlength="30" placeholder="(00) 00000-0000">
           <label for="store-address">Endereço</label><textarea id="store-address" rows="2" maxlength="300" placeholder="Rua, número, bairro, cidade"></textarea>
           <label for="store-cnpj">CNPJ (opcional)</label><input id="store-cnpj" inputmode="numeric" maxlength="18" placeholder="00.000.000/0000-00">
+          <h3>Módulos da loja</h3>
+          <label class="setting-toggle"><input id="setting-caja-active" type="checkbox"> Ativar módulo Caixa (vendas)</label>
+          <label class="setting-toggle"><input id="setting-exits-active" type="checkbox" checked> Ativar módulo Saídas (retiradas manuais)</label>
+          <p class="small muted">As abas permanecem visíveis. Quando um módulo estiver desativado, ele mostrará um aviso e não permitirá novos registros.</p>
           <h3>Identificação de produtos</h3>
           <label class="setting-toggle"><input id="setting-internal-code" type="checkbox"> Gerar código interno automaticamente</label>
           <p class="small muted">Novos códigos sequenciais, como FON001. Códigos já atribuídos serão preservados.</p>
