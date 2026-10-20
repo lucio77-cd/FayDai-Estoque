@@ -124,18 +124,37 @@
         <div id="caja-content">
           <div class="section-heading"><div><p class="eyebrow">VENDAS</p><h2>Caixa</h2></div></div>
           <form id="sale-form" class="panel form-stack">
-            <label for="sale-product-search">Pesquisar produto por nome ou código *</label>
-            <input id="sale-product-search" type="search" autocomplete="off" placeholder="Nome, código interno ou código de barras" required>
-            <div id="sale-product-results" class="search-results" aria-live="polite"><div class="small muted">Digite para pesquisar.</div></div>
-            <div id="sale-selected-product" class="selected-product" hidden></div>
-            <label for="sale-quantity">Quantidade vendida *</label>
-            <input id="sale-quantity" type="number" min="1" step="1" inputmode="numeric" placeholder="Ex.: 1" required>
-            <label for="sale-unit-price">Preço de venda por unidade (R$) *</label>
-            <input id="sale-unit-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Informe o preço praticado" required>
+            <h3>Adicionar produtos</h3>
+            <label for="sale-product-search">Pesquisar produto por nome ou código</label>
+            <input id="sale-product-search" type="search" autocomplete="off" placeholder="Digite o nome ou leia o código de barras">
+            <div id="sale-product-results" class="search-results" aria-live="polite"><div class="small muted">Digite para localizar um produto.</div></div>
+
+            <div class="sale-cart-section">
+              <div class="cart-heading">
+                <h3>Itens da compra</h3>
+                <span id="sale-cart-count" class="count-pill">0 itens</span>
+              </div>
+              <div id="sale-cart-list" class="sale-cart-list"><div class="empty-state">A compra está vazia. Pesquise e selecione os produtos acima.</div></div>
+              <div class="sale-total-panel">
+                <span>Total da compra</span>
+                <strong id="sale-cart-total">R$ 0,00</strong>
+              </div>
+            </div>
+
+            <label for="sale-payment-method">Forma de pagamento *</label>
+            <select id="sale-payment-method" required>
+              <option value="">Selecione a forma de pagamento</option>
+              <option value="Dinheiro">Dinheiro</option>
+              <option value="Pix">Pix</option>
+              <option value="Cartão de débito">Cartão de débito</option>
+              <option value="Cartão de crédito">Cartão de crédito</option>
+              <option value="Transferência">Transferência</option>
+              <option value="Outro">Outro</option>
+            </select>
             <label for="sale-date">Data da venda *</label>
             <input id="sale-date" type="date" required>
-            <p class="notice">Informe o preço realmente cobrado. Ao confirmar, o sistema registra a venda e desconta a quantidade do estoque. Não permite vender acima do saldo disponível.</p>
-            <button class="button primary" type="submit">Registrar venda</button>
+            <p class="notice">O preço usado é o preço sugerido calculado no cadastro do produto. Ao finalizar, a venda inteira é registrada e as quantidades são descontadas do estoque.</p>
+            <button id="sale-finish-button" class="button primary" type="submit" disabled>Finalizar venda</button>
             <p id="sale-feedback" class="feedback" role="status"></p>
           </form>
           <div class="list-heading"><h3>Histórico de vendas</h3><button id="refresh-sales" class="button quiet" type="button">Atualizar</button></div>
