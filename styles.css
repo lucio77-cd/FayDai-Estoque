@@ -17,3 +17,7 @@
 
 .history-filter{display:flex;align-items:center;gap:8px;margin:-3px 0 12px;color:#59657a;font-size:12px;font-weight:650}
 .history-filter input{width:16px;height:16px;accent-color:var(--blue)}
+
+/* Configurações e edição */
+.setting-toggle{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#f8faff}.setting-toggle input{width:18px;height:18px;min-height:auto;accent-color:var(--blue)}
+.product-actions{gap:8px;flex-wrap:wrap}.product-actions .button{font-size:12px;padding:8px 12px;min-height:38px}
