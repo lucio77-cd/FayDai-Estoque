@@ -52,13 +52,19 @@
           <div class="form-grid">
             <div>
               <label for="product-brand">Marca (opcional)</label>
-              <input id="product-brand" list="brand-options" maxlength="80" placeholder="Escolha ou digite uma marca" autocomplete="off">
-              <datalist id="brand-options"></datalist>
+              <select id="product-brand">
+                <option value="">Sem marca</option>
+                <option value="__nova_marca__">+ Cadastrar nova marca</option>
+              </select>
+              <input id="product-brand-new" class="catalog-new-input" maxlength="80" placeholder="Digite a nova marca" autocomplete="off" hidden>
             </div>
             <div>
               <label for="product-category">Categoria (opcional)</label>
-              <input id="product-category" list="category-options" maxlength="80" placeholder="Escolha ou digite uma categoria" autocomplete="off">
-              <datalist id="category-options"></datalist>
+              <select id="product-category">
+                <option value="">Sem categoria</option>
+                <option value="__nova_categoria__">+ Cadastrar nova categoria</option>
+              </select>
+              <input id="product-category-new" class="catalog-new-input" maxlength="80" placeholder="Digite a nova categoria" autocomplete="off" hidden>
             </div>
           </div>
           <p class="small muted">As marcas e categorias novas ficam salvas para os próximos cadastros.</p>
