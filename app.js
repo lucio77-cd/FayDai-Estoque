@@ -35,7 +35,7 @@ const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, (char) => (
 const CATALOG_OPTIONS_ID = "catalogo_opcoes_faydai";
 const STORE_SETTINGS_ID = "configuracoes_faydai";
 const INTERNAL_COUNTER_ID = "contador_codigo_interno_faydai";
-let storeSettings = { nome: "", responsavel: "", telefone: "", endereco: "", cnpj: "", codigoInternoAtivo: false, codigoBarrasAtivo: false };
+let storeSettings = { nome: "", responsavel: "", telefone: "", endereco: "", cnpj: "", codigoInternoAtivo: false, codigoBarrasAtivo: false, caixaAtivo: false, saidasAtivo: true };
 let editingProductId = null;
 const SUGGESTED_CATEGORIES = [
   "Celulares",
@@ -48,7 +48,9 @@ const SUGGESTED_CATEGORIES = [
 let products = [];
 let entries = [];
 let exits = [];
+let sales = [];
 let selectedExitProductId = "";
+let selectedSaleProductId = "";
 let brands = [];
 let categories = [];
 let showArchivedEntries = false;
@@ -165,8 +167,20 @@ function renderStoreSettings() {
   $("#store-cnpj").value = storeSettings.cnpj || "";
   $("#setting-internal-code").checked = Boolean(storeSettings.codigoInternoAtivo);
   $("#setting-barcode").checked = Boolean(storeSettings.codigoBarrasAtivo);
+  $("#setting-caja-active").checked = Boolean(storeSettings.caixaAtivo);
+  $("#setting-exits-active").checked = storeSettings.saidasAtivo !== false;
+  renderModuleAvailability();
   $("#product-internal-code").placeholder = storeSettings.codigoInternoAtivo ? "Gerado ao salvar" : "Desativado nas configurações";
   $("#product-barcode").disabled = !storeSettings.codigoBarrasAtivo && !editingProductId;
+}
+
+function renderModuleAvailability() {
+  const cajaActive = Boolean(storeSettings.caixaAtivo);
+  const exitsActive = storeSettings.saidasAtivo !== false;
+  $("#caja-disabled-notice").hidden = cajaActive;
+  $("#caja-content").hidden = !cajaActive;
+  $("#exits-disabled-notice").hidden = exitsActive;
+  $("#exit-content").hidden = !exitsActive;
 }
 
 function resetProductForm() {
@@ -242,6 +256,46 @@ function renderProducts() {
 }
 
 
+function renderSaleProductResults() {
+  const query = normalizeText($("#sale-product-search").value);
+  const results = $("#sale-product-results");
+  const selected = products.find((product) => product.id === selectedSaleProductId && !product.arquivado);
+  if (selected) {
+    $("#sale-selected-product").innerHTML = `<strong>${escapeHtml(selected.nome)}</strong><span>Saldo disponível: ${Number(selected.quantidade) || 0} un. · Preço sugerido: ${money((Number(selected.custo) || 0) * (1 + (Number(selected.percentualGanho) || 0) / 100))}</span>`;
+    $("#sale-selected-product").hidden = false;
+  } else $("#sale-selected-product").hidden = true;
+  if (!query) {
+    results.innerHTML = '<div class="small muted">Digite o nome ou código do produto para pesquisar.</div>';
+    return;
+  }
+  const matches = products.filter((product) => !product.arquivado && [
+    product.nome, product.codigoInterno, product.codigoBarras, product.marca, product.categoria
+  ].some((value) => normalizeText(value).includes(query))).slice(0, 8);
+  if (!matches.length) {
+    results.innerHTML = '<div class="empty-state">Nenhum produto encontrado.</div>';
+    return;
+  }
+  results.innerHTML = matches.map((product) => `
+    <button class="search-result" type="button" data-select-sale-product="${escapeHtml(product.id)}">
+      <span><strong>${escapeHtml(product.nome)}</strong><small>${escapeHtml(product.codigoInterno || product.codigoBarras || "Sem código")}</small></span>
+      <span class="search-result-stock">${Number(product.quantidade) || 0} un.</span>
+    </button>`).join("");
+}
+
+function renderSales() {
+  const list = $("#sales-list");
+  if (!sales.length) {
+    list.innerHTML = '<div class="empty-state">Nenhuma venda registrada ainda.</div>';
+    return;
+  }
+  list.innerHTML = [...sales].sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || "")))
+    .map((sale) => `<article class="entry-card">
+      <div class="item-title-row"><div class="item-title">${escapeHtml(sale.produtoNome || "Produto")}</div><span class="stock-badge">${money((Number(sale.quantidade) || 0) * (Number(sale.precoUnitario) || 0))}</span></div>
+      <p>${Number(sale.quantidade) || 0} un. × ${money(sale.precoUnitario)} · ${escapeHtml(sale.data || "Data não informada")}</p>
+      <p>Preço unitário: ${money(sale.precoUnitario)} · Responsável: ${escapeHtml(sale.usuario || "Não identificado")}</p>
+    </article>`).join("");
+}
+
 function renderExitProductResults() {
   const query = normalizeText($("#exit-product-search").value);
   const results = $("#exit-product-results");
@@ -274,7 +328,7 @@ function renderExits() {
     list.innerHTML = '<div class="empty-state">Nenhuma saída registrada ainda.</div>';
     return;
   }
-  const labels = { venda: "Venda", perda: "Perda", devolucao: "Devolução ao fornecedor", uso_interno: "Uso interno" };
+  const labels = { perda: "Perda", devolucao: "Devolução ao fornecedor", uso_interno: "Uso interno", outro: "Outra saída" };
   list.innerHTML = [...exits].sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || "")))
     .map((exit) => {
       const product = products.find((item) => item.id === exit.produtoId);
@@ -324,6 +378,13 @@ async function loadData() {
       getDocs(collection(db, "entradas"))
     ]);
     let exitSnapshot = null;
+    let saleSnapshot = null;
+    try {
+      saleSnapshot = await getDocs(collection(db, "vendas"));
+    } catch (saleLoadError) {
+      console.error("Falha ao carregar histórico de vendas:", saleLoadError);
+      if (saleLoadError?.code?.includes("permission-denied")) setFeedback("#sale-feedback", "O Firestore ainda não permite ler a coleção de vendas.", true);
+    }
     try {
       exitSnapshot = await getDocs(collection(db, "saidas"));
     } catch (exitLoadError) {
@@ -346,12 +407,15 @@ async function loadData() {
       return { id: item.id, ...data, criadoEmMs: data.criadoEm?.toMillis?.() || 0 };
     });
     exits = exitSnapshot ? exitSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })) : [];
+    sales = saleSnapshot ? saleSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })) : [];
     renderCatalogOptions();
     renderStoreSettings();
     renderProducts();
     renderEntries();
     renderExitProductResults();
     renderExits();
+    renderSaleProductResults();
+    renderSales();
   } catch (error) {
     console.error("Falha ao carregar dados do Firestore:", error);
     showToast(explainError(error));
@@ -536,6 +600,76 @@ $("#product-form").addEventListener("submit", async (event) => {
 });
 
 
+$("#sale-product-search").addEventListener("input", () => {
+  selectedSaleProductId = "";
+  renderSaleProductResults();
+});
+$("#sale-product-results").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-select-sale-product]");
+  if (!button) return;
+  const product = products.find((item) => item.id === button.dataset.selectSaleProduct && !item.arquivado);
+  if (!product) return;
+  selectedSaleProductId = product.id;
+  $("#sale-product-search").value = product.nome;
+  const suggested = (Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100);
+  $("#sale-unit-price").value = suggested.toFixed(2);
+  renderSaleProductResults();
+});
+
+$("#sale-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  setFeedback("#sale-feedback", "Registrando venda…");
+  const productId = selectedSaleProductId;
+  const quantity = Number($("#sale-quantity").value);
+  const unitPrice = Number($("#sale-unit-price").value);
+  const date = $("#sale-date").value;
+  if (!storeSettings.caixaAtivo) {
+    setFeedback("#sale-feedback", "O módulo Caixa está desativado nas configurações.", true);
+    button.disabled = false;
+    return;
+  }
+  if (!productId || !Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(unitPrice) || unitPrice < 0 || !date) {
+    setFeedback("#sale-feedback", "Selecione um produto e confira quantidade, preço e data.", true);
+    button.disabled = false;
+    return;
+  }
+  try {
+    const productRef = doc(db, "produtos", productId);
+    const saleRef = doc(collection(db, "vendas"));
+    const userEmail = auth.currentUser?.email || "Usuário não identificado";
+    const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    await runTransaction(db, async (transaction) => {
+      const productSnapshot = await transaction.get(productRef);
+      if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
+      const product = productSnapshot.data();
+      if (product.arquivado) throw new Error("Este produto está arquivado e não pode receber movimentações.");
+      const currentStock = Number(product.quantidade) || 0;
+      if (quantity > currentStock) throw new Error(`Saldo insuficiente. Disponível: ${currentStock} unidade(s); solicitado: ${quantity}.`);
+      transaction.update(productRef, { quantidade: currentStock - quantity, atualizadoEm: serverTimestamp() });
+      transaction.set(saleRef, {
+        produtoId: productId, produtoNome: product.nome || "",
+        codigoInterno: product.codigoInterno || "", codigoBarras: product.codigoBarras || "",
+        quantidade, precoUnitario: unitPrice, total: quantity * unitPrice,
+        data, dataHora: dateTime, usuario: userEmail, criadoEm: serverTimestamp()
+      });
+    });
+    form.reset();
+    selectedSaleProductId = "";
+    $("#sale-date").value = dateToday();
+    renderSaleProductResults();
+    setFeedback("#sale-feedback", "Venda registrada e estoque atualizado.");
+    await loadData();
+    showToast("Venda registrada. Estoque atualizado.");
+  } catch (error) {
+    console.error("Falha ao registrar venda:", error);
+    setFeedback("#sale-feedback", explainError(error), true);
+  } finally { button.disabled = false; }
+});
+$("#sale-date").value = dateToday();
+
 $("#exit-product-search").addEventListener("input", () => {
   selectedExitProductId = "";
   renderExitProductResults();
@@ -555,6 +689,11 @@ $("#exit-form").addEventListener("submit", async (event) => {
   const button = form.querySelector('button[type="submit"]');
   button.disabled = true;
   setFeedback("#exit-feedback", "Registrando saída…");
+  if (storeSettings.saidasAtivo === false) {
+    setFeedback("#exit-feedback", "O módulo Saídas está desativado nas configurações.", true);
+    button.disabled = false;
+    return;
+  }
   const productId = selectedExitProductId;
   const quantity = Number($("#exit-quantity").value);
   const motive = $("#exit-reason").value;
@@ -729,6 +868,8 @@ $("#store-settings-form").addEventListener("submit", async (event) => {
       cnpj: cleanOption($("#store-cnpj").value),
       codigoInternoAtivo: $("#setting-internal-code").checked,
       codigoBarrasAtivo: $("#setting-barcode").checked,
+      caixaAtivo: $("#setting-caja-active").checked,
+      saidasAtivo: $("#setting-exits-active").checked,
       atualizadoEm: serverTimestamp(), atualizadoPor: auth.currentUser?.email || null
     };
     const settingsRef = doc(db, "produtos", STORE_SETTINGS_ID);
@@ -748,6 +889,7 @@ $("#store-settings-form").addEventListener("submit", async (event) => {
 $("#refresh-products").addEventListener("click", loadData);
 $("#refresh-entries").addEventListener("click", loadData);
 $("#refresh-exits").addEventListener("click", loadData);
+$("#refresh-sales").addEventListener("click", loadData);
 $("#show-archived-entries").addEventListener("change", (event) => {
   showArchivedEntries = event.currentTarget.checked;
   renderEntries();
