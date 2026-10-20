@@ -611,8 +611,7 @@ $("#sale-product-results").addEventListener("click", (event) => {
   if (!product) return;
   selectedSaleProductId = product.id;
   $("#sale-product-search").value = product.nome;
-  const suggested = (Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100);
-  $("#sale-unit-price").value = suggested.toFixed(2);
+  $("#sale-unit-price").value = "";
   renderSaleProductResults();
 });
 
