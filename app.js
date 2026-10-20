@@ -783,7 +783,10 @@ $("#sale-form").addEventListener("submit", async (event) => {
         })),
         total,
         formaPagamento: paymentMethod,
-        data, dataHora: dateTime, usuario: userEmail, criadoEm: serverTimestamp()
+        data: date,
+        dataHora: dateTime,
+        usuario: userEmail,
+        criadoEm: serverTimestamp()
       });
     });
     saleCart = [];
