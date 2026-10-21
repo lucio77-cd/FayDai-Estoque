@@ -2,7 +2,7 @@
 
 Sistema simples de gestão de estoque, entradas, saídas e preços, pensado inicialmente para uma loja de celulares e acessórios. A primeira versão será priorizada para uso no celular e construída para ser demonstrada e validada com o responsável pela loja.
 
-> **Status:** protótipo em desenvolvimento. Já inclui login, produtos, entradas, Caixa (vendas), Saídas e configurações. Ainda precisam ser validados no navegador com o projeto Firebase.
+> **Status:** protótipo em desenvolvimento. Já inclui login, produtos (com histórico de alteração de custo), entradas, Caixa (vendas com preço ajustável e alertas), Saídas e configurações. Ainda precisam ser validados no navegador com o projeto Firebase.
 
 ## Objetivo
 
@@ -61,6 +61,8 @@ O sistema deverá distinguir:
 - **lucro líquido:** não será apresentado como apurado sem registro das despesas necessárias.
 
 O custo cadastrado é uma referência atualizada manualmente; não deve ser confundido com custo médio calculado automaticamente a partir das compras.
+
+Cada alteração do custo cadastrado gera um registro imutável na coleção `historico_custos` (custo anterior, novo custo, data e usuário). O cartão do produto mostra o último custo anterior e a data da alteração.
 
 ### 5. Vistoria física
 - Apresentar uma lista de produtos para preencher as quantidades contadas.
@@ -137,16 +139,16 @@ As funcionalidades e regras deste documento poderão evoluir com base nessa vali
 
 ## Protótipo atual
 
-Arquivos iniciais:
-- `index.html`: telas de login, produtos, entradas, ajuda e tutorial.
+Arquivos:
+- `index.html`: telas de login, produtos, entradas, Caixa, saídas, configurações, ajuda e tutorial.
 - `styles.css`: layout responsivo com prioridade para celular.
-- `app.js`: autenticação Firebase, cadastro de produtos, registro de entradas e leitura/gravação no Cloud Firestore.
+- `app.js`: autenticação Firebase, produtos, entradas, vendas, saídas e leitura/gravação no Cloud Firestore.
 
 ### Configuração necessária no Firebase
 
 1. Em **Authentication → Sign-in method**, habilite o provedor **E-mail/senha**.
-2. Confirme que `contateste@gmail.com` existe no Firebase Authentication e que o e-mail está verificado, pois as regras atuais exigem `email_verified == true`.
-3. Confirme que o Firestore está criado e que as regras publicadas autorizam somente a conta de teste.
+2. Confirme que a conta de uso existe no Firebase Authentication e que o e-mail está verificado, pois as regras exigem `email_verified == true`.
+3. Confirme que o Firestore está criado e que as regras publicadas autorizam somente a conta autorizada (veja a seção “Regras do Firestore”).
 4. Para publicar em um host como Vercel, adicione o domínio do site em **Authentication → Settings → Authorized domains**.
 
 ### Como validar a primeira versão
@@ -163,7 +165,9 @@ Arquivos iniciais:
 
 ## Módulos Caixa e Saídas
 
-- **Caixa:** módulo opcional para registrar vendas, usar o preço de venda cadastrado no produto e baixar automaticamente a quantidade do estoque.
+- **Caixa:** módulo opcional para registrar vendas. O preço de cada item começa no preço de venda cadastrado e pode ser ajustado no carrinho (preço cobrado). O sistema baixa automaticamente a quantidade do estoque.
+- **Alertas de preço:** o Caixa avisa quando o preço cobrado está abaixo do preço sugerido ou abaixo do custo cadastrado. Os alertas não bloqueiam a venda; se algum item estiver abaixo do custo, o sistema pede uma confirmação antes de finalizar. Preço vazio ou zero é tratado como erro e impede a finalização.
+- **Dados guardados em cada venda:** para cada item, o preço cobrado, o preço cadastrado, o preço sugerido e o custo cadastrado no momento da venda, além de indicadores de preço alterado, abaixo do sugerido e abaixo do custo. Isso mantém o cálculo histórico correto mesmo que o custo mude depois.
 - **Saídas:** registra retiradas manuais que não são vendas: perdas, devoluções ao fornecedor, uso interno e outras saídas.
 - Os dois módulos usam o mesmo cadastro e saldo dos produtos, mas mantêm históricos separados.
 - Em **Configurações**, Caixa e Saídas podem ser ativados ou desativados separadamente. As abas continuam visíveis; um módulo desativado exibe um aviso e não permite novos registros.
@@ -178,7 +182,20 @@ Arquivos iniciais:
 4. Abra Caixa, pesquise produtos, ajuste as quantidades no carrinho, escolha a forma de pagamento e a data. Finalize a venda.
 5. Confira se a quantidade diminuiu em Produtos e se a venda aparece no histórico do Caixa.
 6. Tente vender mais unidades do que o saldo disponível; o sistema deve bloquear a operação.
-7. Em Saídas, teste uma retirada manual com motivo, por exemplo, perda ou uso interno. Confira a baixa e o histórico.
-8. Desative e reative os módulos para confirmar que o histórico permanece.
+7. No carrinho, altere o preço cobrado para um valor abaixo do sugerido e confira o alerta amarelo. Altere para abaixo do custo e confira o alerta vermelho e a confirmação ao finalizar.
+8. Em Saídas, teste uma retirada manual com motivo, por exemplo, perda ou uso interno. Confira a baixa e o histórico.
+9. Desative e reative os módulos para confirmar que o histórico permanece.
 
 **Atenção:** o registro de vendas usa a coleção `vendas` no Cloud Firestore. Se o Firebase negar leitura ou gravação, será necessário conferir as regras publicadas do Firestore para permitir o acesso autorizado a essa coleção. O código no GitHub não altera as regras diretamente no console do Firebase.
+
+
+## Regras do Firestore
+
+As regras de segurança são publicadas no **Firebase Console → Firestore Database → Regras** e não ficam neste repositório. Elas devem:
+- aceitar apenas contas com e-mail verificado e presentes em uma lista de e-mails autorizados;
+- impedir saldo negativo e valores de custo ou preço negativos;
+- permitir somente criação (nunca edição ou exclusão) em `entradas`, `saidas`, `vendas` e `historico_custos`;
+- exigir que o campo `usuario` das vendas e saídas seja o e-mail da conta autenticada;
+- permitir excluir produto apenas com saldo zero.
+
+Não publique o e-mail real da conta autorizada neste repositório. Ao implementar o cancelamento de vendas, a regra da coleção `vendas` precisará permitir a atualização controlada desse registro.
