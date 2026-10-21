@@ -23,7 +23,7 @@
       <p class="muted">Produtos e movimentações em um só lugar.</p>
       <form id="login-form" class="panel form-stack">
         <label for="login-email">E-mail</label>
-        <input id="login-email" type="email" autocomplete="username" value="josesantoscarvalho7@gmail.com" required>
+        <input id="login-email" type="email" autocomplete="username" placeholder="seu@email.com" required>
         <label for="login-password">Senha</label>
         <input id="login-password" type="password" autocomplete="current-password" required>
         <button class="button primary" type="submit">Entrar</button>
@@ -163,7 +163,7 @@
             </select>
             <label for="sale-date">Data da venda *</label>
             <input id="sale-date" type="date" required>
-            <p class="notice">O preço usado é o preço sugerido calculado no cadastro do produto. Ao finalizar, a venda inteira é registrada e as quantidades são descontadas do estoque.</p>
+            <p class="notice">O preço usado é o preço de venda cadastrado no produto. Ao finalizar, a venda inteira é registrada e as quantidades são descontadas do estoque.</p>
             <button id="sale-finish-button" class="button primary" type="submit" disabled>Finalizar venda</button>
             <p id="sale-feedback" class="feedback" role="status"></p>
           </form>
@@ -234,8 +234,8 @@
         <div class="section-heading"><div><p class="eyebrow">PRIMEIROS PASSOS</p><h2>Ajuda</h2></div></div>
         <div class="panel help-card">
           <h3>Como usar o FayDai</h3>
-          <ol><li>Cadastre o produto com custo, percentual de ganho e quantidade inicial.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Registre saídas escolhendo venda, perda, devolução ou uso interno.</li><li>Confira o saldo no catálogo de produtos.</li></ol>
-          <p class="muted small">Esta é a primeira etapa do protótipo. Vendas, dashboard e vistoria serão adicionados depois.</p>
+          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Ative o módulo Caixa em Configurações para registrar vendas; o estoque é baixado automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>Confira o saldo no catálogo de produtos.</li></ol>
+          <p class="muted small">Cancelamentos, devoluções de venda, painel de indicadores e vistoria física serão adicionados nas próximas etapas.</p>
           <button id="show-tutorial" class="button secondary" type="button">Ver tutorial inicial</button>
         </div>
       </section>
@@ -252,12 +252,13 @@
       <p class="muted">Você pode consultar este tutorial sempre que precisar.</p>
       <div class="tutorial-step"><span>1</span><div><strong>Cadastre os produtos</strong><p>Informe nome, marca, categoria, custo, ganho desejado e quantidade inicial.</p></div></div>
       <div class="tutorial-step"><span>2</span><div><strong>Registre as entradas</strong><p>Quando receber mercadoria, registre quantidade, custo da compra e fornecedor.</p></div></div>
-      <div class="tutorial-step"><span>3</span><div><strong>Confira o saldo</strong><p>O estoque é atualizado conforme os registros salvos.</p></div></div>
+      <div class="tutorial-step"><span>3</span><div><strong>Venda e dê baixa</strong><p>No Caixa, registre vendas; em Saídas, perdas e uso interno. O saldo é atualizado sozinho.</p></div></div>
+      <div class="tutorial-step"><span>4</span><div><strong>Confira o saldo</strong><p>O estoque é atualizado conforme os registros salvos.</p></div></div>
       <button id="tutorial-understood" class="button primary full" type="button">Entendi, começar</button>
       <button id="tutorial-never" class="button quiet full" type="button">Não mostrar novamente</button>
     </section>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=20261021-a27b960"></script>
+  <script type="module" src="./app.js?v=20261021-b1"></script>
 </body>
 </html>
