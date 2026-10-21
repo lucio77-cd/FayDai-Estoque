@@ -138,6 +138,8 @@ function explainError(error) {
 }
 
 function showApp(isSignedIn) {
+  // Só revela login ou sistema depois que o Firebase confirmar a sessão.
+  $("#auth-loading-view").hidden = true;
   $("#login-view").hidden = isSignedIn;
   $("#app-view").hidden = !isSignedIn;
 }
