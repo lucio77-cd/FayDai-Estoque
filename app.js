@@ -26,6 +26,15 @@ const $ = (selector) => document.querySelector(selector);
 const money = (value) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value) || 0);
 // Arredonda valores em reais para 2 casas (centavos), evitando erros de ponto flutuante.
 const roundMoney = (value) => Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
+// Preço sugerido = custo cadastrado × (1 + percentual de ganho / 100).
+const calcSuggestedPrice = (product) => roundMoney((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100));
+// Preço de venda cadastrado no produto; se não existir, usa o sugerido.
+const getRegisteredSalePrice = (product) => {
+  const registered = Number(product.precoVenda);
+  return product.precoVenda !== null && product.precoVenda !== undefined && product.precoVenda !== "" && Number.isFinite(registered)
+    ? roundMoney(registered)
+    : calcSuggestedPrice(product);
+};
 const dateToday = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -235,7 +244,10 @@ function renderProducts() {
     list.innerHTML = [...activeProducts]
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
       .map((product) => {
-        const suggested = roundMoney((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100));
+        const suggested = calcSuggestedPrice(product);
+        const previousCostCell = product.custoAnterior !== undefined && product.custoAnterior !== null && product.custoAlteradoEm
+          ? `<div><span>Custo anterior (alterado em ${escapeHtml(formatDate(product.custoAlteradoEm))})</span><strong>${money(product.custoAnterior)}</strong></div>`
+          : "";
         return `<article class="product-card">
           <div class="item-title-row">
             <div class="item-title">${escapeHtml(product.nome)}</div>
@@ -246,10 +258,11 @@ function renderProducts() {
           ${product.codigoInterno || (storeSettings.codigoBarrasAtivo && product.codigoBarras) ? `<p class="item-description">${product.codigoInterno ? `Código interno: ${escapeHtml(product.codigoInterno)}` : ""}${product.codigoInterno && storeSettings.codigoBarrasAtivo && product.codigoBarras ? " · " : ""}${storeSettings.codigoBarrasAtivo && product.codigoBarras ? `Código de barras: ${escapeHtml(product.codigoBarras)}` : ""}</p>` : ""}
           <div class="item-meta">
             <div><span>Custo cadastrado</span><strong>${money(product.custo)}</strong></div>
-            <div><span>Preço de venda cadastrado</span><strong>${money(product.precoVenda ?? suggested)}</strong></div>
+            <div><span>Preço de venda cadastrado</span><strong>${money(getRegisteredSalePrice(product))}</strong></div>
             <div><span>Preço sugerido</span><strong>${money(suggested)}</strong></div>
             <div><span>Ganho sobre custo</span><strong>${(Number(product.percentualGanho) || 0).toLocaleString("pt-BR")}%</strong></div>
             <div><span>Cadastro</span><strong>${product.criadoEmData ? new Date(product.criadoEmData + "T12:00:00").toLocaleDateString("pt-BR") : "—"}</strong></div>
+            ${previousCostCell}
           </div>
           <div class="product-actions">
             <button class="button secondary" type="button" data-edit-product="${escapeHtml(product.id)}">Editar</button>
@@ -269,16 +282,31 @@ function renderProducts() {
 }
 
 
-function getSuggestedSalePrice(product) {
-  const suggested = roundMoney((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100));
-  return Number.isFinite(Number(product.precoVenda)) && product.precoVenda !== null && product.precoVenda !== ""
-    ? roundMoney(product.precoVenda)
-    : suggested;
-}
+// ---------- Caixa: carrinho com preço editável e alertas ----------
 
-// Subtotal de um item do carrinho e total geral, sempre em centavos exatos.
-const cartItemSubtotal = (item) => roundMoney(item.quantidade * item.precoUnitario);
+// Preço do item (0 quando o campo está vazio ou inválido), subtotal e total em centavos exatos.
+const cartItemPrice = (item) => (Number.isFinite(item.precoUnitario) ? item.precoUnitario : 0);
+const cartItemSubtotal = (item) => roundMoney(item.quantidade * cartItemPrice(item));
 const cartTotal = () => roundMoney(saleCart.reduce((sum, item) => sum + cartItemSubtotal(item), 0));
+const cartHasInvalidPrice = () => saleCart.some((item) => !(item.precoUnitario > 0));
+
+// Alertas de preço: não bloqueiam a venda (exceto preço vazio/zero, que é erro de digitação).
+function getPriceAlert(item) {
+  const price = item.precoUnitario;
+  if (!Number.isFinite(price) || price <= 0) {
+    return { level: "invalid", message: "Informe um preço maior que zero." };
+  }
+  const product = products.find((entry) => entry.id === item.produtoId);
+  if (!product) return null;
+  if (price < roundMoney(product.custo)) {
+    return { level: "danger", message: "Atenção: preço abaixo do custo cadastrado." };
+  }
+  const suggested = calcSuggestedPrice(product);
+  if (price < suggested) {
+    return { level: "warning", message: `Preço abaixo do sugerido (${money(suggested)}).` };
+  }
+  return null;
+}
 
 function renderSaleProductResults() {
   const query = normalizeText($("#sale-product-search").value);
@@ -295,7 +323,7 @@ function renderSaleProductResults() {
     return;
   }
   results.innerHTML = matches.map((product) => {
-    const price = getSuggestedSalePrice(product);
+    const price = getRegisteredSalePrice(product);
     return `
       <button class="search-result sale-search-result" type="button" data-select-sale-product="${escapeHtml(product.id)}">
         <span><strong>${escapeHtml(product.nome)}</strong><small>${escapeHtml(product.codigoInterno || product.codigoBarras || "Sem código")} · ${Number(product.quantidade) || 0} em estoque</small></span>
@@ -304,17 +332,45 @@ function renderSaleProductResults() {
   }).join("");
 }
 
+function updateCartSummary() {
+  const units = saleCart.reduce((sum, item) => sum + item.quantidade, 0);
+  $("#sale-cart-total").textContent = money(cartTotal());
+  $("#sale-cart-count").textContent = `${units} ${units === 1 ? "item" : "itens"}`;
+  $("#sale-finish-button").disabled = saleCart.length === 0 || cartHasInvalidPrice();
+}
+
+// Atualiza só o subtotal e o alerta de uma linha (sem redesenhar, para não perder o foco do campo de preço).
+function updateCartRow(index) {
+  const item = saleCart[index];
+  const row = document.querySelector(`[data-cart-row="${index}"]`);
+  if (!item || !row) return;
+  row.querySelector(".cart-subtotal").textContent = money(cartItemSubtotal(item));
+  const alertElement = row.querySelector(".cart-price-alert");
+  const alert = getPriceAlert(item);
+  alertElement.hidden = !alert;
+  alertElement.className = "cart-price-alert" + (alert ? ` ${alert.level}` : "");
+  alertElement.textContent = alert ? alert.message : "";
+}
+
 function renderSaleCart() {
   const list = $("#sale-cart-list");
   if (!saleCart.length) {
     list.innerHTML = '<div class="empty-state">A compra está vazia. Pesquise e selecione os produtos acima.</div>';
   } else {
-    list.innerHTML = saleCart.map((item, index) => `
-      <article class="cart-item">
+    list.innerHTML = saleCart.map((item, index) => {
+      const alert = getPriceAlert(item);
+      const priceValue = Number.isFinite(item.precoUnitario) ? item.precoUnitario.toFixed(2) : "";
+      return `
+      <article class="cart-item" data-cart-row="${index}">
         <div class="cart-item-main">
           <strong>${escapeHtml(item.nome)}</strong>
-          <small>${money(item.precoUnitario)} por unidade</small>
+          <small>Preço cadastrado: ${money(item.precoCadastrado)}</small>
         </div>
+        <div class="cart-price-row">
+          <label for="cart-price-${index}">Preço cobrado (R$)</label>
+          <input id="cart-price-${index}" class="cart-price-input" type="number" min="0.01" step="any" inputmode="decimal" value="${priceValue}" data-cart-price="${index}" required>
+        </div>
+        <p class="cart-price-alert${alert ? ` ${alert.level}` : ""}"${alert ? "" : " hidden"}>${alert ? escapeHtml(alert.message) : ""}</p>
         <div class="cart-item-bottom">
           <div class="cart-quantity">
             <button type="button" class="quantity-button" data-cart-minus="${index}" aria-label="Diminuir quantidade">−</button>
@@ -324,12 +380,10 @@ function renderSaleCart() {
           <strong class="cart-subtotal">${money(cartItemSubtotal(item))}</strong>
           <button type="button" class="remove-cart-item" data-cart-remove="${index}" aria-label="Remover ${escapeHtml(item.nome)}">Remover</button>
         </div>
-      </article>`).join("");
+      </article>`;
+    }).join("");
   }
-  const units = saleCart.reduce((sum, item) => sum + item.quantidade, 0);
-  $("#sale-cart-total").textContent = money(cartTotal());
-  $("#sale-cart-count").textContent = `${units} ${units === 1 ? "item" : "itens"}`;
-  $("#sale-finish-button").disabled = saleCart.length === 0;
+  updateCartSummary();
 }
 
 function addProductToSaleCart(product) {
@@ -345,13 +399,15 @@ function addProductToSaleCart(product) {
     }
     existing.quantidade += 1;
   } else {
+    const registeredPrice = getRegisteredSalePrice(product);
     saleCart.push({
       produtoId: product.id,
       nome: product.nome || "",
       codigoInterno: product.codigoInterno || "",
       codigoBarras: product.codigoBarras || "",
       quantidade: 1,
-      precoUnitario: getSuggestedSalePrice(product)
+      precoCadastrado: registeredPrice,
+      precoUnitario: registeredPrice
     });
   }
   $("#sale-product-search").value = "";
@@ -372,7 +428,12 @@ function renderSales() {
       const items = Array.isArray(sale.itens) && sale.itens.length
         ? sale.itens
         : [{ produtoNome: sale.produtoNome || "Produto", quantidade: sale.quantidade || 0, precoUnitario: sale.precoUnitario || 0 }];
-      const itemLines = items.map((item) => `<li>${escapeHtml(item.produtoNome || item.nome || "Produto")} — ${Number(item.quantidade) || 0} × ${money(item.precoUnitario)}</li>`).join("");
+      const itemLines = items.map((item) => {
+        const flag = item.abaixoDoCusto
+          ? ' <span class="sale-flag danger">abaixo do custo</span>'
+          : (item.abaixoDoSugerido ? ' <span class="sale-flag warning">abaixo do sugerido</span>' : "");
+        return `<li>${escapeHtml(item.produtoNome || item.nome || "Produto")} — ${Number(item.quantidade) || 0} × ${money(item.precoUnitario)}${flag}</li>`;
+      }).join("");
       const total = Number(sale.total) || roundMoney(items.reduce((sum, item) => sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0)), 0));
       return `<article class="entry-card">
         <div class="item-title-row"><div class="item-title">Venda</div><span class="stock-badge">${money(total)}</span></div>
@@ -503,6 +564,7 @@ async function loadData() {
     renderExits();
     renderSaleProductResults();
     renderSales();
+    renderSaleCart();
   } catch (error) {
     console.error("Falha ao carregar dados do Firestore:", error);
     showToast(explainError(error));
@@ -608,6 +670,7 @@ $("#product-form").addEventListener("submit", async (event) => {
 
   const wasEditing = Boolean(editingProductId);
   let codigoGeradoNestaOperacao = "";
+  let custoAlterado = null;
   try {
     if (barcode) {
       const barcodeDuplicate = products.find((product) => product.id !== editingProductId && !product.arquivado && String(product.codigoBarras || "") === barcode);
@@ -624,20 +687,45 @@ $("#product-form").addEventListener("submit", async (event) => {
         : current.codigoInterno || "";
       if (!current.codigoInterno && codigoInterno) codigoGeradoNestaOperacao = codigoInterno;
 
-      await updateDoc(doc(db, "produtos", editingProductId), {
-        nome, marca, categoria, descricao, custo, percentualGanho, precoVenda,
-        ...(codigoInterno ? { codigoInterno } : {}),
-        ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
-        atualizadoEm: serverTimestamp()
-      });
+      const productRef = doc(db, "produtos", editingProductId);
+      const catalogRef = doc(db, "produtos", CATALOG_OPTIONS_ID);
       const catalogUpdate = { atualizadoEm: serverTimestamp() };
       if (marca) catalogUpdate.marcas = arrayUnion(marca);
       if (categoria) catalogUpdate.categorias = arrayUnion(categoria);
-      if (marca || categoria) {
-        await runTransaction(db, async (transaction) => {
-          transaction.set(doc(db, "produtos", CATALOG_OPTIONS_ID), catalogUpdate, { merge: true });
+
+      // Tudo na mesma transação: leitura do custo atual no banco, atualização do produto,
+      // registro do histórico de custo (quando mudou) e catálogo de marcas/categorias.
+      await runTransaction(db, async (transaction) => {
+        const snapshot = await transaction.get(productRef);
+        if (!snapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
+        const saved = snapshot.data();
+        if (saved.arquivado) throw new Error("Este produto está arquivado e não pode ser editado.");
+        const custoAnterior = roundMoney(saved.custo);
+        const custoMudou = custoAnterior !== custo;
+        custoAlterado = custoMudou ? { de: custoAnterior, para: custo } : null;
+
+        transaction.update(productRef, {
+          nome, marca, categoria, descricao, custo, percentualGanho, precoVenda,
+          ...(codigoInterno ? { codigoInterno } : {}),
+          ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
+          ...(custoMudou ? { custoAnterior, custoAlteradoEm: dateToday() } : {}),
+          atualizadoEm: serverTimestamp()
         });
-      }
+        if (custoMudou) {
+          transaction.set(doc(collection(db, "historico_custos")), {
+            produtoId: editingProductId,
+            produtoNome: nome,
+            custoAnterior,
+            custoNovo: custo,
+            data: dateToday(),
+            usuario: auth.currentUser?.email || null,
+            criadoEm: serverTimestamp()
+          });
+        }
+        if (marca || categoria) {
+          transaction.set(catalogRef, catalogUpdate, { merge: true });
+        }
+      });
     } else {
     const batch = writeBatch(db);
     const productRef = doc(collection(db, "produtos"));
@@ -679,9 +767,12 @@ $("#product-form").addEventListener("submit", async (event) => {
     await batch.commit();
     }
     resetProductForm();
-    const successMessage = codigoGeradoNestaOperacao
+    let successMessage = codigoGeradoNestaOperacao
       ? `${wasEditing ? "Produto atualizado" : "Produto cadastrado"} com o código interno ${codigoGeradoNestaOperacao}.`
       : (wasEditing ? "Produto atualizado." : "Produto cadastrado.");
+    if (custoAlterado) {
+      successMessage += ` Custo alterado de ${money(custoAlterado.de)} para ${money(custoAlterado.para)} e registrado no histórico.`;
+    }
     setFeedback("#product-feedback", successMessage);
     await loadData();
     showToast(successMessage);
@@ -737,6 +828,34 @@ $("#sale-cart-list").addEventListener("click", (event) => {
   renderSaleCart();
 });
 
+// Edição do preço cobrado: atualiza subtotal, alerta e total enquanto o usuário digita.
+$("#sale-cart-list").addEventListener("input", (event) => {
+  const input = event.target.closest("[data-cart-price]");
+  if (!input) return;
+  const index = Number(input.dataset.cartPrice);
+  const item = saleCart[index];
+  if (!item) return;
+  const raw = input.value.trim();
+  const parsed = raw === "" ? NaN : Number(raw);
+  item.precoUnitario = Number.isFinite(parsed) ? roundMoney(parsed) : null;
+  updateCartRow(index);
+  updateCartSummary();
+});
+// Ao sair do campo, mostra o preço já arredondado em centavos.
+$("#sale-cart-list").addEventListener("change", (event) => {
+  const input = event.target.closest("[data-cart-price]");
+  if (!input) return;
+  const item = saleCart[Number(input.dataset.cartPrice)];
+  if (item && Number.isFinite(item.precoUnitario)) input.value = item.precoUnitario.toFixed(2);
+});
+// Enter no campo de preço só confirma o valor; não finaliza a venda sem querer.
+$("#sale-cart-list").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && event.target.matches("[data-cart-price]")) {
+    event.preventDefault();
+    event.target.blur();
+  }
+});
+
 $("#sale-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -749,11 +868,24 @@ $("#sale-form").addEventListener("submit", async (event) => {
     setFeedback("#sale-feedback", "Adicione pelo menos um produto à compra.", true);
     return;
   }
+  if (cartHasInvalidPrice()) {
+    setFeedback("#sale-feedback", "Informe um preço maior que zero em todos os itens.", true);
+    return;
+  }
   const date = $("#sale-date").value;
   const paymentMethod = $("#sale-payment-method").value;
   if (!date || !paymentMethod) {
     setFeedback("#sale-feedback", "Selecione a data e a forma de pagamento.", true);
     return;
+  }
+  // Preço abaixo do custo não bloqueia a venda, mas exige confirmação.
+  const belowCostNames = saleCart.filter((item) => getPriceAlert(item)?.level === "danger").map((item) => item.nome);
+  if (belowCostNames.length) {
+    const headline = belowCostNames.length === 1 ? "1 item está" : `${belowCostNames.length} itens estão`;
+    const confirmed = window.confirm(
+      `Atenção: ${headline} com preço abaixo do custo cadastrado:\n\n${belowCostNames.map((name) => `• ${name}`).join("\n")}\n\nDeseja finalizar a venda mesmo assim?`
+    );
+    if (!confirmed) return;
   }
   button.disabled = true;
   setFeedback("#sale-feedback", "Registrando venda…");
@@ -778,12 +910,15 @@ $("#sale-form").addEventListener("submit", async (event) => {
         }
       }
 
-      // Itens vendidos: guardam o preço praticado e o custo cadastrado NO MOMENTO da venda
-      // (lido do produto dentro da transação), para que mudanças futuras de custo
-      // não alterem o cálculo histórico da diferença bruta.
+      // Itens vendidos: guardam o preço praticado e, lidos do produto dentro da transação,
+      // o custo, o preço cadastrado e o sugerido NO MOMENTO da venda. Assim, mudanças futuras
+      // de custo ou de preço não alteram o cálculo histórico.
       const soldItems = snapshots.map((entry) => {
         const product = entry.snapshot.data();
         const precoUnitario = roundMoney(entry.item.precoUnitario);
+        const custoUnitario = roundMoney(product.custo);
+        const precoSugerido = calcSuggestedPrice(product);
+        const precoCadastrado = getRegisteredSalePrice(product);
         return {
           produtoId: entry.item.produtoId,
           produtoNome: entry.item.nome,
@@ -791,7 +926,12 @@ $("#sale-form").addEventListener("submit", async (event) => {
           codigoBarras: entry.item.codigoBarras || "",
           quantidade: entry.item.quantidade,
           precoUnitario,
-          custoUnitario: roundMoney(product.custo),
+          precoCadastrado,
+          precoSugerido,
+          custoUnitario,
+          precoAlterado: precoUnitario !== precoCadastrado,
+          abaixoDoCusto: precoUnitario < custoUnitario,
+          abaixoDoSugerido: precoUnitario < precoSugerido,
           subtotal: roundMoney(entry.item.quantidade * precoUnitario)
         };
       });
@@ -829,7 +969,7 @@ $("#sale-form").addEventListener("submit", async (event) => {
     console.error("Falha ao registrar venda:", error);
     setFeedback("#sale-feedback", explainError(error), true);
   } finally {
-    button.disabled = saleCart.length === 0;
+    updateCartSummary();
   }
 });
 $("#sale-date").value = dateToday();
@@ -976,10 +1116,7 @@ $("#products-list").addEventListener("click", async (event) => {
     $("#product-description").value = product.descricao || "";
     $("#product-cost").value = Number(product.custo) || 0;
     $("#product-gain").value = Number(product.percentualGanho) || 0;
-    const calculatedSuggestedPrice = roundMoney((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100));
-    $("#product-sale-price").value = Number.isFinite(Number(product.precoVenda)) && product.precoVenda !== null && product.precoVenda !== ""
-      ? Number(product.precoVenda).toFixed(2)
-      : calculatedSuggestedPrice.toFixed(2);
+    $("#product-sale-price").value = getRegisteredSalePrice(product).toFixed(2);
     salePriceManuallyEdited = true;
     $("#product-quantity").value = Number(product.quantidade) || 0;
     $("#product-quantity").disabled = true;
@@ -988,7 +1125,7 @@ $("#products-list").addEventListener("click", async (event) => {
     $("#product-barcode").disabled = !storeSettings.codigoBarrasAtivo;
     updateSuggestedPrice();
     window.scrollTo({ top: 0, behavior: "smooth" });
-    setFeedback("#product-feedback", "Modo de edição: saldo e histórico de entradas não serão alterados.");
+    setFeedback("#product-feedback", "Modo de edição: saldo e histórico de entradas não serão alterados. Se o custo mudar, o custo anterior ficará registrado no histórico.");
     return;
   }
   const button = event.target.closest("[data-delete-product]");
