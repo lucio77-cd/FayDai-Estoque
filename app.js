@@ -138,7 +138,22 @@ function explainError(error) {
     : error?.message || "Ocorreu um erro inesperado.");
 }
 
+// Mantém a tela de login e o sistema ocultos até o Firebase confirmar a sessão.
+const authLoadingView = document.createElement("section");
+authLoadingView.id = "auth-loading-view";
+authLoadingView.className = "login-wrap";
+authLoadingView.innerHTML = `
+  <div class="brand-mark">FD</div>
+  <p class="eyebrow">GESTÃO SIMPLES</p>
+  <h1>FayDai Estoque</h1>
+  <p class="muted" role="status">Verificando sua sessão...</p>
+`;
+$(".app-shell").prepend(authLoadingView);
+$("#login-view").hidden = true;
+$("#app-view").hidden = true;
+
 function showApp(isSignedIn) {
+  authLoadingView.hidden = true;
   $("#login-view").hidden = isSignedIn;
   $("#app-view").hidden = !isSignedIn;
 }
