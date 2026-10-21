@@ -91,7 +91,7 @@
           <div class="suggested-price"><span>Preço sugerido</span><strong id="suggested-price">R$ 0,00</strong><small>Calculado sobre o custo cadastrado e o percentual de ganho.</small></div>
           <label for="product-sale-price">Preço de venda cadastrado (R$) *</label>
           <input id="product-sale-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Calculado pelo preço sugerido; pode ajustar" required>
-          <p class="small muted">Este será o preço usado automaticamente no Caixa. Você pode definir um preço comercial diferente do sugerido.</p>
+          <p class="small muted">Este será o preço inicial no Caixa, que ainda pode ser ajustado em cada venda. Você pode definir um preço comercial diferente do sugerido.</p>
           <label for="product-quantity">Quantidade inicial *</label>
           <input id="product-quantity" type="number" min="0" step="1" inputmode="numeric" value="0" required>
           <button class="button primary" type="submit">Salvar produto</button>
@@ -163,7 +163,7 @@
             </select>
             <label for="sale-date">Data da venda *</label>
             <input id="sale-date" type="date" required>
-            <p class="notice">O preço usado é o preço de venda cadastrado no produto. Ao finalizar, a venda inteira é registrada e as quantidades são descontadas do estoque.</p>
+            <p class="notice">O preço de cada item começa no preço de venda cadastrado e pode ser ajustado no carrinho. Os alertas avisam quando o preço fica abaixo do sugerido ou do custo; se algum item estiver abaixo do custo, o sistema pede uma confirmação antes de finalizar. Ao finalizar, a venda inteira é registrada e as quantidades são descontadas do estoque.</p>
             <button id="sale-finish-button" class="button primary" type="submit" disabled>Finalizar venda</button>
             <p id="sale-feedback" class="feedback" role="status"></p>
           </form>
@@ -234,7 +234,7 @@
         <div class="section-heading"><div><p class="eyebrow">PRIMEIROS PASSOS</p><h2>Ajuda</h2></div></div>
         <div class="panel help-card">
           <h3>Como usar o FayDai</h3>
-          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Ative o módulo Caixa em Configurações para registrar vendas; o estoque é baixado automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>Confira o saldo no catálogo de produtos.</li></ol>
+          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial. Se o custo mudar depois, o custo anterior fica registrado no histórico.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Ative o módulo Caixa em Configurações para registrar vendas. O preço de cada item pode ser ajustado no carrinho, com alertas de preço abaixo do sugerido ou do custo; o estoque é baixado automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>Confira o saldo no catálogo de produtos.</li></ol>
           <p class="muted small">Cancelamentos, devoluções de venda, painel de indicadores e vistoria física serão adicionados nas próximas etapas.</p>
           <button id="show-tutorial" class="button secondary" type="button">Ver tutorial inicial</button>
         </div>
@@ -252,13 +252,13 @@
       <p class="muted">Você pode consultar este tutorial sempre que precisar.</p>
       <div class="tutorial-step"><span>1</span><div><strong>Cadastre os produtos</strong><p>Informe nome, marca, categoria, custo, ganho desejado e quantidade inicial.</p></div></div>
       <div class="tutorial-step"><span>2</span><div><strong>Registre as entradas</strong><p>Quando receber mercadoria, registre quantidade, custo da compra e fornecedor.</p></div></div>
-      <div class="tutorial-step"><span>3</span><div><strong>Venda e dê baixa</strong><p>No Caixa, registre vendas; em Saídas, perdas e uso interno. O saldo é atualizado sozinho.</p></div></div>
+      <div class="tutorial-step"><span>3</span><div><strong>Venda e dê baixa</strong><p>No Caixa, registre vendas e ajuste o preço se precisar; em Saídas, perdas e uso interno. O saldo é atualizado sozinho.</p></div></div>
       <div class="tutorial-step"><span>4</span><div><strong>Confira o saldo</strong><p>O estoque é atualizado conforme os registros salvos.</p></div></div>
       <button id="tutorial-understood" class="button primary full" type="button">Entendi, começar</button>
       <button id="tutorial-never" class="button quiet full" type="button">Não mostrar novamente</button>
     </section>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=20261021-b1"></script>
+  <script type="module" src="./app.js?v=20261021-b3"></script>
 </body>
 </html>
