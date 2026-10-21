@@ -2,7 +2,7 @@
 
 Sistema simples de gestão de estoque, entradas, saídas e preços, pensado inicialmente para uma loja de celulares e acessórios. A primeira versão será priorizada para uso no celular e construída para ser demonstrada e validada com o responsável pela loja.
 
-> **Status:** primeiro protótipo em desenvolvimento. A interface mobile-first, o login Firebase, o cadastro de produtos, as entradas de estoque e o tutorial inicial já foram adicionados ao código. Ainda precisam ser testados no navegador com o projeto Firebase.
+> **Status:** protótipo em desenvolvimento. Já inclui login, produtos, entradas, Caixa (vendas), Saídas e configurações. Ainda precisam ser validados no navegador com o projeto Firebase.
 
 ## Objetivo
 
@@ -158,12 +158,12 @@ Arquivos iniciais:
 5. Atualize a página e confirme que o produto e o histórico continuam disponíveis.
 6. Teste o tutorial: fechar ou escolher “Entendi, começar” só o fecha naquela sessão; “Não mostrar novamente” impede a abertura automática neste navegador. A opção de Ajuda permite abri-lo novamente.
 
-**Importante:** este protótipo ainda não implementa vendas, cancelamentos, devoluções, dashboard ou vistoria. Esses módulos serão desenvolvidos após validar o fluxo de produtos e entradas.
+**Importante:** este protótipo ainda não implementa cancelamentos, devoluções, dashboard ou vistoria.
 
 
 ## Módulos Caixa e Saídas
 
-- **Caixa:** módulo opcional para registrar vendas, informar o preço realmente cobrado e baixar automaticamente a quantidade do estoque.
+- **Caixa:** módulo opcional para registrar vendas, usar o preço de venda cadastrado no produto e baixar automaticamente a quantidade do estoque.
 - **Saídas:** registra retiradas manuais que não são vendas: perdas, devoluções ao fornecedor, uso interno e outras saídas.
 - Os dois módulos usam o mesmo cadastro e saldo dos produtos, mas mantêm históricos separados.
 - Em **Configurações**, Caixa e Saídas podem ser ativados ou desativados separadamente. As abas continuam visíveis; um módulo desativado exibe um aviso e não permite novos registros.
@@ -175,7 +175,7 @@ Arquivos iniciais:
 1. Entre no sistema e abra **Configurações**.
 2. Deixe **Caixa** desativado e salve. Abra a aba Caixa e confira se aparece o aviso.
 3. Ative **Caixa** e salve.
-4. Abra Caixa, selecione um produto, informe a quantidade, o preço realmente cobrado e a data. Registre a venda.
+4. Abra Caixa, pesquise produtos, ajuste as quantidades no carrinho, escolha a forma de pagamento e a data. Finalize a venda.
 5. Confira se a quantidade diminuiu em Produtos e se a venda aparece no histórico do Caixa.
 6. Tente vender mais unidades do que o saldo disponível; o sistema deve bloquear a operação.
 7. Em Saídas, teste uma retirada manual com motivo, por exemplo, perda ou uso interno. Confira a baixa e o histórico.
