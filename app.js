@@ -28,6 +28,11 @@ const dateToday = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 };
+// Converte "2026-10-21" ou "2026-10-21 14:30" para "21/10/2026" ou "21/10/2026 14:30".
+const formatDate = (value) => {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}${match[4]}` : (value || "");
+};
 const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[char]));
@@ -367,7 +372,7 @@ function renderSales() {
       return `<article class="entry-card">
         <div class="item-title-row"><div class="item-title">Venda</div><span class="stock-badge">${money(total)}</span></div>
         <ul class="sale-history-items">${itemLines}</ul>
-        <p>${escapeHtml(sale.data || "Data não informada")} · Pagamento: ${escapeHtml(sale.formaPagamento || "Não informado")}</p>
+        <p>${escapeHtml(formatDate(sale.dataHora || sale.data) || "Data não informada")} · Pagamento: ${escapeHtml(sale.formaPagamento || "Não informado")}</p>
         <p>Responsável: ${escapeHtml(sale.usuario || "Não identificado")}</p>
       </article>`;
     }).join("");
@@ -411,7 +416,7 @@ function renderExits() {
       const product = products.find((item) => item.id === exit.produtoId);
       return `<article class="entry-card exit-card">
         <div class="item-title-row"><div class="item-title">${escapeHtml(exit.produtoNome || product?.nome || "Produto")}</div><span class="exit-badge">−${Number(exit.quantidade) || 0} un.</span></div>
-        <p><strong>${escapeHtml(labels[exit.motivo] || exit.motivo || "Saída")}</strong> · ${escapeHtml(exit.dataHora || "Data não informada")}</p>
+        <p><strong>${escapeHtml(labels[exit.motivo] || exit.motivo || "Saída")}</strong> · ${escapeHtml(formatDate(exit.dataHora || exit.data) || "Data não informada")}</p>
         <p>Responsável: ${escapeHtml(exit.usuario || "Não identificado")}</p>
         ${exit.observacao ? `<p>${escapeHtml(exit.observacao)}</p>` : ""}
       </article>`;
@@ -438,7 +443,7 @@ function renderEntries() {
       const typeLabel = entry.tipo === "estoque_inicial" ? "Estoque inicial" : "Entrada de mercadoria";
       return `<article class="entry-card">
       <div class="item-title-row"><div class="item-title">${escapeHtml(entry.produtoNome || linkedProduct?.nome || "Produto")}${archived ? '<span class="archived-label">Produto arquivado</span>' : ""}</div><span class="stock-badge">+${Number(entry.quantidade) || 0} un.</span></div>
-      <p>${escapeHtml(typeLabel)} · ${escapeHtml(entry.data || "Data não informada")} · Custo unitário: ${money(entry.custoUnitario)}</p>
+      <p>${escapeHtml(typeLabel)} · ${escapeHtml(formatDate(entry.data) || "Data não informada")} · Custo unitário: ${money(entry.custoUnitario)}</p>
       ${entry.fornecedor ? `<p>Fornecedor: ${escapeHtml(entry.fornecedor)}</p>` : ""}
       ${entry.observacao ? `<p>${escapeHtml(entry.observacao)}</p>` : ""}
       <div class="item-meta"><div><span>Total informado da compra</span><strong>${money((Number(entry.quantidade) || 0) * (Number(entry.custoUnitario) || 0))}</strong></div><div><span>Registro</span><strong>${entry.data ? escapeHtml(entry.data.split("-").reverse().join("/")) : "—"}</strong></div></div>
@@ -972,7 +977,7 @@ $("#products-list").addEventListener("click", async (event) => {
   if (!product || product.arquivado) return;
 
   const confirmed = window.confirm(
-    `Deseja excluir o produto "${product.nome}"?\\n\\nSe houver estoque ou histórico de entradas, ele será arquivado para preservar os registros. Caso contrário, será excluído permanentemente.`
+    `Deseja excluir o produto "${product.nome}"?\n\nSe houver estoque ou histórico de movimentações, ele será arquivado para preservar os registros. Caso contrário, será excluído permanentemente.`
   );
   if (!confirmed) return;
 
