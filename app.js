@@ -883,7 +883,8 @@ $("#entry-form").addEventListener("submit", async (event) => {
   button.disabled = true;
   setFeedback("#entry-feedback", "Registrando entrada…");
   const productId = $("#entry-product").value;
-  const quantity = Number($("#entry-quantity").value);
+  const quantidade = Number($("#entry-quantity").value);
+  const quantity = quantidade;
   const unitCost = Number($("#entry-cost").value);
   const date = $("#entry-date").value;
   const supplier = $("#entry-supplier").value.trim();
