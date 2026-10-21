@@ -911,7 +911,7 @@ $("#exit-form").addEventListener("submit", async (event) => {
       transaction.set(exitRef, {
         produtoId: productId, produtoNome: productName,
         codigoInterno: product.codigoInterno || "", codigoBarras: product.codigoBarras || "",
-        quantidade: quantity, motivo: motive, data, dataHora: dateTime, observacao: notes,
+        quantidade: quantity, motivo: motive, data: date, dataHora: dateTime, observacao: notes,
         usuario: userEmail, criadoEm: serverTimestamp()
       });
     });
