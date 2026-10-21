@@ -24,6 +24,8 @@ const db = getFirestore(app);
 
 const $ = (selector) => document.querySelector(selector);
 const money = (value) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value) || 0);
+// Arredonda valores em reais para 2 casas (centavos), evitando erros de ponto flutuante.
+const roundMoney = (value) => Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
 const dateToday = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -233,7 +235,7 @@ function renderProducts() {
     list.innerHTML = [...activeProducts]
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
       .map((product) => {
-        const suggested = (Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100);
+        const suggested = roundMoney((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100));
         return `<article class="product-card">
           <div class="item-title-row">
             <div class="item-title">${escapeHtml(product.nome)}</div>
@@ -268,11 +270,15 @@ function renderProducts() {
 
 
 function getSuggestedSalePrice(product) {
-  const suggested = Math.round((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100) * 100) / 100;
+  const suggested = roundMoney((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100));
   return Number.isFinite(Number(product.precoVenda)) && product.precoVenda !== null && product.precoVenda !== ""
-    ? Number(product.precoVenda)
+    ? roundMoney(product.precoVenda)
     : suggested;
 }
+
+// Subtotal de um item do carrinho e total geral, sempre em centavos exatos.
+const cartItemSubtotal = (item) => roundMoney(item.quantidade * item.precoUnitario);
+const cartTotal = () => roundMoney(saleCart.reduce((sum, item) => sum + cartItemSubtotal(item), 0));
 
 function renderSaleProductResults() {
   const query = normalizeText($("#sale-product-search").value);
@@ -315,14 +321,13 @@ function renderSaleCart() {
             <span>${item.quantidade}</span>
             <button type="button" class="quantity-button" data-cart-plus="${index}" aria-label="Aumentar quantidade">+</button>
           </div>
-          <strong class="cart-subtotal">${money(item.quantidade * item.precoUnitario)}</strong>
+          <strong class="cart-subtotal">${money(cartItemSubtotal(item))}</strong>
           <button type="button" class="remove-cart-item" data-cart-remove="${index}" aria-label="Remover ${escapeHtml(item.nome)}">Remover</button>
         </div>
       </article>`).join("");
   }
-  const total = saleCart.reduce((sum, item) => sum + item.quantidade * item.precoUnitario, 0);
   const units = saleCart.reduce((sum, item) => sum + item.quantidade, 0);
-  $("#sale-cart-total").textContent = money(total);
+  $("#sale-cart-total").textContent = money(cartTotal());
   $("#sale-cart-count").textContent = `${units} ${units === 1 ? "item" : "itens"}`;
   $("#sale-finish-button").disabled = saleCart.length === 0;
 }
@@ -368,7 +373,7 @@ function renderSales() {
         ? sale.itens
         : [{ produtoNome: sale.produtoNome || "Produto", quantidade: sale.quantidade || 0, precoUnitario: sale.precoUnitario || 0 }];
       const itemLines = items.map((item) => `<li>${escapeHtml(item.produtoNome || item.nome || "Produto")} — ${Number(item.quantidade) || 0} × ${money(item.precoUnitario)}</li>`).join("");
-      const total = Number(sale.total) || items.reduce((sum, item) => sum + (Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0), 0);
+      const total = Number(sale.total) || roundMoney(items.reduce((sum, item) => sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0)), 0));
       return `<article class="entry-card">
         <div class="item-title-row"><div class="item-title">Venda</div><span class="stock-badge">${money(total)}</span></div>
         <ul class="sale-history-items">${itemLines}</ul>
@@ -446,7 +451,7 @@ function renderEntries() {
       <p>${escapeHtml(typeLabel)} · ${escapeHtml(formatDate(entry.data) || "Data não informada")} · Custo unitário: ${money(entry.custoUnitario)}</p>
       ${entry.fornecedor ? `<p>Fornecedor: ${escapeHtml(entry.fornecedor)}</p>` : ""}
       ${entry.observacao ? `<p>${escapeHtml(entry.observacao)}</p>` : ""}
-      <div class="item-meta"><div><span>Total informado da compra</span><strong>${money((Number(entry.quantidade) || 0) * (Number(entry.custoUnitario) || 0))}</strong></div><div><span>Registro</span><strong>${entry.data ? escapeHtml(entry.data.split("-").reverse().join("/")) : "—"}</strong></div></div>
+      <div class="item-meta"><div><span>Total informado da compra</span><strong>${money(roundMoney((Number(entry.quantidade) || 0) * (Number(entry.custoUnitario) || 0)))}</strong></div><div><span>Registro</span><strong>${entry.data ? escapeHtml(entry.data.split("-").reverse().join("/")) : "—"}</strong></div></div>
     </article>`;
     }).join("");
 }
@@ -535,527 +540,4 @@ $("#logout-button").addEventListener("click", async () => {
   }
 });
 
-onAuthStateChanged(auth, async (user) => {
-  showApp(Boolean(user));
-  if (user) {
-    await loadData();
-    showTutorialIfNeeded();
-  } else {
-    $("#tutorial-overlay").hidden = true;
-  }
-});
-
-document.querySelectorAll(".tab").forEach((button) => {
-  button.addEventListener("click", () => switchTab(button.dataset.tab));
-});
-
-const updateSuggestedPrice = () => {
-  const cost = Number($("#product-cost").value) || 0;
-  const gain = Number($("#product-gain").value) || 0;
-  const suggested = Math.round(cost * (1 + gain / 100) * 100) / 100;
-  $("#suggested-price").textContent = money(suggested);
-  if (!salePriceManuallyEdited) $("#product-sale-price").value = suggested.toFixed(2);
-};
-$("#product-cost").addEventListener("input", updateSuggestedPrice);
-$("#product-gain").addEventListener("input", updateSuggestedPrice);
-$("#product-sale-price").addEventListener("input", () => { salePriceManuallyEdited = true; });
-
-$("#product-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const button = event.currentTarget.querySelector('button[type="submit"]');
-  button.disabled = true;
-  setFeedback("#product-feedback", "Salvando…");
-  const nome = cleanOption($("#product-name").value);
-  const marcaSelecionada = $("#product-brand").value;
-  const categoriaSelecionada = $("#product-category").value;
-  const marcaInformada = cleanOption(marcaSelecionada === NEW_BRAND_VALUE ? $("#product-brand-new").value : marcaSelecionada);
-  const categoriaInformada = cleanOption(categoriaSelecionada === NEW_CATEGORY_VALUE ? $("#product-category-new").value : categoriaSelecionada);
-  const marca = brands.find((item) => normalizeText(item) === normalizeText(marcaInformada)) || marcaInformada;
-  const categoria = categories.concat(SUGGESTED_CATEGORIES)
-    .find((item) => normalizeText(item) === normalizeText(categoriaInformada)) || categoriaInformada;
-  const barcode = storeSettings.codigoBarrasAtivo ? cleanOption($("#product-barcode").value) : "";
-  const descricao = $("#product-description").value.trim();
-  const custo = Number($("#product-cost").value);
-  const percentualGanho = Number($("#product-gain").value);
-  const precoVenda = Number($("#product-sale-price").value);
-  const quantidade = Number($("#product-quantity").value);
-  if (!nome || !Number.isFinite(custo) || custo < 0 || !Number.isFinite(percentualGanho) || percentualGanho < 0 || !Number.isFinite(precoVenda) || precoVenda < 0 || !Number.isInteger(quantidade) || quantidade < 0) {
-    setFeedback("#product-feedback", "Confira os campos, o preço de venda e informe quantidades inteiras não negativas.", true);
-    button.disabled = false;
-    return;
-  }
-
-  const duplicate = products.find((product) =>
-    !product.arquivado &&
-    product.id !== editingProductId &&
-    normalizeText(product.nome) === normalizeText(nome) &&
-    normalizeText(product.marca) === normalizeText(marca)
-  );
-  if (duplicate) {
-    setFeedback("#product-feedback", `Já existe um produto ativo chamado "${duplicate.nome}" com essa marca${marca ? ` (${marca})` : ""}. Confira a lista antes de salvar outro.`, true);
-    button.disabled = false;
-    return;
-  }
-
-  const wasEditing = Boolean(editingProductId);
-  let codigoGeradoNestaOperacao = "";
-  try {
-    if (barcode) {
-      const barcodeDuplicate = products.find((product) => product.id !== editingProductId && !product.arquivado && String(product.codigoBarras || "") === barcode);
-      if (barcodeDuplicate) throw new Error(`Este código de barras já está associado ao produto "${barcodeDuplicate.nome}".`);
-    }
-    if (editingProductId) {
-      const current = products.find((product) => product.id === editingProductId);
-      if (!current) throw new Error("Produto não encontrado. Atualize a lista e tente novamente.");
-
-      // Produtos antigos também recebem código ao serem salvos, se o recurso estiver ativo.
-      // Códigos existentes são preservados; editar nunca gera um código novo para eles.
-      const codigoInterno = storeSettings.codigoInternoAtivo && !current.codigoInterno
-        ? await generateInternalCode()
-        : current.codigoInterno || "";
-      if (!current.codigoInterno && codigoInterno) codigoGeradoNestaOperacao = codigoInterno;
-
-      await updateDoc(doc(db, "produtos", editingProductId), {
-        nome, marca, categoria, descricao, custo, percentualGanho, precoVenda,
-        ...(codigoInterno ? { codigoInterno } : {}),
-        ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
-        atualizadoEm: serverTimestamp()
-      });
-      const catalogUpdate = { atualizadoEm: serverTimestamp() };
-      if (marca) catalogUpdate.marcas = arrayUnion(marca);
-      if (categoria) catalogUpdate.categorias = arrayUnion(categoria);
-      if (marca || categoria) {
-        await runTransaction(db, async (transaction) => {
-          transaction.set(doc(db, "produtos", CATALOG_OPTIONS_ID), catalogUpdate, { merge: true });
-        });
-      }
-    } else {
-    const batch = writeBatch(db);
-    const productRef = doc(collection(db, "produtos"));
-    const user = auth.currentUser;
-    const codigoInterno = storeSettings.codigoInternoAtivo ? await generateInternalCode() : "";
-    codigoGeradoNestaOperacao = codigoInterno;
-    batch.set(productRef, {
-      nome, marca, categoria, descricao, custo, percentualGanho, precoVenda, quantidade,
-      codigoInterno,
-      ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
-      criadoEm: serverTimestamp(),
-      criadoEmData: dateToday(),
-      criadoPor: user?.email || null,
-      atualizadoEm: serverTimestamp()
-    });
-
-    const catalogUpdate = { atualizadoEm: serverTimestamp() };
-    if (marca) catalogUpdate.marcas = arrayUnion(marca);
-    if (categoria) catalogUpdate.categorias = arrayUnion(categoria);
-    if (marca || categoria) {
-      batch.set(doc(db, "produtos", CATALOG_OPTIONS_ID), catalogUpdate, { merge: true });
-    }
-
-    if (quantidade > 0) {
-      const entryRef = doc(collection(db, "entradas"));
-      batch.set(entryRef, {
-        produtoId: productRef.id,
-        produtoNome: nome,
-        quantidade,
-        custoUnitario: custo,
-        data: dateToday(),
-        fornecedor: "",
-        observacao: "Estoque inicial no cadastro do produto",
-        tipo: "estoque_inicial",
-        criadoEm: serverTimestamp(),
-        criadoPor: user?.email || null
-      });
-    }
-    await batch.commit();
-    }
-    resetProductForm();
-    const successMessage = codigoGeradoNestaOperacao
-      ? `${wasEditing ? "Produto atualizado" : "Produto cadastrado"} com o código interno ${codigoGeradoNestaOperacao}.`
-      : (wasEditing ? "Produto atualizado." : "Produto cadastrado.");
-    setFeedback("#product-feedback", successMessage);
-    await loadData();
-    showToast(successMessage);
-  } catch (error) {
-    console.error("Falha ao salvar produto:", error);
-    setFeedback("#product-feedback", explainError(error), true);
-  } finally {
-    button.disabled = false;
-  }
-});
-
-
-$("#sale-product-search").addEventListener("input", renderSaleProductResults);
-$("#sale-product-search").addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
-  event.preventDefault();
-  const query = normalizeText($("#sale-product-search").value);
-  if (!query) return;
-  const exactMatches = products.filter((product) => !product.arquivado && [
-    product.codigoBarras, product.codigoInterno, product.nome
-  ].some((value) => normalizeText(value) === query));
-  if (exactMatches.length === 1) addProductToSaleCart(exactMatches[0]);
-});
-$("#sale-product-results").addEventListener("click", (event) => {
-  const button = event.target.closest("[data-select-sale-product]");
-  if (!button) return;
-  const product = products.find((item) => item.id === button.dataset.selectSaleProduct && !item.arquivado);
-  if (!product) return;
-  addProductToSaleCart(product);
-});
-
-$("#sale-cart-list").addEventListener("click", (event) => {
-  const plusButton = event.target.closest("[data-cart-plus]");
-  const minusButton = event.target.closest("[data-cart-minus]");
-  const removeButton = event.target.closest("[data-cart-remove]");
-  if (plusButton) {
-    const item = saleCart[Number(plusButton.dataset.cartPlus)];
-    const product = products.find((entry) => entry.id === item?.produtoId);
-    if (!item || !product) return;
-    if (item.quantidade + 1 > (Number(product.quantidade) || 0)) {
-      setFeedback("#sale-feedback", `Saldo insuficiente. Disponível: ${Number(product.quantidade) || 0} unidade(s).`, true);
-      return;
-    }
-    item.quantidade += 1;
-  } else if (minusButton) {
-    const index = Number(minusButton.dataset.cartMinus);
-    if (!saleCart[index]) return;
-    saleCart[index].quantidade -= 1;
-    if (saleCart[index].quantidade <= 0) saleCart.splice(index, 1);
-  } else if (removeButton) {
-    saleCart.splice(Number(removeButton.dataset.cartRemove), 1);
-  } else return;
-  renderSaleCart();
-});
-
-$("#sale-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const button = $("#sale-finish-button");
-  if (!storeSettings.caixaAtivo) {
-    setFeedback("#sale-feedback", "O módulo Caixa está desativado nas configurações.", true);
-    return;
-  }
-  if (!saleCart.length) {
-    setFeedback("#sale-feedback", "Adicione pelo menos um produto à compra.", true);
-    return;
-  }
-  const date = $("#sale-date").value;
-  const paymentMethod = $("#sale-payment-method").value;
-  if (!date || !paymentMethod) {
-    setFeedback("#sale-feedback", "Selecione a data e a forma de pagamento.", true);
-    return;
-  }
-  button.disabled = true;
-  setFeedback("#sale-feedback", "Registrando venda…");
-  try {
-    const saleRef = doc(collection(db, "vendas"));
-    const userEmail = auth.currentUser?.email || "Usuário não identificado";
-    const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
-    const cartItems = saleCart.map((item) => ({ ...item }));
-    const productRefs = cartItems.map((item) => ({ item, ref: doc(db, "produtos", item.produtoId) }));
-    const total = cartItems.reduce((sum, item) => sum + item.quantidade * item.precoUnitario, 0);
-    await runTransaction(db, async (transaction) => {
-      const snapshots = [];
-      for (const productRef of productRefs) {
-        snapshots.push({ ...productRef, snapshot: await transaction.get(productRef.ref) });
-      }
-      for (const entry of snapshots) {
-        if (!entry.snapshot.exists()) throw new Error(`O produto "${entry.item.nome}" não existe mais. Atualize a lista.`);
-        const product = entry.snapshot.data();
-        if (product.arquivado) throw new Error(`O produto "${entry.item.nome}" está arquivado.`);
-        const currentStock = Number(product.quantidade) || 0;
-        if (entry.item.quantidade > currentStock) {
-          throw new Error(`Saldo insuficiente para "${product.nome || entry.item.nome}". Disponível: ${currentStock}; solicitado: ${entry.item.quantidade}.`);
-        }
-      }
-      for (const entry of snapshots) {
-        const product = entry.snapshot.data();
-        const currentStock = Number(product.quantidade) || 0;
-        transaction.update(entry.ref, {
-          quantidade: currentStock - entry.item.quantidade,
-          atualizadoEm: serverTimestamp()
-        });
-      }
-      transaction.set(saleRef, {
-        itens: cartItems.map((item) => ({
-          produtoId: item.produtoId,
-          produtoNome: item.nome,
-          codigoInterno: item.codigoInterno || "",
-          codigoBarras: item.codigoBarras || "",
-          quantidade: item.quantidade,
-          precoUnitario: item.precoUnitario,
-          subtotal: item.quantidade * item.precoUnitario
-        })),
-        total,
-        formaPagamento: paymentMethod,
-        data: date,
-        dataHora: dateTime,
-        usuario: userEmail,
-        criadoEm: serverTimestamp()
-      });
-    });
-    saleCart = [];
-    form.reset();
-    $("#sale-date").value = dateToday();
-    renderSaleProductResults();
-    renderSaleCart();
-    setFeedback("#sale-feedback", "Venda registrada e estoque atualizado.");
-    await loadData();
-    showToast("Venda registrada. Estoque atualizado.");
-  } catch (error) {
-    console.error("Falha ao registrar venda:", error);
-    setFeedback("#sale-feedback", explainError(error), true);
-  } finally {
-    button.disabled = saleCart.length === 0;
-  }
-});
-$("#sale-date").value = dateToday();
-renderSaleCart();
-
-$("#exit-product-search").addEventListener("input", () => {
-  selectedExitProductId = "";
-  renderExitProductResults();
-});
-$("#exit-product-results").addEventListener("click", (event) => {
-  const button = event.target.closest("[data-select-exit-product]");
-  if (!button) return;
-  const product = products.find((item) => item.id === button.dataset.selectExitProduct && !item.arquivado);
-  if (!product) return;
-  selectedExitProductId = product.id;
-  $("#exit-product-search").value = product.nome;
-  renderExitProductResults();
-});
-$("#exit-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const button = form.querySelector('button[type="submit"]');
-  button.disabled = true;
-  setFeedback("#exit-feedback", "Registrando saída…");
-  if (storeSettings.saidasAtivo === false) {
-    setFeedback("#exit-feedback", "O módulo Saídas está desativado nas configurações.", true);
-    button.disabled = false;
-    return;
-  }
-  const productId = selectedExitProductId;
-  const quantity = Number($("#exit-quantity").value);
-  const motive = $("#exit-reason").value;
-  const date = $("#exit-date").value;
-  const notes = $("#exit-notes").value.trim();
-  if (!productId || !Number.isInteger(quantity) || quantity < 1 || !motive || !date) {
-    setFeedback("#exit-feedback", "Pesquise e selecione um produto, informe a quantidade, o motivo e a data.", true);
-    button.disabled = false;
-    return;
-  }
-  try {
-    const productRef = doc(db, "produtos", productId);
-    const exitRef = doc(collection(db, "saidas"));
-    const userEmail = auth.currentUser?.email || "Usuário não identificado";
-    const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
-    await runTransaction(db, async (transaction) => {
-      const productSnapshot = await transaction.get(productRef);
-      if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
-      const product = productSnapshot.data();
-      if (product.arquivado) throw new Error("Este produto está arquivado e não pode receber movimentações.");
-      const currentStock = Number(product.quantidade) || 0;
-      if (quantity > currentStock) throw new Error(`Saldo insuficiente. Disponível: ${currentStock} unidade(s); solicitado: ${quantity}.`);
-      transaction.update(productRef, { quantidade: currentStock - quantity, atualizadoEm: serverTimestamp() });
-      transaction.set(exitRef, {
-        produtoId: productId, produtoNome: product.nome || "",
-        codigoInterno: product.codigoInterno || "", codigoBarras: product.codigoBarras || "",
-        quantidade: quantity, motivo: motive, data: date, dataHora: dateTime, observacao: notes,
-        usuario: userEmail, criadoEm: serverTimestamp()
-      });
-    });
-    form.reset();
-    selectedExitProductId = "";
-    $("#exit-date").value = dateToday();
-    renderExitProductResults();
-    setFeedback("#exit-feedback", "Saída registrada e saldo atualizado.");
-    await loadData();
-    showToast("Saída registrada. Estoque atualizado.");
-  } catch (error) {
-    console.error("Falha ao registrar saída:", error);
-    setFeedback("#exit-feedback", explainError(error), true);
-  } finally { button.disabled = false; }
-});
-$("#exit-date").value = dateToday();
-
-$("#entry-date").value = dateToday();
-$("#entry-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const button = event.currentTarget.querySelector('button[type="submit"]');
-  button.disabled = true;
-  setFeedback("#entry-feedback", "Registrando entrada…");
-  const productId = $("#entry-product").value;
-  const quantidade = Number($("#entry-quantity").value);
-  const quantity = quantidade;
-  const unitCost = Number($("#entry-cost").value);
-  const date = $("#entry-date").value;
-  const supplier = $("#entry-supplier").value.trim();
-  const notes = $("#entry-notes").value.trim();
-  if (!productId || !Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(unitCost) || unitCost < 0 || !date) {
-    setFeedback("#entry-feedback", "Confira o produto, a quantidade, o custo e a data.", true);
-    button.disabled = false;
-    return;
-  }
-  try {
-    const productRef = doc(db, "produtos", productId);
-    await runTransaction(db, async (transaction) => {
-      const productSnapshot = await transaction.get(productRef);
-      if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
-      const product = productSnapshot.data();
-      if (product.arquivado) throw new Error("Este produto está arquivado e não pode receber movimentações.");
-      const entryRef = doc(collection(db, "entradas"));
-      transaction.update(productRef, {
-        quantidade: (Number(product.quantidade) || 0) + quantity,
-        atualizadoEm: serverTimestamp()
-      });
-      transaction.set(entryRef, {
-        produtoId: productId,
-        produtoNome: product.nome,
-        quantidade,
-        custoUnitario: unitCost,
-        data: date,
-        fornecedor: supplier,
-        observacao: notes,
-        tipo: "entrada",
-        criadoEm: serverTimestamp(),
-        criadoPor: auth.currentUser?.email || null
-      });
-    });
-    form.reset();
-    $("#entry-date").value = dateToday();
-    setFeedback("#entry-feedback", "Entrada registrada e estoque atualizado.");
-    await loadData();
-    showToast("Entrada registrada.");
-  } catch (error) {
-    console.error("Falha ao registrar entrada:", error);
-    setFeedback("#entry-feedback", explainError(error), true);
-  } finally {
-    button.disabled = false;
-  }
-});
-
-$("#products-list").addEventListener("click", async (event) => {
-  const editButton = event.target.closest("[data-edit-product]");
-  if (editButton) {
-    const product = products.find((item) => item.id === editButton.dataset.editProduct);
-    if (!product) return;
-    editingProductId = product.id;
-    $("#product-form h3").textContent = "Editar produto";
-    $("#product-form button[type=submit]").textContent = "Salvar alterações";
-    $("#product-name").value = product.nome || "";
-    renderCatalogOptions();
-    $("#product-brand").value = product.marca || "";
-    $("#product-category").value = product.categoria || "";
-    $("#product-description").value = product.descricao || "";
-    $("#product-cost").value = Number(product.custo) || 0;
-    $("#product-gain").value = Number(product.percentualGanho) || 0;
-    const calculatedSuggestedPrice = Math.round((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100) * 100) / 100;
-    $("#product-sale-price").value = Number.isFinite(Number(product.precoVenda)) && product.precoVenda !== null && product.precoVenda !== ""
-      ? Number(product.precoVenda).toFixed(2)
-      : calculatedSuggestedPrice.toFixed(2);
-    salePriceManuallyEdited = true;
-    $("#product-quantity").value = Number(product.quantidade) || 0;
-    $("#product-quantity").disabled = true;
-    $("#product-internal-code").value = product.codigoInterno || "";
-    $("#product-barcode").value = product.codigoBarras || "";
-    $("#product-barcode").disabled = !storeSettings.codigoBarrasAtivo;
-    updateSuggestedPrice();
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    setFeedback("#product-feedback", "Modo de edição: saldo e histórico de entradas não serão alterados.");
-    return;
-  }
-  const button = event.target.closest("[data-delete-product]");
-  if (!button) return;
-
-  const productId = button.dataset.deleteProduct;
-  const product = products.find((item) => item.id === productId);
-  if (!product || product.arquivado) return;
-
-  const confirmed = window.confirm(
-    `Deseja excluir o produto "${product.nome}"?\n\nSe houver estoque ou histórico de movimentações, ele será arquivado para preservar os registros. Caso contrário, será excluído permanentemente.`
-  );
-  if (!confirmed) return;
-
-  button.disabled = true;
-  button.textContent = "Processando…";
-  try {
-    const hasHistory =
-      entries.some((entry) => entry.produtoId === productId) ||
-      exits.some((exit) => exit.produtoId === productId) ||
-      sales.some((sale) => Array.isArray(sale.itens) && sale.itens.some((item) => item.produtoId === productId));
-    const hasStock = (Number(product.quantidade) || 0) > 0;
-
-    if (hasHistory || hasStock) {
-      await updateDoc(doc(db, "produtos", productId), {
-        arquivado: true,
-        arquivadoEm: serverTimestamp(),
-        arquivadoPor: auth.currentUser?.email || null,
-        atualizadoEm: serverTimestamp()
-      });
-      showToast("Produto arquivado. O histórico foi preservado.");
-    } else {
-      await deleteDoc(doc(db, "produtos", productId));
-      showToast("Produto excluído.");
-    }
-    await loadData();
-  } catch (error) {
-    console.error("Falha ao excluir/arquivar produto:", error);
-    showToast(explainError(error));
-    button.disabled = false;
-    button.textContent = "Excluir produto";
-  }
-});
-
-$("#store-settings-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const button = event.currentTarget.querySelector('button[type="submit"]');
-  button.disabled = true;
-  try {
-    const updated = {
-      nome: cleanOption($("#store-name").value), responsavel: cleanOption($("#store-manager").value),
-      telefone: cleanOption($("#store-phone").value), endereco: cleanOption($("#store-address").value),
-      cnpj: cleanOption($("#store-cnpj").value),
-      codigoInternoAtivo: $("#setting-internal-code").checked,
-      codigoBarrasAtivo: $("#setting-barcode").checked,
-      caixaAtivo: $("#setting-caja-active").checked,
-      saidasAtivo: $("#setting-exits-active").checked,
-      atualizadoEm: serverTimestamp(), atualizadoPor: auth.currentUser?.email || null
-    };
-    const settingsRef = doc(db, "produtos", STORE_SETTINGS_ID);
-    await runTransaction(db, async (transaction) => {
-      transaction.set(settingsRef, updated, { merge: true });
-    });
-    storeSettings = { ...storeSettings, ...updated };
-    renderStoreSettings();
-    setFeedback("#settings-feedback", "Configurações salvas.");
-    showToast("Configurações salvas.");
-  } catch (error) {
-    console.error("Falha ao salvar configurações:", error);
-    setFeedback("#settings-feedback", explainError(error), true);
-  } finally { button.disabled = false; }
-});
-
-$("#refresh-products").addEventListener("click", loadData);
-$("#refresh-entries").addEventListener("click", loadData);
-$("#refresh-exits").addEventListener("click", loadData);
-$("#refresh-sales").addEventListener("click", loadData);
-$("#show-archived-entries").addEventListener("change", (event) => {
-  showArchivedEntries = event.currentTarget.checked;
-  renderEntries();
-});
-$("#show-tutorial").addEventListener("click", () => { $("#tutorial-overlay").hidden = false; });
-$("#tutorial-close").addEventListener("click", closeTutorialForNow);
-$("#tutorial-understood").addEventListener("click", closeTutorialForNow);
-$("#tutorial-never").addEventListener("click", () => {
-  localStorage.setItem("faydai-tutorial-dismissed", "yes");
-  closeTutorialForNow();
-  showToast("O tutorial não será exibido automaticamente.");
-});
-$("#tutorial-overlay").addEventListener("click", (event) => {
-  if (event.target === $("#tutorial-overlay")) closeTutorialForNow();
-});
+onAuthStateChanged(auth,
