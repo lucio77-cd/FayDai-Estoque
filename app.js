@@ -3,8 +3,8 @@ import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
-  getFirestore, collection, getDocs, doc, writeBatch, addDoc,
-  runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion
+  getFirestore, collection, getDocs, doc, writeBatch,
+  runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion, setDoc
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 // Configuração do aplicativo web FayDai-Estoque.
@@ -24,6 +24,7 @@ const db = getFirestore(app);
 
 const $ = (selector) => document.querySelector(selector);
 const money = (value) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value) || 0);
+const roundMoney = (v) => Math.round((Number(v) || 0) * 100) / 100;
 const dateToday = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -261,7 +262,7 @@ function renderProducts() {
 
 
 function getSuggestedSalePrice(product) {
-  const suggested = Math.round((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100) * 100) / 100;
+  const suggested = roundMoney((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100));
   return Number.isFinite(Number(product.precoVenda)) && product.precoVenda !== null && product.precoVenda !== ""
     ? Number(product.precoVenda)
     : suggested;
@@ -308,12 +309,12 @@ function renderSaleCart() {
             <span>${item.quantidade}</span>
             <button type="button" class="quantity-button" data-cart-plus="${index}" aria-label="Aumentar quantidade">+</button>
           </div>
-          <strong class="cart-subtotal">${money(item.quantidade * item.precoUnitario)}</strong>
+          <strong class="cart-subtotal">${money(roundMoney(item.quantidade * item.precoUnitario))}</strong>
           <button type="button" class="remove-cart-item" data-cart-remove="${index}" aria-label="Remover ${escapeHtml(item.nome)}">Remover</button>
         </div>
       </article>`).join("");
   }
-  const total = saleCart.reduce((sum, item) => sum + item.quantidade * item.precoUnitario, 0);
+  const total = roundMoney(saleCart.reduce((sum, item) => sum + roundMoney(item.quantidade * item.precoUnitario), 0));
   const units = saleCart.reduce((sum, item) => sum + item.quantidade, 0);
   $("#sale-cart-total").textContent = money(total);
   $("#sale-cart-count").textContent = `${units} ${units === 1 ? "item" : "itens"}`;
@@ -361,7 +362,7 @@ function renderSales() {
         ? sale.itens
         : [{ produtoNome: sale.produtoNome || "Produto", quantidade: sale.quantidade || 0, precoUnitario: sale.precoUnitario || 0 }];
       const itemLines = items.map((item) => `<li>${escapeHtml(item.produtoNome || item.nome || "Produto")} — ${Number(item.quantidade) || 0} × ${money(item.precoUnitario)}</li>`).join("");
-      const total = Number(sale.total) || items.reduce((sum, item) => sum + (Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0), 0);
+      const total = roundMoney(Number(sale.total) || items.reduce((sum, item) => sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0)), 0));
       return `<article class="entry-card">
         <div class="item-title-row"><div class="item-title">Venda</div><span class="stock-badge">${money(total)}</span></div>
         <ul class="sale-history-items">${itemLines}</ul>
@@ -494,9 +495,6 @@ async function loadData() {
   } catch (error) {
     console.error("Falha ao carregar dados do Firestore:", error);
     showToast(explainError(error));
-    if (error?.code?.includes("permission-denied")) {
-      showToast("Acesso negado. Confira as regras do Firestore e se a conta autenticada tem permissão.");
-    }
   }
 }
 
@@ -535,6 +533,20 @@ onAuthStateChanged(auth, async (user) => {
     showTutorialIfNeeded();
   } else {
     $("#tutorial-overlay").hidden = true;
+    products = [];
+    entries = [];
+    exits = [];
+    sales = [];
+    saleCart = [];
+    selectedExitProductId = "";
+    selectedSaleProductId = "";
+    renderProducts();
+    renderEntries();
+    renderExitProductResults();
+    renderExits();
+    renderSaleProductResults();
+    renderSales();
+    renderSaleCart();
   }
 });
 
@@ -555,7 +567,6 @@ $("#product-sale-price").addEventListener("input", () => { salePriceManuallyEdit
 
 $("#product-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const form = event.currentTarget;
   const button = event.currentTarget.querySelector('button[type="submit"]');
   button.disabled = true;
   setFeedback("#product-feedback", "Salvando…");
@@ -619,9 +630,7 @@ $("#product-form").addEventListener("submit", async (event) => {
       if (marca) catalogUpdate.marcas = arrayUnion(marca);
       if (categoria) catalogUpdate.categorias = arrayUnion(categoria);
       if (marca || categoria) {
-        await runTransaction(db, async (transaction) => {
-          transaction.set(doc(db, "produtos", CATALOG_OPTIONS_ID), catalogUpdate, { merge: true });
-        });
+        await setDoc(doc(db, "produtos", CATALOG_OPTIONS_ID), catalogUpdate, { merge: true });
       }
     } else {
     const batch = writeBatch(db);
@@ -688,7 +697,13 @@ $("#sale-product-search").addEventListener("keydown", (event) => {
   const exactMatches = products.filter((product) => !product.arquivado && [
     product.codigoBarras, product.codigoInterno, product.nome
   ].some((value) => normalizeText(value) === query));
-  if (exactMatches.length === 1) addProductToSaleCart(exactMatches[0]);
+  if (exactMatches.length === 1) {
+    addProductToSaleCart(exactMatches[0]);
+  } else if (exactMatches.length > 1) {
+    setFeedback("#sale-feedback", "Mais de um produto corresponde. Escolha na lista.", true);
+  } else {
+    setFeedback("#sale-feedback", "Nenhum produto encontrado para esse código.", true);
+  }
 });
 $("#sale-product-results").addEventListener("click", (event) => {
   const button = event.target.closest("[data-select-sale-product]");
@@ -748,9 +763,12 @@ $("#sale-form").addEventListener("submit", async (event) => {
     const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
     const cartItems = saleCart.map((item) => ({ ...item }));
     const productRefs = cartItems.map((item) => ({ item, ref: doc(db, "produtos", item.produtoId) }));
-    const total = cartItems.reduce((sum, item) => sum + item.quantidade * item.precoUnitario, 0);
+    let saleItems = [];
+    let stockUpdates = [];
+    const total = roundMoney(cartItems.reduce((sum, item) => sum + roundMoney(item.quantidade * item.precoUnitario), 0));
     await runTransaction(db, async (transaction) => {
       const snapshots = [];
+      stockUpdates = [];
       for (const productRef of productRefs) {
         snapshots.push({ ...productRef, snapshot: await transaction.get(productRef.ref) });
       }
@@ -763,24 +781,31 @@ $("#sale-form").addEventListener("submit", async (event) => {
           throw new Error(`Saldo insuficiente para "${product.nome || entry.item.nome}". Disponível: ${currentStock}; solicitado: ${entry.item.quantidade}.`);
         }
       }
-      for (const entry of snapshots) {
-        const product = entry.snapshot.data();
-        const currentStock = Number(product.quantidade) || 0;
-        transaction.update(entry.ref, {
-          quantidade: currentStock - entry.item.quantidade,
-          atualizadoEm: serverTimestamp()
-        });
-      }
-      transaction.set(saleRef, {
-        itens: cartItems.map((item) => ({
+      saleItems = snapshots.map(({ item, snapshot }) => {
+        const product = snapshot.data();
+        return {
           produtoId: item.produtoId,
           produtoNome: item.nome,
           codigoInterno: item.codigoInterno || "",
           codigoBarras: item.codigoBarras || "",
           quantidade: item.quantidade,
-          precoUnitario: item.precoUnitario,
-          subtotal: item.quantidade * item.precoUnitario
-        })),
+          precoUnitario: roundMoney(item.precoUnitario),
+          custoUnitario: Number(product.custo) || 0,
+          subtotal: roundMoney(item.quantidade * item.precoUnitario)
+        };
+      });
+      for (const entry of snapshots) {
+        const product = entry.snapshot.data();
+        const currentStock = Number(product.quantidade) || 0;
+        const updatedQuantity = currentStock - entry.item.quantidade;
+        transaction.update(entry.ref, {
+          quantidade: updatedQuantity,
+          atualizadoEm: serverTimestamp()
+        });
+        stockUpdates.push({ id: entry.item.produtoId, quantidade: updatedQuantity });
+      }
+      transaction.set(saleRef, {
+        itens: saleItems,
         total,
         formaPagamento: paymentMethod,
         data: date,
@@ -789,13 +814,23 @@ $("#sale-form").addEventListener("submit", async (event) => {
         criadoEm: serverTimestamp()
       });
     });
+    products = products.map((product) => {
+      const updated = stockUpdates.find((item) => item.id === product.id);
+      return updated ? { ...product, quantidade: updated.quantidade } : product;
+    });
+    sales.unshift({
+      id: saleRef.id, itens: saleItems, total, formaPagamento: paymentMethod,
+      data: date, dataHora: dateTime, usuario: userEmail
+    });
     saleCart = [];
     form.reset();
     $("#sale-date").value = dateToday();
+    renderProducts();
     renderSaleProductResults();
+    renderExitProductResults();
+    renderSales();
     renderSaleCart();
     setFeedback("#sale-feedback", "Venda registrada e estoque atualizado.");
-    await loadData();
     showToast("Venda registrada. Estoque atualizado.");
   } catch (error) {
     console.error("Falha ao registrar venda:", error);
@@ -846,6 +881,8 @@ $("#exit-form").addEventListener("submit", async (event) => {
     const exitRef = doc(collection(db, "saidas"));
     const userEmail = auth.currentUser?.email || "Usuário não identificado";
     const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    let updatedQuantity = 0;
+    let productName = "";
     await runTransaction(db, async (transaction) => {
       const productSnapshot = await transaction.get(productRef);
       if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
@@ -853,9 +890,11 @@ $("#exit-form").addEventListener("submit", async (event) => {
       if (product.arquivado) throw new Error("Este produto está arquivado e não pode receber movimentações.");
       const currentStock = Number(product.quantidade) || 0;
       if (quantity > currentStock) throw new Error(`Saldo insuficiente. Disponível: ${currentStock} unidade(s); solicitado: ${quantity}.`);
-      transaction.update(productRef, { quantidade: currentStock - quantity, atualizadoEm: serverTimestamp() });
+      updatedQuantity = currentStock - quantity;
+      productName = product.nome || "";
+      transaction.update(productRef, { quantidade: updatedQuantity, atualizadoEm: serverTimestamp() });
       transaction.set(exitRef, {
-        produtoId: productId, produtoNome: product.nome || "",
+        produtoId: productId, produtoNome: productName,
         codigoInterno: product.codigoInterno || "", codigoBarras: product.codigoBarras || "",
         quantidade, motivo: motive, data, dataHora: dateTime, observacao: notes,
         usuario: userEmail, criadoEm: serverTimestamp()
@@ -864,9 +903,16 @@ $("#exit-form").addEventListener("submit", async (event) => {
     form.reset();
     selectedExitProductId = "";
     $("#exit-date").value = dateToday();
+    products = products.map((product) => product.id === productId ? { ...product, quantidade: updatedQuantity } : product);
+    exits.unshift({
+      id: exitRef.id, produtoId: productId, produtoNome: productName, quantidade,
+      motivo: motive, data, dataHora: dateTime, observacao: notes, usuario: userEmail
+    });
+    renderProducts();
     renderExitProductResults();
+    renderSaleProductResults();
+    renderExits();
     setFeedback("#exit-feedback", "Saída registrada e saldo atualizado.");
-    await loadData();
     showToast("Saída registrada. Estoque atualizado.");
   } catch (error) {
     console.error("Falha ao registrar saída:", error);
@@ -896,18 +942,24 @@ $("#entry-form").addEventListener("submit", async (event) => {
   }
   try {
     const productRef = doc(db, "produtos", productId);
+    const entryRef = doc(collection(db, "entradas"));
+    const userEmail = auth.currentUser?.email || null;
+    let updatedQuantity = 0;
+    let productName = "";
     await runTransaction(db, async (transaction) => {
       const productSnapshot = await transaction.get(productRef);
       if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
       const product = productSnapshot.data();
-      const entryRef = doc(collection(db, "entradas"));
+      if (product.arquivado) throw new Error("Este produto está arquivado e não pode receber entradas.");
+      updatedQuantity = (Number(product.quantidade) || 0) + quantity;
+      productName = product.nome || "";
       transaction.update(productRef, {
-        quantidade: (Number(product.quantidade) || 0) + quantity,
+        quantidade: updatedQuantity,
         atualizadoEm: serverTimestamp()
       });
       transaction.set(entryRef, {
         produtoId: productId,
-        produtoNome: product.nome,
+        produtoNome: productName,
         quantidade,
         custoUnitario: unitCost,
         data: date,
@@ -915,13 +967,22 @@ $("#entry-form").addEventListener("submit", async (event) => {
         observacao: notes,
         tipo: "entrada",
         criadoEm: serverTimestamp(),
-        criadoPor: auth.currentUser?.email || null
+        criadoPor: userEmail
       });
     });
     form.reset();
     $("#entry-date").value = dateToday();
+    products = products.map((product) => product.id === productId ? { ...product, quantidade: updatedQuantity } : product);
+    entries.unshift({
+      id: entryRef.id, produtoId: productId, produtoNome: productName, quantidade,
+      custoUnitario: unitCost, data: date, fornecedor: supplier, observacao: notes,
+      tipo: "entrada", criadoEmMs: Date.now(), criadoPor: userEmail
+    });
+    renderProducts();
+    renderEntries();
+    renderExitProductResults();
+    renderSaleProductResults();
     setFeedback("#entry-feedback", "Entrada registrada e estoque atualizado.");
-    await loadData();
     showToast("Entrada registrada.");
   } catch (error) {
     console.error("Falha ao registrar entrada:", error);
@@ -969,7 +1030,7 @@ $("#products-list").addEventListener("click", async (event) => {
   if (!product || product.arquivado) return;
 
   const confirmed = window.confirm(
-    `Deseja excluir o produto "${product.nome}"?\\n\\nSe houver estoque ou histórico de entradas, ele será arquivado para preservar os registros. Caso contrário, será excluído permanentemente.`
+    `Deseja excluir o produto "${product.nome}"?\n\nSe houver estoque ou histórico de entradas, ele será arquivado para preservar os registros. Caso contrário, será excluído permanentemente.`
   );
   if (!confirmed) return;
 
