@@ -67,3 +67,14 @@
 #sale-finish-button{min-height:52px;font-size:15px}
 .sale-history-items{margin:10px 0 0;padding-left:19px;color:var(--ink);font-size:13px;line-height:1.7}
 @media(max-width:390px){.cart-item-bottom{gap:8px}.cart-subtotal{margin-left:auto}.remove-cart-item{margin-left:auto}.sale-total-panel{padding:14px}}
+
+/* Preço cobrado editável e alertas de preço no Caixa */
+.cart-price-row{display:flex;flex-direction:column;gap:4px;margin-top:12px}
+.cart-price-row label{margin:0;font-size:12px;font-weight:700;color:#39445a}
+.cart-price-input{max-width:180px}
+.cart-price-alert{margin:8px 0 0;padding:9px 11px;border-radius:9px;font-size:12px;line-height:1.5;font-weight:650}
+.cart-price-alert.warning{background:#fff8e6;color:#785414}
+.cart-price-alert.danger,.cart-price-alert.invalid{background:#fff0ef;color:var(--red)}
+.sale-flag{display:inline-block;margin-left:4px;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:800;vertical-align:middle}
+.sale-flag.warning{background:#fff8e6;color:#785414}
+.sale-flag.danger{background:#fff0ef;color:var(--red)}
