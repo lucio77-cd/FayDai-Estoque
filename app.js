@@ -902,6 +902,7 @@ $("#entry-form").addEventListener("submit", async (event) => {
       const productSnapshot = await transaction.get(productRef);
       if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
       const product = productSnapshot.data();
+      if (product.arquivado) throw new Error("Este produto está arquivado e não pode receber movimentações.");
       const entryRef = doc(collection(db, "entradas"));
       transaction.update(productRef, {
         quantidade: (Number(product.quantidade) || 0) + quantity,
@@ -978,7 +979,10 @@ $("#products-list").addEventListener("click", async (event) => {
   button.disabled = true;
   button.textContent = "Processando…";
   try {
-    const hasHistory = entries.some((entry) => entry.produtoId === productId);
+    const hasHistory =
+      entries.some((entry) => entry.produtoId === productId) ||
+      exits.some((exit) => exit.produtoId === productId) ||
+      sales.some((sale) => Array.isArray(sale.itens) && sale.itens.some((item) => item.produtoId === productId));
     const hasStock = (Number(product.quantidade) || 0) > 0;
 
     if (hasHistory || hasStock) {
