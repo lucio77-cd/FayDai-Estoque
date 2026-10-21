@@ -921,7 +921,7 @@ $("#exit-form").addEventListener("submit", async (event) => {
     products = products.map((product) => product.id === productId ? { ...product, quantidade: updatedQuantity } : product);
     exits.unshift({
       id: exitRef.id, produtoId: productId, produtoNome: productName, quantidade,
-      motivo: motive, data, dataHora: dateTime, observacao: notes, usuario: userEmail
+      motivo: motive, data: date, dataHora: dateTime, observacao: notes, usuario: userEmail
     });
     renderProducts();
     renderExitProductResults();
