@@ -73,6 +73,7 @@ let brands = [];
 let categories = [];
 let showArchivedEntries = false;
 let toastTimeout;
+let permissionAlertShown = false;
 
 const normalizeText = (value = "") => String(value || "")
   .normalize("NFD")
@@ -517,13 +518,23 @@ function renderEntries() {
     }).join("");
 }
 
+// Lê uma coleção e marca qual delas falhou (usado no diagnóstico de permissão).
+async function readCollection(name) {
+  try {
+    return await getDocs(collection(db, name));
+  } catch (error) {
+    error.colecao = name;
+    throw error;
+  }
+}
+
 async function loadData() {
   const user = auth.currentUser;
   if (!user) return;
   try {
     const [productSnapshot, entrySnapshot] = await Promise.all([
-      getDocs(collection(db, "produtos")),
-      getDocs(collection(db, "entradas"))
+      readCollection("produtos"),
+      readCollection("entradas")
     ]);
     let exitSnapshot = null;
     let saleSnapshot = null;
@@ -568,8 +579,18 @@ async function loadData() {
   } catch (error) {
     console.error("Falha ao carregar dados do Firestore:", error);
     showToast(explainError(error));
-    if (error?.code?.includes("permission-denied")) {
-      showToast("Acesso negado. Confira as regras do Firestore e se a conta autenticada tem permissão.");
+    // DIAGNÓSTICO TEMPORÁRIO: mostra por que o Firestore negou o acesso. Remover depois de resolver.
+    if (error?.code?.includes("permission-denied") && !permissionAlertShown) {
+      permissionAlertShown = true;
+      const currentUser = auth.currentUser;
+      let tokenInfo = "";
+      try {
+        const token = await currentUser.getIdTokenResult(true);
+        tokenInfo = `\nNo token - e-mail: ${token.claims.email}\nNo token - verificado: ${token.claims.email_verified}`;
+      } catch (tokenError) {
+        tokenInfo = "\nNão foi possível ler o token.";
+      }
+      alert(`DIAGNÓSTICO (temporário)\nColeção negada: ${error.colecao || "desconhecida"}\nE-mail logado: ${currentUser?.email}\nE-mail verificado: ${currentUser?.emailVerified}${tokenInfo}`);
     }
   }
 }
