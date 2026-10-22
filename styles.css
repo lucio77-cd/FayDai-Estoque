@@ -120,3 +120,20 @@
 .inventory-details h4{margin:12px 0 4px;font-size:12px;color:var(--muted)}
 .inventory-details ul{margin:0;padding-left:19px;line-height:1.7}
 .inventory-details p{margin:4px 0 0}
+
+/* Cancelamentos e devoluções de venda */
+.sale-status{display:inline-block;margin-left:8px;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:800;vertical-align:middle}
+.sale-status.cancelled{background:#fff0ef;color:var(--red)}
+.sale-status.partial{background:#fff8e6;color:#785414}
+.entry-card.is-cancelled{background:#fafafa;border-color:#f0c8c5}
+.entry-card.is-cancelled .stock-badge{background:#f2f4f7;color:#667085;text-decoration:line-through}
+.entry-card.is-cancelled .sale-history-items{color:var(--muted)}
+.sale-returns-title{margin:14px 0 0;font-size:12px;color:var(--muted)}
+.sale-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid #edf0f5}
+.sale-actions .button{font-size:12px;padding:8px 12px;min-height:38px}
+.return-row{display:flex;justify-content:space-between;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}
+.return-row-main{display:grid;gap:3px;min-width:0}
+.return-row-main strong{font-size:14px;overflow-wrap:anywhere}
+.return-row-main small{font-size:12px;color:var(--muted);line-height:1.5}
+.form-stack .return-qty-input{width:84px;min-height:44px;flex:0 0 auto;text-align:center;font-size:16px;padding:10px}
+#sale-action-overlay .tutorial-card h2{padding-right:40px}
