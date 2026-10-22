@@ -43,6 +43,10 @@ const formatDate = (value) => {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
   return match ? `${match[3]}/${match[2]}/${match[1]}${match[4]}` : (value || "");
 };
+// Converte um Timestamp do Firestore em texto local (ou vazio).
+const formatTimestamp = (value) => (value?.toDate
+  ? value.toDate().toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+  : "");
 const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[char]));
@@ -83,6 +87,12 @@ let vistoriaDraftOwner = null;
 let vistoriaDirty = false;
 let inventoryAvailable = true;
 let inventoryLoadErrorShown = false;
+
+// Cancelamentos e devoluções de venda
+let saleReturns = [];
+let saleReturnsAvailable = true;
+let returnsLoadErrorShown = false;
+let saleAction = null; // { mode: "cancel" | "return", saleId }
 
 const normalizeText = (value = "") => String(value || "")
   .normalize("NFD")
@@ -260,6 +270,7 @@ function getSalePeriodStart(period) {
 }
 
 // Todos os indicadores são calculados a partir dos registros reais carregados do Firestore.
+// Vendas canceladas ficam fora do cálculo; devoluções são descontadas no período em que foram registradas.
 function renderDashboard() {
   const activeProducts = products.filter((product) => !product.arquivado);
   const isEmpty = !activeProducts.length && !sales.length;
@@ -287,11 +298,13 @@ function renderDashboard() {
     const saleDate = sale.data || String(sale.dataHora || "").slice(0, 10);
     return !start || (saleDate >= start && saleDate <= today);
   });
+  const countedSales = periodSales.filter((sale) => sale.status !== "cancelada");
+  const canceledCount = periodSales.length - countedSales.length;
 
   let revenue = 0;
   let grossDifference = 0;
   let salesWithoutCost = 0;
-  periodSales.forEach((sale) => {
+  countedSales.forEach((sale) => {
     const items = Array.isArray(sale.itens) ? sale.itens : [];
     const totalItems = items.length ? items : [{ quantidade: sale.quantidade, precoUnitario: sale.precoUnitario }];
     revenue += Number(sale.total) || roundMoney(totalItems.reduce((sum, item) => (
@@ -310,9 +323,31 @@ function renderDashboard() {
     if (missingCost) salesWithoutCost += 1;
   });
 
-  $("#dash-revenue").textContent = money(roundMoney(revenue));
-  $("#dash-sales-count").textContent = `${periodSales.length} ${periodSales.length === 1 ? "venda registrada" : "vendas registradas"}`;
-  $("#dash-gross").textContent = money(roundMoney(grossDifference));
+  // Devoluções registradas no período: reduzem faturamento e diferença bruta.
+  const periodReturns = saleReturns.filter((saleReturn) => {
+    const returnDate = saleReturn.data || String(saleReturn.dataHora || "").slice(0, 10);
+    return !start || (returnDate >= start && returnDate <= today);
+  });
+  let returnsTotal = 0;
+  let returnsGross = 0;
+  periodReturns.forEach((saleReturn) => {
+    const items = Array.isArray(saleReturn.itens) ? saleReturn.itens : [];
+    returnsTotal += Number(saleReturn.totalDevolvido) || roundMoney(items.reduce((sum, item) => (
+      sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0))
+    ), 0));
+    items.forEach((item) => {
+      if (typeof item.custoUnitario === "number") {
+        returnsGross += roundMoney((Number(item.quantidade) || 0) * ((Number(item.precoUnitario) || 0) - item.custoUnitario));
+      }
+    });
+  });
+
+  $("#dash-revenue").textContent = money(roundMoney(revenue - returnsTotal));
+  const countParts = [`${countedSales.length} ${countedSales.length === 1 ? "venda registrada" : "vendas registradas"}`];
+  if (canceledCount) countParts.push(`${canceledCount} ${canceledCount === 1 ? "cancelada (fora do cálculo)" : "canceladas (fora do cálculo)"}`);
+  if (periodReturns.length) countParts.push(`devoluções: −${money(roundMoney(returnsTotal))}`);
+  $("#dash-sales-count").textContent = countParts.join(" · ");
+  $("#dash-gross").textContent = money(roundMoney(grossDifference - returnsGross));
   const note = $("#dash-gross-note");
   note.hidden = salesWithoutCost === 0;
   note.textContent = salesWithoutCost === 0
@@ -505,6 +540,41 @@ function addProductToSaleCart(product) {
   $("#sale-product-search").focus();
 }
 
+// ---------- Histórico de vendas, cancelamentos e devoluções ----------
+
+const saleItemsOf = (sale) => (Array.isArray(sale.itens) && sale.itens.length
+  ? sale.itens
+  : [{ produtoNome: sale.produtoNome || "Produto", quantidade: sale.quantidade || 0, precoUnitario: sale.precoUnitario || 0 }]);
+
+const saleTotalOf = (sale) => Number(sale.total) || roundMoney(saleItemsOf(sale).reduce((sum, item) => (
+  sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0))
+), 0));
+
+// Só vendas no formato atual (com produtoId em todos os itens) aceitam cancelamento e devolução.
+const isActionableSale = (sale) => Array.isArray(sale.itens) && sale.itens.length > 0
+  && sale.itens.every((item) => item.produtoId);
+
+// Quantidade já devolvida de cada produto de uma venda.
+function returnedByProduct(saleId) {
+  const map = {};
+  saleReturns.filter((saleReturn) => saleReturn.vendaId === saleId).forEach((saleReturn) => {
+    (saleReturn.itens || []).forEach((item) => {
+      map[item.produtoId] = (map[item.produtoId] || 0) + (Number(item.quantidade) || 0);
+    });
+  });
+  return map;
+}
+
+// Linhas da venda com vendido, já devolvido e ainda devolvível.
+function returnableRows(sale) {
+  const returned = returnedByProduct(sale.id);
+  return saleItemsOf(sale).map((item, index) => {
+    const sold = Number(item.quantidade) || 0;
+    const done = returned[item.produtoId] || 0;
+    return { index, item, sold, returned: done, available: Math.max(sold - done, 0) };
+  });
+}
+
 function renderSales() {
   const list = $("#sales-list");
   if (!sales.length) {
@@ -513,23 +583,235 @@ function renderSales() {
   }
   list.innerHTML = [...sales].sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || "")))
     .map((sale) => {
-      const items = Array.isArray(sale.itens) && sale.itens.length
-        ? sale.itens
-        : [{ produtoNome: sale.produtoNome || "Produto", quantidade: sale.quantidade || 0, precoUnitario: sale.precoUnitario || 0 }];
+      const items = saleItemsOf(sale);
+      const cancelled = sale.status === "cancelada";
       const itemLines = items.map((item) => {
         const flag = item.abaixoDoCusto
           ? ' <span class="sale-flag danger">abaixo do custo</span>'
           : (item.abaixoDoSugerido ? ' <span class="sale-flag warning">abaixo do sugerido</span>' : "");
         return `<li>${escapeHtml(item.produtoNome || item.nome || "Produto")} — ${Number(item.quantidade) || 0} × ${money(item.precoUnitario)}${flag}</li>`;
       }).join("");
-      const total = Number(sale.total) || roundMoney(items.reduce((sum, item) => sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0)), 0));
-      return `<article class="entry-card">
-        <div class="item-title-row"><div class="item-title">Venda</div><span class="stock-badge">${money(total)}</span></div>
+      const total = saleTotalOf(sale);
+
+      const actionable = isActionableSale(sale);
+      const saleReturnList = saleReturns
+        .filter((saleReturn) => saleReturn.vendaId === sale.id)
+        .sort((a, b) => String(a.dataHora || "").localeCompare(String(b.dataHora || "")));
+      const rows = actionable ? returnableRows(sale) : [];
+      const hasReturnable = rows.some((row) => row.available > 0);
+
+      let statusLabel = "";
+      if (cancelled) statusLabel = '<span class="sale-status cancelled">Cancelada</span>';
+      else if (saleReturnList.length) {
+        statusLabel = hasReturnable
+          ? '<span class="sale-status partial">Devolução parcial</span>'
+          : '<span class="sale-status cancelled">Totalmente devolvida</span>';
+      }
+
+      const cancelInfo = cancelled
+        ? `<p>Cancelada${formatTimestamp(sale.canceladaEm) ? ` em ${escapeHtml(formatTimestamp(sale.canceladaEm))}` : ""} por ${escapeHtml(sale.canceladaPor || "Não identificado")}. Motivo: ${escapeHtml(sale.motivoCancelamento || "não informado")}</p>`
+        : "";
+
+      const returnsBlock = saleReturnList.length
+        ? `<h4 class="sale-returns-title">Devoluções</h4><ul class="sale-history-items">${saleReturnList.map((saleReturn) => `<li>${escapeHtml(formatDate(saleReturn.dataHora || saleReturn.data))} — ${(saleReturn.itens || []).map((item) => `${Number(item.quantidade) || 0} × ${escapeHtml(item.produtoNome || "Produto")}`).join(", ")} — ${money(saleReturn.totalDevolvido)}${saleReturn.motivo ? ` (${escapeHtml(saleReturn.motivo)})` : ""}</li>`).join("")}</ul>`
+        : "";
+
+      let actions = "";
+      if (!cancelled && actionable) {
+        if (!saleReturnsAvailable) {
+          actions = '<p class="small muted">Cancelamento e devolução indisponíveis até as regras do Firestore serem publicadas.</p>';
+        } else {
+          const buttons = [];
+          if (hasReturnable) buttons.push(`<button class="button secondary" type="button" data-sale-return="${escapeHtml(sale.id)}">Devolver itens</button>`);
+          if (!saleReturnList.length) buttons.push(`<button class="button danger-outline" type="button" data-sale-cancel="${escapeHtml(sale.id)}">Cancelar venda</button>`);
+          if (buttons.length) actions = `<div class="sale-actions">${buttons.join("")}</div>`;
+        }
+      }
+
+      return `<article class="entry-card${cancelled ? " is-cancelled" : ""}">
+        <div class="item-title-row"><div class="item-title">Venda${statusLabel}</div><span class="stock-badge">${money(total)}</span></div>
         <ul class="sale-history-items">${itemLines}</ul>
         <p>${escapeHtml(formatDate(sale.dataHora || sale.data) || "Data não informada")} · Pagamento: ${escapeHtml(sale.formaPagamento || "Não informado")}</p>
         <p>Responsável: ${escapeHtml(sale.usuario || "Não identificado")}</p>
+        ${cancelInfo}
+        ${returnsBlock}
+        ${actions}
       </article>`;
     }).join("");
+}
+
+// Soma unidades de volta ao estoque dentro de uma transação (todas as leituras antes das escritas).
+async function restockInTransaction(transaction, lines) {
+  const totals = new Map();
+  lines.forEach((line) => {
+    const current = totals.get(line.produtoId) || { nome: line.produtoNome || "Produto", quantidade: 0 };
+    current.quantidade += line.quantidade;
+    totals.set(line.produtoId, current);
+  });
+  const entriesList = [...totals.entries()];
+  const snapshots = [];
+  for (const [productId] of entriesList) {
+    snapshots.push(await transaction.get(doc(db, "produtos", productId)));
+  }
+  snapshots.forEach((snapshot, index) => {
+    const info = entriesList[index][1];
+    if (!snapshot.exists()) throw new Error(`O produto "${info.nome}" não existe mais; não é possível devolver ao estoque.`);
+    if (snapshot.data().arquivado) throw new Error(`O produto "${info.nome}" está arquivado; não é possível devolver ao estoque.`);
+  });
+  snapshots.forEach((snapshot, index) => {
+    transaction.update(snapshot.ref, {
+      quantidade: (Number(snapshot.data().quantidade) || 0) + entriesList[index][1].quantidade,
+      atualizadoEm: serverTimestamp()
+    });
+  });
+}
+
+// Cancela a venda inteira e devolve todas as unidades ao estoque.
+async function cancelSale(sale, reason) {
+  // Confere no banco (não só na tela) se já existe devolução desta venda.
+  const fresh = await getDocs(query(collection(db, "devolucoes"), where("vendaId", "==", sale.id)));
+  if (!fresh.empty) throw new Error("Esta venda já tem devolução registrada e não pode ser cancelada por inteiro.");
+  const saleRef = doc(db, "vendas", sale.id);
+  const email = auth.currentUser?.email || null;
+  await runTransaction(db, async (transaction) => {
+    const saleSnapshot = await transaction.get(saleRef);
+    if (!saleSnapshot.exists()) throw new Error("Esta venda não existe mais. Atualize a lista.");
+    const saleData = saleSnapshot.data();
+    if (saleData.status === "cancelada") throw new Error("Esta venda já foi cancelada.");
+    const soldItems = Array.isArray(saleData.itens) ? saleData.itens : [];
+    if (!soldItems.length || !soldItems.every((item) => item.produtoId)) {
+      throw new Error("Esta venda é de um formato antigo e não pode ser cancelada pelo sistema.");
+    }
+    await restockInTransaction(transaction, soldItems.map((item) => ({
+      produtoId: item.produtoId,
+      produtoNome: item.produtoNome,
+      quantidade: Number(item.quantidade) || 0
+    })));
+    transaction.update(saleRef, {
+      status: "cancelada",
+      canceladaEm: serverTimestamp(),
+      canceladaPor: email,
+      motivoCancelamento: reason
+    });
+  });
+}
+
+// Registra devolução parcial: requested = [{ index, quantidade }] (índice do item na venda).
+async function registerReturn(sale, requested, reason) {
+  const fresh = await getDocs(query(collection(db, "devolucoes"), where("vendaId", "==", sale.id)));
+  const alreadyReturned = {};
+  fresh.docs.forEach((item) => {
+    (item.data().itens || []).forEach((line) => {
+      alreadyReturned[line.produtoId] = (alreadyReturned[line.produtoId] || 0) + (Number(line.quantidade) || 0);
+    });
+  });
+  const saleRef = doc(db, "vendas", sale.id);
+  const returnRef = doc(collection(db, "devolucoes"));
+  const email = auth.currentUser?.email || "Usuário não identificado";
+  const date = dateToday();
+  const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+  let returnedTotal = 0;
+  await runTransaction(db, async (transaction) => {
+    const saleSnapshot = await transaction.get(saleRef);
+    if (!saleSnapshot.exists()) throw new Error("Esta venda não existe mais. Atualize a lista.");
+    const saleData = saleSnapshot.data();
+    if (saleData.status === "cancelada") throw new Error("Esta venda foi cancelada e não aceita devolução.");
+    const soldItems = Array.isArray(saleData.itens) ? saleData.itens : [];
+    const returnItems = requested.map(({ index, quantidade }) => {
+      const sold = soldItems[index];
+      if (!sold || !sold.produtoId) throw new Error("Item da venda não encontrado. Atualize a lista.");
+      const available = (Number(sold.quantidade) || 0) - (alreadyReturned[sold.produtoId] || 0);
+      if (quantidade > available) {
+        throw new Error(`Quantidade acima do que ainda pode ser devolvido de "${sold.produtoNome}". Disponível: ${Math.max(available, 0)}.`);
+      }
+      const precoUnitario = roundMoney(sold.precoUnitario);
+      return {
+        produtoId: sold.produtoId,
+        produtoNome: sold.produtoNome || "",
+        codigoInterno: sold.codigoInterno || "",
+        quantidade,
+        precoUnitario,
+        custoUnitario: typeof sold.custoUnitario === "number" ? sold.custoUnitario : null,
+        subtotal: roundMoney(quantidade * precoUnitario)
+      };
+    });
+    await restockInTransaction(transaction, returnItems.map((item) => ({
+      produtoId: item.produtoId, produtoNome: item.produtoNome, quantidade: item.quantidade
+    })));
+    returnedTotal = roundMoney(returnItems.reduce((sum, item) => sum + item.subtotal, 0));
+    transaction.set(returnRef, {
+      vendaId: sale.id,
+      vendaDataHora: saleData.dataHora || saleData.data || "",
+      itens: returnItems,
+      totalDevolvido: returnedTotal,
+      motivo: reason,
+      data: date,
+      dataHora: dateTime,
+      usuario: email,
+      criadoEm: serverTimestamp()
+    });
+  });
+  return returnedTotal;
+}
+
+function openSaleAction(mode, saleId) {
+  const sale = sales.find((item) => item.id === saleId);
+  if (!sale) return;
+  saleAction = { mode, saleId };
+  $("#sale-action-reason").value = "";
+  setFeedback("#sale-action-feedback", "");
+  const box = $("#sale-action-items");
+  const totalBox = $("#sale-action-total");
+  const dateText = formatDate(sale.dataHora || sale.data) || "data não informada";
+  if (mode === "cancel") {
+    $("#sale-action-eyebrow").textContent = "CANCELAMENTO";
+    $("#sale-action-title").textContent = "Cancelar venda";
+    $("#sale-action-summary").textContent = `Venda de ${dateText} · Total ${money(saleTotalOf(sale))}. Todas as unidades voltam ao estoque e a venda sai dos indicadores. Isso não pode ser desfeito.`;
+    box.innerHTML = saleItemsOf(sale).map((item) => `
+      <div class="return-row"><div class="return-row-main">
+        <strong>${escapeHtml(item.produtoNome || "Produto")}</strong>
+        <small>${Number(item.quantidade) || 0} × ${money(item.precoUnitario)} voltam ao estoque</small>
+      </div></div>`).join("");
+    totalBox.hidden = true;
+    $("#sale-action-confirm").textContent = "Cancelar venda";
+  } else {
+    $("#sale-action-eyebrow").textContent = "DEVOLUÇÃO";
+    $("#sale-action-title").textContent = "Devolver itens";
+    $("#sale-action-summary").textContent = `Venda de ${dateText} · Total ${money(saleTotalOf(sale))}. Informe quantas unidades de cada item voltam ao estoque.`;
+    box.innerHTML = returnableRows(sale).filter((row) => row.available > 0).map((row) => `
+      <div class="return-row">
+        <div class="return-row-main">
+          <strong>${escapeHtml(row.item.produtoNome || "Produto")}</strong>
+          <small>${row.sold} vendido(s) a ${money(row.item.precoUnitario)}${row.returned ? ` · já devolvido: ${row.returned}` : ""} · pode devolver até ${row.available}</small>
+        </div>
+        <input class="return-qty-input" type="number" min="0" max="${row.available}" step="1" inputmode="numeric" placeholder="0" data-return-index="${row.index}" data-return-max="${row.available}" aria-label="Quantidade a devolver de ${escapeHtml(row.item.produtoNome || "produto")}, máximo ${row.available}">
+      </div>`).join("");
+    totalBox.hidden = false;
+    totalBox.textContent = `Total a devolver: ${money(0)}`;
+    $("#sale-action-confirm").textContent = "Registrar devolução";
+  }
+  $("#sale-action-overlay").hidden = false;
+}
+
+function closeSaleAction() {
+  saleAction = null;
+  $("#sale-action-overlay").hidden = true;
+}
+
+function updateReturnTotal() {
+  if (!saleAction || saleAction.mode !== "return") return;
+  const sale = sales.find((item) => item.id === saleAction.saleId);
+  if (!sale) return;
+  const items = saleItemsOf(sale);
+  let total = 0;
+  document.querySelectorAll("#sale-action-items [data-return-index]").forEach((input) => {
+    const quantity = Number(input.value);
+    const item = items[Number(input.dataset.returnIndex)];
+    if (item && Number.isInteger(quantity) && quantity > 0) {
+      total += roundMoney(quantity * (Number(item.precoUnitario) || 0));
+    }
+  });
+  $("#sale-action-total").textContent = `Total a devolver: ${money(roundMoney(total))}`;
 }
 
 function renderExitProductResults() {
@@ -979,12 +1261,28 @@ async function loadData() {
     ]);
     let exitSnapshot = null;
     let saleSnapshot = null;
+    let returnSnapshot = null;
     let vistoriaFetch = null;
     try {
       saleSnapshot = await getDocs(collection(db, "vendas"));
     } catch (saleLoadError) {
       console.error("Falha ao carregar histórico de vendas:", saleLoadError);
       if (saleLoadError?.code?.includes("permission-denied")) setFeedback("#sale-feedback", "O Firestore ainda não permite ler a coleção de vendas.", true);
+    }
+    try {
+      returnSnapshot = await getDocs(collection(db, "devolucoes"));
+      saleReturnsAvailable = true;
+      if (returnsLoadErrorShown) {
+        setFeedback("#sale-feedback", "");
+        returnsLoadErrorShown = false;
+      }
+    } catch (returnLoadError) {
+      console.error("Falha ao carregar devoluções:", returnLoadError);
+      saleReturnsAvailable = false;
+      returnsLoadErrorShown = true;
+      setFeedback("#sale-feedback", returnLoadError?.code?.includes("permission-denied")
+        ? "O Firestore ainda não permite acessar a coleção de devoluções. Publique as regras atualizadas no Firebase Console."
+        : "Não foi possível carregar as devoluções agora.", true);
     }
     try {
       exitSnapshot = await getDocs(collection(db, "saidas"));
@@ -1028,6 +1326,7 @@ async function loadData() {
     });
     exits = exitSnapshot ? exitSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })) : [];
     sales = saleSnapshot ? saleSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })) : [];
+    saleReturns = returnSnapshot ? returnSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })) : [];
     if (vistoriaFetch) {
       const mapVistoria = (item) => {
         const data = item.data();
@@ -1079,6 +1378,7 @@ $("#login-form").addEventListener("submit", async (event) => {
 $("#logout-button").addEventListener("click", async () => {
   try {
     closeTutorialForNow();
+    closeSaleAction();
     await signOut(auth);
     $("#login-password").value = "";
   } catch (error) {
@@ -1093,6 +1393,7 @@ onAuthStateChanged(auth, async (user) => {
     showTutorialIfNeeded();
   } else {
     $("#tutorial-overlay").hidden = true;
+    closeSaleAction();
   }
 });
 
@@ -1486,6 +1787,80 @@ $("#sale-form").addEventListener("submit", async (event) => {
 $("#sale-date").value = dateToday();
 renderSaleCart();
 
+// Histórico de vendas: abrir o painel de cancelamento ou de devolução.
+$("#sales-list").addEventListener("click", (event) => {
+  const cancelButton = event.target.closest("[data-sale-cancel]");
+  const returnButton = event.target.closest("[data-sale-return]");
+  if (cancelButton) openSaleAction("cancel", cancelButton.dataset.saleCancel);
+  else if (returnButton) openSaleAction("return", returnButton.dataset.saleReturn);
+});
+$("#sale-action-close").addEventListener("click", closeSaleAction);
+$("#sale-action-overlay").addEventListener("click", (event) => {
+  if (event.target === $("#sale-action-overlay")) closeSaleAction();
+});
+$("#sale-action-items").addEventListener("input", (event) => {
+  if (event.target.closest("[data-return-index]")) updateReturnTotal();
+});
+$("#sale-action-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!saleAction) return;
+  const sale = sales.find((item) => item.id === saleAction.saleId);
+  if (!sale) {
+    setFeedback("#sale-action-feedback", "Venda não encontrada. Atualize a lista.", true);
+    return;
+  }
+  const reason = cleanOption($("#sale-action-reason").value);
+  if (!reason) {
+    setFeedback("#sale-action-feedback", "Informe o motivo.", true);
+    return;
+  }
+  const button = $("#sale-action-confirm");
+  button.disabled = true;
+  try {
+    if (saleAction.mode === "cancel") {
+      const unitCount = saleItemsOf(sale).reduce((sum, item) => sum + (Number(item.quantidade) || 0), 0);
+      const confirmed = window.confirm(`Cancelar esta venda?\n\n• ${unitCount} unidade(s) voltam ao estoque\n• A venda sai dos indicadores\n\nIsso não pode ser desfeito.`);
+      if (!confirmed) return;
+      setFeedback("#sale-action-feedback", "Cancelando venda…");
+      await cancelSale(sale, reason);
+      closeSaleAction();
+      await loadData();
+      setFeedback("#sale-feedback", "Venda cancelada e estoque devolvido.");
+      showToast("Venda cancelada. Estoque devolvido.");
+    } else {
+      const requested = [];
+      let invalid = false;
+      document.querySelectorAll("#sale-action-items [data-return-index]").forEach((input) => {
+        const raw = input.value.trim();
+        if (raw === "") return;
+        const quantity = Number(raw);
+        const max = Number(input.dataset.returnMax);
+        if (!Number.isInteger(quantity) || quantity < 0 || quantity > max) {
+          invalid = true;
+          return;
+        }
+        if (quantity > 0) requested.push({ index: Number(input.dataset.returnIndex), quantidade: quantity });
+      });
+      if (invalid) throw new Error("Confira as quantidades: use números inteiros, sem passar do máximo permitido.");
+      if (!requested.length) throw new Error("Informe a quantidade de pelo menos um item.");
+      const unitCount = requested.reduce((sum, item) => sum + item.quantidade, 0);
+      const confirmed = window.confirm(`Registrar a devolução?\n\n• ${unitCount} unidade(s) voltam ao estoque\n• O valor devolvido será descontado dos indicadores\n\nIsso não pode ser desfeito.`);
+      if (!confirmed) return;
+      setFeedback("#sale-action-feedback", "Registrando devolução…");
+      const returnedTotal = await registerReturn(sale, requested, reason);
+      closeSaleAction();
+      await loadData();
+      setFeedback("#sale-feedback", `Devolução registrada (${money(returnedTotal)}) e estoque atualizado.`);
+      showToast("Devolução registrada. Estoque atualizado.");
+    }
+  } catch (error) {
+    console.error("Falha na ação da venda:", error);
+    setFeedback("#sale-action-feedback", explainError(error), true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 $("#exit-product-search").addEventListener("input", () => {
   selectedExitProductId = "";
   renderExitProductResults();
@@ -1657,7 +2032,8 @@ $("#products-list").addEventListener("click", async (event) => {
     const hasHistory =
       entries.some((entry) => entry.produtoId === productId) ||
       exits.some((exit) => exit.produtoId === productId) ||
-      sales.some((sale) => Array.isArray(sale.itens) && sale.itens.some((item) => item.produtoId === productId));
+      sales.some((sale) => Array.isArray(sale.itens) && sale.itens.some((item) => item.produtoId === productId)) ||
+      saleReturns.some((saleReturn) => Array.isArray(saleReturn.itens) && saleReturn.itens.some((item) => item.produtoId === productId));
     const hasStock = (Number(product.quantidade) || 0) > 0;
 
     if (hasHistory || hasStock) {
