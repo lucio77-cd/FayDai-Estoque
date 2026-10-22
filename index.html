@@ -50,6 +50,7 @@
         <button class="tab" data-tab="entries" type="button">Entradas</button>
         <button class="tab" data-tab="caja" type="button">Caixa</button>
         <button class="tab" data-tab="exits" type="button">Saídas</button>
+        <button class="tab" data-tab="inventory" type="button">Vistoria</button>
         <button class="tab" data-tab="settings" type="button">Configurações</button>
         <button class="tab" data-tab="help" type="button">Ajuda</button>
       </nav>
@@ -261,6 +262,40 @@
         </div>
       </section>
 
+      <section id="inventory-panel" class="tab-panel" hidden>
+        <div class="section-heading"><div><p class="eyebrow">CONTAGEM FÍSICA</p><h2>Vistoria</h2></div></div>
+        <p id="inventory-feedback" class="feedback" role="status"></p>
+
+        <div id="inventory-idle" class="panel form-stack">
+          <h3>Nenhuma vistoria em andamento</h3>
+          <p class="small muted">Inicie uma vistoria para contar fisicamente os produtos. Você pode salvar o andamento e continuar depois, e contar só uma parte dos produtos por vez.</p>
+          <p class="notice">Produtos com o campo de contagem <strong>vazio</strong> não são alterados e mantêm o saldo atual. Digite <strong>0</strong> quando contar e não houver nenhuma unidade.</p>
+          <button id="inventory-start" class="button primary" type="button">Iniciar vistoria</button>
+        </div>
+
+        <div id="inventory-active" hidden>
+          <div class="panel form-stack">
+            <h3>Vistoria em andamento</h3>
+            <p id="inventory-meta" class="small muted"></p>
+            <p id="inventory-summary" class="inventory-summary"></p>
+            <p class="notice">Campo vazio = não contado (o saldo é mantido). Digite 0 se contou e não há unidades. A diferença final é calculada com o saldo do momento em que você concluir.</p>
+            <label for="inventory-search">Pesquisar produto</label>
+            <input id="inventory-search" type="search" autocomplete="off" placeholder="Nome, código ou marca">
+            <label class="setting-toggle"><input id="inventory-only-uncounted" type="checkbox"> Mostrar só os não contados</label>
+          </div>
+          <div id="inventory-list" class="item-list inventory-list"></div>
+          <div class="panel form-stack inventory-actions">
+            <p id="inventory-dirty" class="small inventory-dirty" hidden>Há alterações ainda não salvas.</p>
+            <button id="inventory-save" class="button secondary" type="button">Salvar andamento</button>
+            <button id="inventory-finish" class="button primary" type="button">Concluir vistoria</button>
+            <button id="inventory-discard" class="button danger-outline" type="button">Descartar vistoria</button>
+          </div>
+        </div>
+
+        <div class="list-heading"><h3>Histórico de vistorias</h3><button id="refresh-inventory" class="button quiet" type="button">Atualizar</button></div>
+        <div id="inventory-history" class="item-list"><div class="empty-state">Nenhuma vistoria concluída ainda.</div></div>
+      </section>
+
       <section id="settings-panel" class="tab-panel" hidden>
         <div class="section-heading"><div><p class="eyebrow">DADOS E PREFERÊNCIAS</p><h2>Configurações</h2></div></div>
         <form id="store-settings-form" class="panel form-stack">
@@ -288,8 +323,8 @@
         <div class="section-heading"><div><p class="eyebrow">PRIMEIROS PASSOS</p><h2>Ajuda</h2></div></div>
         <div class="panel help-card">
           <h3>Como usar o FayDai</h3>
-          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial. Se o custo mudar depois, o custo anterior fica registrado no histórico.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Ative o módulo Caixa em Configurações para registrar vendas. O preço de cada item pode ser ajustado no carrinho, com alertas de preço abaixo do sugerido ou do custo; o estoque é baixado automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>No Painel, acompanhe o valor do estoque, o faturamento e a diferença bruta estimada das vendas por período.</li></ol>
-          <p class="muted small">Cancelamentos, devoluções de venda e vistoria física serão adicionados nas próximas etapas.</p>
+          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial. Se o custo mudar depois, o custo anterior fica registrado no histórico.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Ative o módulo Caixa em Configurações para registrar vendas. O preço de cada item pode ser ajustado no carrinho, com alertas de preço abaixo do sugerido ou do custo; o estoque é baixado automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>Use a Vistoria para contar o estoque físico: campo vazio mantém o saldo; digite 0 quando contar e não houver unidade. Você pode salvar o andamento e concluir depois.</li><li>No Painel, acompanhe o valor do estoque, o faturamento e a diferença bruta estimada das vendas por período.</li></ol>
+          <p class="muted small">Cancelamentos e devoluções de venda serão adicionados nas próximas etapas.</p>
           <button id="show-tutorial" class="button secondary" type="button">Ver tutorial inicial</button>
         </div>
       </section>
@@ -307,12 +342,12 @@
       <div class="tutorial-step"><span>1</span><div><strong>Cadastre os produtos</strong><p>Informe nome, marca, categoria, custo, ganho desejado e quantidade inicial.</p></div></div>
       <div class="tutorial-step"><span>2</span><div><strong>Registre as entradas</strong><p>Quando receber mercadoria, registre quantidade, custo da compra e fornecedor.</p></div></div>
       <div class="tutorial-step"><span>3</span><div><strong>Venda e dê baixa</strong><p>No Caixa, registre vendas e ajuste o preço se precisar; em Saídas, perdas e uso interno. O saldo é atualizado sozinho.</p></div></div>
-      <div class="tutorial-step"><span>4</span><div><strong>Acompanhe o painel</strong><p>O Painel mostra produtos, valor do estoque e as vendas do período.</p></div></div>
+      <div class="tutorial-step"><span>4</span><div><strong>Acompanhe e confira</strong><p>O Painel mostra produtos, valor do estoque e vendas. Na Vistoria, conte o estoque físico e ajuste os saldos.</p></div></div>
       <button id="tutorial-understood" class="button primary full" type="button">Entendi, começar</button>
       <button id="tutorial-never" class="button quiet full" type="button">Não mostrar novamente</button>
     </section>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=20261021-b5"></script>
+  <script type="module" src="./app.js?v=20261021-b6"></script>
 </body>
-  </html>
+</html>
