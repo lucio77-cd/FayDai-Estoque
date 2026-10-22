@@ -2,7 +2,7 @@
 
 Sistema simples de gestão de estoque, entradas, saídas e preços, pensado inicialmente para uma loja de celulares e acessórios. A primeira versão será priorizada para uso no celular e construída para ser demonstrada e validada com o responsável pela loja.
 
-> **Status:** protótipo em desenvolvimento. Já inclui login, painel inicial (dashboard), produtos (com histórico de alteração de custo), entradas, Caixa (vendas com preço ajustável e alertas), Saídas e configurações. Ainda precisam ser validados no navegador com o projeto Firebase.
+> **Status:** protótipo em desenvolvimento. Já inclui login, painel inicial (dashboard), produtos (com histórico de alteração de custo), entradas, Caixa (vendas com preço ajustável e alertas), Saídas, vistoria física e configurações. Ainda precisam ser validados no navegador com o projeto Firebase.
 
 ## Objetivo
 
@@ -71,7 +71,21 @@ Cada alteração do custo cadastrado gera um registro imutável na coleção `hi
 - Registrar o saldo anterior, a quantidade contada, a diferença, a data e o responsável.
 - Preservar o histórico dos ajustes.
 
-**Regra ainda pendente:** definir o tratamento dos produtos que não forem contados na vistoria. Até essa decisão ser tomada, o comportamento não deve ser considerado fechado.
+**Regra definida (produtos não contados):**
+- Produto com o campo de contagem **vazio** é considerado **não contado**: não é alterado e **mantém o saldo atual**.
+- Informar **0** significa que o produto foi contado e não há nenhuma unidade: o saldo é ajustado para 0.
+- Ao concluir, o sistema mostra quantos produtos foram contados, quantos terão o saldo ajustado e quantos **não foram contados**, e pede confirmação.
+- A vistoria concluída registra também a lista dos produtos não contados (com o saldo mantido).
+- Isso permite contar apenas parte dos produtos por vez (por exemplo, uma prateleira).
+
+**Implementação atual:**
+- Existe no máximo uma vistoria em andamento por vez. O andamento pode ser salvo e retomado; descartar uma vistoria em andamento a apaga sem alterar nenhum saldo.
+- Ao concluir, a diferença é calculada com o saldo do momento da conclusão (não o de quando a contagem começou), dentro de uma transação.
+- Cada produto contado registra: saldo anterior, quantidade contada, diferença, data e responsável. Os saldos só são alterados nos produtos com diferença.
+- A vistoria concluída não pode ser editada nem apagada. O histórico mostra as 10 últimas vistorias; as demais permanecem salvas.
+- Produtos arquivados ou excluídos durante a contagem são ignorados e ficam registrados como tal.
+- Limite de 400 produtos com diferença por conclusão (limite de escritas de uma transação do Firestore); acima disso, deixe alguns produtos em branco e conclua em partes.
+- Os ajustes ficam registrados na própria vistoria (coleção `vistorias`) e não aparecem nos históricos de Entradas e Saídas.
 
 ### 6. Cancelamentos e devoluções
 - **Cancelamento:** manter o registro original, marcar a venda como cancelada e devolver automaticamente as quantidades ao estoque.
@@ -99,7 +113,7 @@ Os indicadores devem ser calculados a partir dos registros reais do sistema. Nã
 4. Entradas alteram a quantidade, mas não atualizam automaticamente o custo cadastrado.
 5. O custo do cadastro é alterado manualmente e seu histórico de alteração deve ser preservado.
 6. O preço praticado pode diferir do sugerido; o sistema informa os alertas acordados.
-7. A vistoria concluída aplica os ajustes automaticamente aos produtos contados e registra as diferenças.
+7. A vistoria concluída aplica os ajustes automaticamente aos produtos contados e registra as diferenças; produtos não contados mantêm o saldo.
 8. Cancelamentos e devoluções mantêm seus próprios registros, sem apagar a movimentação original.
 9. Valores financeiros devem ser identificados claramente para não confundir faturamento, ganho bruto estimado e lucro líquido.
 
@@ -118,7 +132,6 @@ A prioridade imediata é permitir cadastrar produtos e registrar entradas. O res
 
 ## Decisões pendentes
 
-- Definir o comportamento para produtos não contados durante uma vistoria.
 - Validar as regras do Firestore, a autenticação e a persistência no navegador.
 - Confirmar com o responsável pela loja as necessidades adicionais após experimentar o protótipo.
 
@@ -142,9 +155,9 @@ As funcionalidades e regras deste documento poderão evoluir com base nessa vali
 ## Protótipo atual
 
 Arquivos:
-- `index.html`: telas de login, painel, produtos, entradas, Caixa, saídas, configurações, ajuda e tutorial.
+- `index.html`: telas de login, painel, produtos, entradas, Caixa, saídas, vistoria, configurações, ajuda e tutorial.
 - `styles.css`: layout responsivo com prioridade para celular.
-- `app.js`: autenticação Firebase, painel, produtos, entradas, vendas, saídas e leitura/gravação no Cloud Firestore.
+- `app.js`: autenticação Firebase, painel, produtos, entradas, vendas, saídas, vistoria e leitura/gravação no Cloud Firestore.
 
 ### Configuração necessária no Firebase
 
@@ -162,7 +175,7 @@ Arquivos:
 5. Atualize a página e confirme que o produto e o histórico continuam disponíveis.
 6. Teste o tutorial: fechar ou escolher “Entendi, começar” só o fecha naquela sessão; “Não mostrar novamente” impede a abertura automática neste navegador. A opção de Ajuda permite abri-lo novamente.
 
-**Importante:** este protótipo ainda não implementa cancelamentos, devoluções ou vistoria.
+**Importante:** este protótipo ainda não implementa cancelamentos nem devoluções de venda.
 
 
 ## Módulos Caixa e Saídas
@@ -196,7 +209,18 @@ Arquivos:
 4. Confira se o aviso de vendas sem custo registrado aparece apenas quando existirem vendas antigas no período.
 5. Teste os atalhos do Painel.
 
-**Atenção:** o registro de vendas usa a coleção `vendas` no Cloud Firestore. Se o Firebase negar leitura ou gravação, será necessário conferir as regras publicadas do Firestore para permitir o acesso autorizado a essa coleção. O código no GitHub não altera as regras diretamente no console do Firebase.
+### Teste da Vistoria
+
+1. Abra a aba Vistoria e toque em **Iniciar vistoria**.
+2. Digite a contagem de dois ou três produtos, deixando os demais em branco. Confira a diferença exibida em cada linha e o resumo (contados, não contados, com diferença).
+3. Toque em **Salvar andamento**, recarregue a página e confira se as contagens continuam lá.
+4. Digite `0` em um produto com saldo e confira que ele aparece como contado, com diferença negativa.
+5. Toque em **Concluir vistoria**. A confirmação deve informar quantos foram contados, quantos terão o saldo ajustado e quantos não foram contados.
+6. Confirme e verifique em Produtos que só os produtos com diferença tiveram o saldo alterado e que os não contados mantiveram o saldo.
+7. Abra o histórico de vistorias, toque em **Ver detalhes** e confira os ajustes (saldo anterior → contado) e a lista de não contados.
+8. Inicie outra vistoria e use **Descartar vistoria**: nenhum saldo deve mudar.
+
+**Atenção:** o registro de vendas usa a coleção `vendas` e a vistoria usa a coleção `vistorias` no Cloud Firestore. Se o Firebase negar leitura ou gravação, será necessário conferir as regras publicadas do Firestore para permitir o acesso autorizado a essas coleções. O código no GitHub não altera as regras diretamente no console do Firebase.
 
 
 ## Regras do Firestore
@@ -206,6 +230,7 @@ As regras de segurança são publicadas no **Firebase Console → Firestore Data
 - impedir saldo negativo e valores de custo ou preço negativos;
 - permitir somente criação (nunca edição ou exclusão) em `entradas`, `saidas`, `vendas` e `historico_custos`;
 - exigir que o campo `usuario` das vendas e saídas seja o e-mail da conta autenticada;
-- permitir excluir produto apenas com saldo zero.
+- permitir excluir produto apenas com saldo zero;
+- em `vistorias`, permitir salvar, concluir ou descartar apenas vistorias em andamento; uma vistoria concluída nunca mais pode ser alterada ou apagada.
 
 Não publique o e-mail real da conta autorizada neste repositório. Ao implementar o cancelamento de vendas, a regra da coleção `vendas` precisará permitir a atualização controlada desse registro.
