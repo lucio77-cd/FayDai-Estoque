@@ -35,10 +35,8 @@ const getRegisteredSalePrice = (product) => {
     ? roundMoney(registered)
     : calcSuggestedPrice(product);
 };
-const dateToday = () => {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-};
+const toDateString = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const dateToday = () => toDateString(new Date());
 // Converte "2026-10-21" ou "2026-10-21 14:30" para "21/10/2026" ou "21/10/2026 14:30".
 const formatDate = (value) => {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
@@ -73,7 +71,6 @@ let brands = [];
 let categories = [];
 let showArchivedEntries = false;
 let toastTimeout;
-let permissionAlertShown = false;
 
 const normalizeText = (value = "") => String(value || "")
   .normalize("NFD")
@@ -146,11 +143,11 @@ function explainError(error) {
     "auth/user-disabled": "Esta conta está desativada no Firebase.",
     "auth/too-many-requests": "Muitas tentativas. Aguarde um pouco e tente novamente.",
     "auth/network-request-failed": "Falha de conexão. Confira sua internet.",
-    "permission-denied": "O Firestore negou o acesso. Confira as regras e se o e-mail da conta está verificado.",
+    "permission-denied": "O Firestore negou o acesso. Confira as regras publicadas e se o e-mail da conta está na lista autorizada.",
     "unavailable": "O Firebase está temporariamente indisponível. Tente novamente."
   };
   return messages[code] || (code.includes("permission-denied")
-    ? "Acesso negado pelo Firestore. Confira as regras publicadas e a verificação do e-mail."
+    ? "Acesso negado pelo Firestore. Confira as regras publicadas e se o e-mail da conta está na lista autorizada."
     : error?.message || "Ocorreu um erro inesperado.");
 }
 
@@ -233,6 +230,84 @@ async function generateInternalCode() {
     transaction.set(counterRef, { ultimoNumero: next, atualizadoEm: serverTimestamp() }, { merge: true });
     return "FON" + String(next).padStart(3, "0");
   });
+}
+
+// ---------- Painel inicial (dashboard) ----------
+
+// Data inicial do período de vendas (formato AAAA-MM-DD) ou null para "todo o período".
+function getSalePeriodStart(period) {
+  const now = new Date();
+  if (period === "today") return toDateString(now);
+  if (period === "week") {
+    const start = new Date(now);
+    start.setDate(start.getDate() - 6);
+    return toDateString(start);
+  }
+  if (period === "month") return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  return null;
+}
+
+// Todos os indicadores são calculados a partir dos registros reais carregados do Firestore.
+function renderDashboard() {
+  const activeProducts = products.filter((product) => !product.arquivado);
+  const isEmpty = !activeProducts.length && !sales.length;
+  $("#dashboard-empty").hidden = !isEmpty;
+  $("#dashboard-stats").hidden = isEmpty;
+  if (isEmpty) return;
+
+  // Estoque atual (valor estimado pelo custo cadastrado vigente).
+  const units = activeProducts.reduce((sum, product) => sum + (Number(product.quantidade) || 0), 0);
+  const stockValue = roundMoney(activeProducts.reduce((sum, product) => (
+    sum + roundMoney((Number(product.quantidade) || 0) * roundMoney(product.custo))
+  ), 0));
+  const zeroStock = activeProducts.filter((product) => (Number(product.quantidade) || 0) <= 0).length;
+  $("#dash-products-count").textContent = String(activeProducts.length);
+  $("#dash-units-count").textContent = `${units} ${units === 1 ? "unidade" : "unidades"} em estoque`;
+  $("#dash-stock-value").textContent = money(stockValue);
+  $("#dash-zero-stock").textContent = zeroStock === 0
+    ? "Nenhum produto sem estoque."
+    : `${zeroStock} ${zeroStock === 1 ? "produto está sem estoque." : "produtos estão sem estoque."}`;
+
+  // Vendas do período escolhido.
+  const start = getSalePeriodStart($("#dashboard-period").value);
+  const today = dateToday();
+  const periodSales = sales.filter((sale) => {
+    const saleDate = sale.data || String(sale.dataHora || "").slice(0, 10);
+    return !start || (saleDate >= start && saleDate <= today);
+  });
+
+  let revenue = 0;
+  let grossDifference = 0;
+  let salesWithoutCost = 0;
+  periodSales.forEach((sale) => {
+    const items = Array.isArray(sale.itens) ? sale.itens : [];
+    const totalItems = items.length ? items : [{ quantidade: sale.quantidade, precoUnitario: sale.precoUnitario }];
+    revenue += Number(sale.total) || roundMoney(totalItems.reduce((sum, item) => (
+      sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0))
+    ), 0));
+
+    // Diferença bruta: só itens com o custo da época gravado na venda.
+    let missingCost = !items.length;
+    items.forEach((item) => {
+      if (typeof item.custoUnitario === "number") {
+        grossDifference += roundMoney((Number(item.quantidade) || 0) * ((Number(item.precoUnitario) || 0) - item.custoUnitario));
+      } else {
+        missingCost = true;
+      }
+    });
+    if (missingCost) salesWithoutCost += 1;
+  });
+
+  $("#dash-revenue").textContent = money(roundMoney(revenue));
+  $("#dash-sales-count").textContent = `${periodSales.length} ${periodSales.length === 1 ? "venda registrada" : "vendas registradas"}`;
+  $("#dash-gross").textContent = money(roundMoney(grossDifference));
+  const note = $("#dash-gross-note");
+  note.hidden = salesWithoutCost === 0;
+  note.textContent = salesWithoutCost === 0
+    ? ""
+    : (salesWithoutCost === 1
+      ? "1 venda sem custo registrado (feita antes desse registro existir) não entrou no cálculo da diferença bruta."
+      : `${salesWithoutCost} vendas sem custo registrado (feitas antes desse registro existir) não entraram no cálculo da diferença bruta.`);
 }
 
 function renderProducts() {
@@ -518,23 +593,13 @@ function renderEntries() {
     }).join("");
 }
 
-// Lê uma coleção e marca qual delas falhou (usado no diagnóstico de permissão).
-async function readCollection(name) {
-  try {
-    return await getDocs(collection(db, name));
-  } catch (error) {
-    error.colecao = name;
-    throw error;
-  }
-}
-
 async function loadData() {
   const user = auth.currentUser;
   if (!user) return;
   try {
     const [productSnapshot, entrySnapshot] = await Promise.all([
-      readCollection("produtos"),
-      readCollection("entradas")
+      getDocs(collection(db, "produtos")),
+      getDocs(collection(db, "entradas"))
     ]);
     let exitSnapshot = null;
     let saleSnapshot = null;
@@ -576,21 +641,12 @@ async function loadData() {
     renderSaleProductResults();
     renderSales();
     renderSaleCart();
+    renderDashboard();
   } catch (error) {
     console.error("Falha ao carregar dados do Firestore:", error);
     showToast(explainError(error));
-    // DIAGNÓSTICO TEMPORÁRIO: mostra por que o Firestore negou o acesso. Remover depois de resolver.
-    if (error?.code?.includes("permission-denied") && !permissionAlertShown) {
-      permissionAlertShown = true;
-      const currentUser = auth.currentUser;
-      let tokenInfo = "";
-      try {
-        const token = await currentUser.getIdTokenResult(true);
-        tokenInfo = `\nNo token - e-mail: ${token.claims.email}\nNo token - verificado: ${token.claims.email_verified}`;
-      } catch (tokenError) {
-        tokenInfo = "\nNão foi possível ler o token.";
-      }
-      alert(`DIAGNÓSTICO (temporário)\nColeção negada: ${error.colecao || "desconhecida"}\nE-mail logado: ${currentUser?.email}\nE-mail verificado: ${currentUser?.emailVerified}${tokenInfo}`);
+    if (error?.code?.includes("permission-denied")) {
+      showToast("Acesso negado. Confira as regras do Firestore e se a conta autenticada tem permissão.");
     }
   }
 }
@@ -635,6 +691,15 @@ onAuthStateChanged(auth, async (user) => {
 
 document.querySelectorAll(".tab").forEach((button) => {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
+});
+
+// Painel: troca do período de vendas e atalhos para as outras abas.
+$("#dashboard-period").addEventListener("change", renderDashboard);
+document.querySelectorAll("[data-shortcut]").forEach((button) => {
+  button.addEventListener("click", () => {
+    switchTab(button.dataset.shortcut);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
 });
 
 const updateSuggestedPrice = () => {
