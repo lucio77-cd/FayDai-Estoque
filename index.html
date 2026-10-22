@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#172554">
   <title>FayDai Estoque</title>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=20261022-b7">
 </head>
 <body>
   <main class="app-shell">
@@ -96,7 +96,7 @@
             </article>
           </div>
           <p id="dash-gross-note" class="notice" hidden></p>
-          <p class="notice">O lucro líquido não é apurado: o sistema ainda não registra as despesas da loja. A diferença bruta é apenas uma estimativa.</p>
+          <p class="notice">O lucro líquido não é apurado: o sistema ainda não registra as despesas da loja. A diferença bruta é apenas uma estimativa. Vendas canceladas ficam fora dos cálculos e as devoluções são descontadas no período em que foram registradas.</p>
         </div>
 
         <h3 class="dash-heading">Atalhos</h3>
@@ -323,8 +323,8 @@
         <div class="section-heading"><div><p class="eyebrow">PRIMEIROS PASSOS</p><h2>Ajuda</h2></div></div>
         <div class="panel help-card">
           <h3>Como usar o FayDai</h3>
-          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial. Se o custo mudar depois, o custo anterior fica registrado no histórico.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Ative o módulo Caixa em Configurações para registrar vendas. O preço de cada item pode ser ajustado no carrinho, com alertas de preço abaixo do sugerido ou do custo; o estoque é baixado automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>Use a Vistoria para contar o estoque físico: campo vazio mantém o saldo; digite 0 quando contar e não houver unidade. Você pode salvar o andamento e concluir depois.</li><li>No Painel, acompanhe o valor do estoque, o faturamento e a diferença bruta estimada das vendas por período.</li></ol>
-          <p class="muted small">Cancelamentos e devoluções de venda serão adicionados nas próximas etapas.</p>
+          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial. Se o custo mudar depois, o custo anterior fica registrado no histórico.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Ative o módulo Caixa em Configurações para registrar vendas. O preço de cada item pode ser ajustado no carrinho, com alertas de preço abaixo do sugerido ou do custo; o estoque é baixado automaticamente.</li><li>Para desfazer uma venda, abra o histórico do Caixa: use <strong>Devolver itens</strong> para devolver só alguns itens ou <strong>Cancelar venda</strong> para cancelar a venda inteira (só se ela não teve devolução). Em ambos os casos o estoque volta automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>Use a Vistoria para contar o estoque físico: campo vazio mantém o saldo; digite 0 quando contar e não houver unidade. Você pode salvar o andamento e concluir depois.</li><li>No Painel, acompanhe o valor do estoque, o faturamento e a diferença bruta estimada das vendas por período.</li></ol>
+          <p class="muted small">Cancelamentos e devoluções não podem ser desfeitos e ficam registrados no histórico.</p>
           <button id="show-tutorial" class="button secondary" type="button">Ver tutorial inicial</button>
         </div>
       </section>
@@ -347,7 +347,25 @@
       <button id="tutorial-never" class="button quiet full" type="button">Não mostrar novamente</button>
     </section>
   </div>
+
+  <div id="sale-action-overlay" class="overlay" hidden>
+    <section class="tutorial-card" role="dialog" aria-modal="true" aria-labelledby="sale-action-title">
+      <button id="sale-action-close" class="icon-button" type="button" aria-label="Fechar">×</button>
+      <p id="sale-action-eyebrow" class="eyebrow">VENDA</p>
+      <h2 id="sale-action-title">Venda</h2>
+      <p id="sale-action-summary" class="muted"></p>
+      <form id="sale-action-form" class="form-stack">
+        <div id="sale-action-items" class="item-list"></div>
+        <label for="sale-action-reason">Motivo *</label>
+        <textarea id="sale-action-reason" rows="2" maxlength="300" placeholder="Ex.: cliente desistiu, produto com defeito" required></textarea>
+        <p id="sale-action-total" class="notice" hidden></p>
+        <button id="sale-action-confirm" class="button primary full" type="submit">Confirmar</button>
+        <p id="sale-action-feedback" class="feedback" role="status"></p>
+      </form>
+    </section>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=20261021-b6"></script>
+  <script type="module" src="./app.js?v=20261022-b7"></script>
 </body>
 </html>
