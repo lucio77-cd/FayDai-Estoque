@@ -2,7 +2,7 @@
 
 Sistema simples de gestão de estoque, entradas, saídas e preços, pensado inicialmente para uma loja de celulares e acessórios. A primeira versão será priorizada para uso no celular e construída para ser demonstrada e validada com o responsável pela loja.
 
-> **Status:** protótipo em desenvolvimento. Já inclui login, painel inicial (dashboard), produtos (com histórico de alteração de custo), entradas, Caixa (vendas com preço ajustável e alertas), Saídas, vistoria física e configurações. Ainda precisam ser validados no navegador com o projeto Firebase.
+> **Status:** protótipo em desenvolvimento. Já inclui login, painel inicial (dashboard), produtos (com histórico de alteração de custo), entradas, Caixa (vendas com preço ajustável e alertas, cancelamentos e devoluções), Saídas, vistoria física e configurações. A vistoria foi validada em teste real; cancelamentos e devoluções ainda precisam ser validados no navegador com o projeto Firebase.
 
 ## Objetivo
 
@@ -93,6 +93,18 @@ Cada alteração do custo cadastrado gera um registro imutável na coleção `hi
 - Vincular a devolução a uma venda existente e impedir que a quantidade devolvida ultrapasse a quantidade vendida ainda não devolvida.
 - Não apagar o histórico para corrigir uma movimentação.
 
+**Implementação atual:**
+- Cada venda do histórico do Caixa tem os botões **Devolver itens** e **Cancelar venda**.
+- **Cancelar venda** vale só para a venda inteira e só se ela não teve nenhuma devolução. Exige motivo, devolve todas as unidades ao estoque e marca a venda com `status: "cancelada"`, `canceladaEm`, `canceladaPor` e `motivoCancelamento`. Itens, total, custo e data da venda nunca mudam. Uma venda cancelada não pode mais ser alterada.
+- **Devolver itens** é parcial, por item: o usuário informa as quantidades (até o que foi vendido menos o que já foi devolvido) e o motivo. A devolução é gravada na coleção `devolucoes` (somente criação), com o preço cobrado e o custo gravados na venda original.
+- Quanto já foi devolvido de uma venda é calculado somando as devoluções dela; não existe contador gravado na venda.
+- Não há limite de dias para cancelar ou devolver.
+- O sistema registra apenas o valor devolvido; não controla a forma de reembolso.
+- Produtos arquivados ou excluídos bloqueiam a devolução ao estoque, com aviso claro.
+- Cancelamentos e devoluções não aparecem nos históricos de Entradas e Saídas: o registro do movimento é a própria venda (cancelamento) ou a devolução.
+- Vendas antigas, de um formato anterior sem identificação dos produtos, não podem ser canceladas nem devolvidas pelo sistema.
+- O limite "não devolver mais do que foi vendido" é garantido pelo aplicativo (as regras do Firestore não somam documentos).
+
 ### 7. Painel inicial (dashboard)
 O painel deverá apresentar, conforme existirem dados suficientes:
 - quantidade de produtos cadastrados;
@@ -104,6 +116,8 @@ O painel deverá apresentar, conforme existirem dados suficientes:
 Os indicadores devem ser calculados a partir dos registros reais do sistema. Não devem ser exibidos dados de exemplo como se fossem dados reais.
 
 **Implementação atual:** o Painel é a primeira aba do sistema. O estoque (produtos cadastrados, unidades, produtos sem estoque e valor estimado) é sempre o do momento. O faturamento e a diferença bruta estimada seguem o período escolhido (hoje, últimos 7 dias, este mês ou todo o período; padrão: este mês). A diferença bruta usa o custo gravado em cada item no momento da venda; vendas antigas, feitas antes desse registro existir, ficam fora desse cálculo e o painel informa quantas foram. Produtos arquivados e saídas manuais não entram nos cálculos. O lucro líquido não é apresentado, pois as despesas ainda não são registradas.
+
+**Cancelamentos e devoluções no Painel:** vendas canceladas ficam fora de todos os cálculos do período (e o painel informa quantas foram). Devoluções são descontadas do faturamento e da diferença bruta no período em que foram registradas, usando o preço e o custo gravados na venda original.
 
 ## Regras gerais de negócio
 
@@ -128,12 +142,13 @@ A primeira demonstração será construída por etapas:
 5. **Vistoria física**, com contagem por lista e ajustes rastreáveis.
 6. **Cancelamentos, devoluções e refinamentos**, conforme o fluxo básico for testado.
 
-A prioridade imediata é permitir cadastrar produtos e registrar entradas. O restante será desenvolvido de forma incremental, sem ampliar o escopo antes de testar o fluxo principal.
+A prioridade imediata é validar no uso real os cancelamentos e devoluções. Os refinamentos seguem de forma incremental, sem ampliar o escopo antes de testar o fluxo principal.
 
 ## Decisões pendentes
 
 - Validar as regras do Firestore, a autenticação e a persistência no navegador.
-- Confirmar com o responsável pela loja as necessidades adicionais após experimentar o protótipo.
+- Validar o fluxo de cancelamentos e devoluções com dados de teste.
+- Confirmar com o responsável pela loja as necessidades adicionais após experimentar o protótipo (por exemplo, forma de reembolso e prazo para cancelar).
 
 ## Critérios para validar a demonstração
 
@@ -144,6 +159,7 @@ A prioridade imediata é permitir cadastrar produtos e registrar entradas. O res
 - Atualizar a página e verificar que os dados continuam salvos.
 - Conferir se os indicadores do dashboard correspondem aos registros existentes.
 - Realizar uma vistoria de teste e verificar se os ajustes e o histórico estão corretos.
+- Cancelar uma venda de teste e devolver itens de outra, conferindo estoque e Painel.
 
 ## Princípio do projeto
 
@@ -155,9 +171,9 @@ As funcionalidades e regras deste documento poderão evoluir com base nessa vali
 ## Protótipo atual
 
 Arquivos:
-- `index.html`: telas de login, painel, produtos, entradas, Caixa, saídas, vistoria, configurações, ajuda e tutorial.
+- `index.html`: telas de login, painel, produtos, entradas, Caixa, saídas, vistoria, configurações, ajuda, tutorial e painel de cancelamento/devolução.
 - `styles.css`: layout responsivo com prioridade para celular.
-- `app.js`: autenticação Firebase, painel, produtos, entradas, vendas, saídas, vistoria e leitura/gravação no Cloud Firestore.
+- `app.js`: autenticação Firebase, painel, produtos, entradas, vendas, cancelamentos e devoluções, saídas, vistoria e leitura/gravação no Cloud Firestore.
 
 ### Configuração necessária no Firebase
 
@@ -174,8 +190,6 @@ Arquivos:
 4. Registre uma entrada adicional e confira se o saldo aumenta.
 5. Atualize a página e confirme que o produto e o histórico continuam disponíveis.
 6. Teste o tutorial: fechar ou escolher “Entendi, começar” só o fecha naquela sessão; “Não mostrar novamente” impede a abertura automática neste navegador. A opção de Ajuda permite abri-lo novamente.
-
-**Importante:** este protótipo ainda não implementa cancelamentos nem devoluções de venda.
 
 
 ## Módulos Caixa e Saídas
@@ -220,7 +234,20 @@ Arquivos:
 7. Abra o histórico de vistorias, toque em **Ver detalhes** e confira os ajustes (saldo anterior → contado) e a lista de não contados.
 8. Inicie outra vistoria e use **Descartar vistoria**: nenhum saldo deve mudar.
 
-**Atenção:** o registro de vendas usa a coleção `vendas` e a vistoria usa a coleção `vistorias` no Cloud Firestore. Se o Firebase negar leitura ou gravação, será necessário conferir as regras publicadas do Firestore para permitir o acesso autorizado a essas coleções. O código no GitHub não altera as regras diretamente no console do Firebase.
+### Teste de Cancelamentos e Devoluções
+
+Use poucos produtos de teste.
+
+1. Faça duas vendas de teste no Caixa (A e B), cada uma com 2 itens. Anote o saldo de cada produto e o faturamento do Painel.
+2. Na venda A, toque em **Devolver itens**. Devolva 1 unidade de um item, com motivo. Confira: saldo do produto +1, etiqueta "Devolução parcial" e a devolução listada na venda.
+3. Ainda na venda A, tente devolver mais do que o disponível: o sistema deve bloquear. Confirme que o botão **Cancelar venda** não aparece mais (a venda já teve devolução).
+4. No Painel, confira que o faturamento caiu pelo valor devolvido e que a linha de vendas mostra "devoluções".
+5. Na venda B, toque em **Cancelar venda**, informe o motivo e confirme. Confira: todos os itens voltaram ao estoque, a venda ficou com etiqueta "Cancelada" e os botões sumiram.
+6. No Painel, confira que a venda B saiu do faturamento e que o aviso mostra "1 cancelada (fora do cálculo)".
+7. Devolva o restante da venda A até esgotar: a etiqueta deve virar "Totalmente devolvida".
+8. Em Produtos, tente excluir um produto que teve devolução com saldo zero: ele deve ser arquivado, não apagado.
+
+**Atenção:** o registro de vendas usa a coleção `vendas`, as devoluções usam `devolucoes` e a vistoria usa `vistorias` no Cloud Firestore. Se o Firebase negar leitura ou gravação, será necessário conferir as regras publicadas do Firestore para permitir o acesso autorizado a essas coleções. O código no GitHub não altera as regras diretamente no console do Firebase.
 
 
 ## Regras do Firestore
@@ -228,9 +255,10 @@ Arquivos:
 As regras de segurança são publicadas no **Firebase Console → Firestore Database → Regras** e não ficam neste repositório. Elas devem:
 - aceitar apenas contas cujo e-mail esteja em uma lista de e-mails autorizados;
 - impedir saldo negativo e valores de custo ou preço negativos;
-- permitir somente criação (nunca edição ou exclusão) em `entradas`, `saidas`, `vendas` e `historico_custos`;
-- exigir que o campo `usuario` das vendas e saídas seja o e-mail da conta autenticada;
+- permitir somente criação (nunca edição ou exclusão) em `entradas`, `saidas`, `historico_custos` e `devolucoes`;
+- em `vendas`, permitir a criação e uma única atualização controlada: marcar a venda como cancelada, alterando apenas `status`, `canceladaEm`, `canceladaPor` e `motivoCancelamento` (com `canceladaPor` igual ao e-mail da conta); venda cancelada nunca mais muda e nenhuma venda pode ser excluída;
+- exigir que o campo `usuario` das vendas, saídas e devoluções seja o e-mail da conta autenticada;
 - permitir excluir produto apenas com saldo zero;
 - em `vistorias`, permitir salvar, concluir ou descartar apenas vistorias em andamento; uma vistoria concluída nunca mais pode ser alterada ou apagada.
 
-Não publique o e-mail real da conta autorizada neste repositório. Ao implementar o cancelamento de vendas, a regra da coleção `vendas` precisará permitir a atualização controlada desse registro.
+Não publique o e-mail real da conta autorizada neste repositório.
