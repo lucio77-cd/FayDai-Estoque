@@ -2,7 +2,7 @@
 
 Sistema simples de gestão de estoque, entradas, saídas e preços, pensado inicialmente para uma loja de celulares e acessórios. A primeira versão será priorizada para uso no celular e construída para ser demonstrada e validada com o responsável pela loja.
 
-> **Status:** protótipo em desenvolvimento. Já inclui login, produtos (com histórico de alteração de custo), entradas, Caixa (vendas com preço ajustável e alertas), Saídas e configurações. Ainda precisam ser validados no navegador com o projeto Firebase.
+> **Status:** protótipo em desenvolvimento. Já inclui login, painel inicial (dashboard), produtos (com histórico de alteração de custo), entradas, Caixa (vendas com preço ajustável e alertas), Saídas e configurações. Ainda precisam ser validados no navegador com o projeto Firebase.
 
 ## Objetivo
 
@@ -89,6 +89,8 @@ O painel deverá apresentar, conforme existirem dados suficientes:
 
 Os indicadores devem ser calculados a partir dos registros reais do sistema. Não devem ser exibidos dados de exemplo como se fossem dados reais.
 
+**Implementação atual:** o Painel é a primeira aba do sistema. O estoque (produtos cadastrados, unidades, produtos sem estoque e valor estimado) é sempre o do momento. O faturamento e a diferença bruta estimada seguem o período escolhido (hoje, últimos 7 dias, este mês ou todo o período; padrão: este mês). A diferença bruta usa o custo gravado em cada item no momento da venda; vendas antigas, feitas antes desse registro existir, ficam fora desse cálculo e o painel informa quantas foram. Produtos arquivados e saídas manuais não entram nos cálculos. O lucro líquido não é apresentado, pois as despesas ainda não são registradas.
+
 ## Regras gerais de negócio
 
 1. Todas as quantidades serão controladas numericamente, sem identificação individual de cada unidade.
@@ -140,14 +142,14 @@ As funcionalidades e regras deste documento poderão evoluir com base nessa vali
 ## Protótipo atual
 
 Arquivos:
-- `index.html`: telas de login, produtos, entradas, Caixa, saídas, configurações, ajuda e tutorial.
+- `index.html`: telas de login, painel, produtos, entradas, Caixa, saídas, configurações, ajuda e tutorial.
 - `styles.css`: layout responsivo com prioridade para celular.
-- `app.js`: autenticação Firebase, produtos, entradas, vendas, saídas e leitura/gravação no Cloud Firestore.
+- `app.js`: autenticação Firebase, painel, produtos, entradas, vendas, saídas e leitura/gravação no Cloud Firestore.
 
 ### Configuração necessária no Firebase
 
 1. Em **Authentication → Sign-in method**, habilite o provedor **E-mail/senha**.
-2. Confirme que a conta de uso existe no Firebase Authentication e que o e-mail está verificado, pois as regras exigem `email_verified == true`.
+2. Confirme que a conta de uso existe no Firebase Authentication. As regras atuais não exigem e-mail verificado; a proteção é a lista de e-mails autorizados.
 3. Confirme que o Firestore está criado e que as regras publicadas autorizam somente a conta autorizada (veja a seção “Regras do Firestore”).
 4. Para publicar em um host como Vercel, adicione o domínio do site em **Authentication → Settings → Authorized domains**.
 
@@ -160,7 +162,7 @@ Arquivos:
 5. Atualize a página e confirme que o produto e o histórico continuam disponíveis.
 6. Teste o tutorial: fechar ou escolher “Entendi, começar” só o fecha naquela sessão; “Não mostrar novamente” impede a abertura automática neste navegador. A opção de Ajuda permite abri-lo novamente.
 
-**Importante:** este protótipo ainda não implementa cancelamentos, devoluções, dashboard ou vistoria.
+**Importante:** este protótipo ainda não implementa cancelamentos, devoluções ou vistoria.
 
 
 ## Módulos Caixa e Saídas
@@ -186,13 +188,21 @@ Arquivos:
 8. Em Saídas, teste uma retirada manual com motivo, por exemplo, perda ou uso interno. Confira a baixa e o histórico.
 9. Desative e reative os módulos para confirmar que o histórico permanece.
 
+### Teste do Painel
+
+1. Abra a aba Painel e confira se a quantidade de produtos, as unidades e o valor do estoque batem com o catálogo (soma de saldo × custo cadastrado).
+2. Faça uma venda no Caixa e volte ao Painel: o faturamento e a quantidade de vendas devem aumentar.
+3. Troque o período (hoje, 7 dias, este mês, todo o período) e confira se os valores mudam de acordo com as datas das vendas.
+4. Confira se o aviso de vendas sem custo registrado aparece apenas quando existirem vendas antigas no período.
+5. Teste os atalhos do Painel.
+
 **Atenção:** o registro de vendas usa a coleção `vendas` no Cloud Firestore. Se o Firebase negar leitura ou gravação, será necessário conferir as regras publicadas do Firestore para permitir o acesso autorizado a essa coleção. O código no GitHub não altera as regras diretamente no console do Firebase.
 
 
 ## Regras do Firestore
 
 As regras de segurança são publicadas no **Firebase Console → Firestore Database → Regras** e não ficam neste repositório. Elas devem:
-- aceitar apenas contas com e-mail verificado e presentes em uma lista de e-mails autorizados;
+- aceitar apenas contas cujo e-mail esteja em uma lista de e-mails autorizados;
 - impedir saldo negativo e valores de custo ou preço negativos;
 - permitir somente criação (nunca edição ou exclusão) em `entradas`, `saidas`, `vendas` e `historico_custos`;
 - exigir que o campo `usuario` das vendas e saídas seja o e-mail da conta autenticada;
