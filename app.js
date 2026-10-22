@@ -4,7 +4,8 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
   getFirestore, collection, getDocs, doc, writeBatch, addDoc,
-  runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion
+  runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion,
+  query, where, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 // Configuração do aplicativo web FayDai-Estoque.
@@ -49,6 +50,8 @@ const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, (char) => (
 const CATALOG_OPTIONS_ID = "catalogo_opcoes_faydai";
 const STORE_SETTINGS_ID = "configuracoes_faydai";
 const INTERNAL_COUNTER_ID = "contador_codigo_interno_faydai";
+// Limite de produtos ajustados por vistoria (limite de escritas de uma transação do Firestore).
+const MAX_INVENTORY_ADJUSTMENTS = 400;
 let storeSettings = { nome: "", responsavel: "", telefone: "", endereco: "", cnpj: "", codigoInternoAtivo: false, codigoBarrasAtivo: false, caixaAtivo: false, saidasAtivo: true };
 let editingProductId = null;
 let salePriceManuallyEdited = false;
@@ -71,6 +74,15 @@ let brands = [];
 let categories = [];
 let showArchivedEntries = false;
 let toastTimeout;
+
+// Vistoria física
+let inventoryHistory = [];
+let activeVistoria = null;
+let vistoriaDraft = {};
+let vistoriaDraftOwner = null;
+let vistoriaDirty = false;
+let inventoryAvailable = true;
+let inventoryLoadErrorShown = false;
 
 const normalizeText = (value = "") => String(value || "")
   .normalize("NFD")
@@ -593,6 +605,370 @@ function renderEntries() {
     }).join("");
 }
 
+// ---------- Vistoria física ----------
+
+// Campo vazio = não contado (saldo mantido). "0" = contado, sem nenhuma unidade.
+function parseCountValue(raw) {
+  const text = String(raw ?? "").trim();
+  if (text === "") return { state: "empty" };
+  const value = Number(text);
+  if (!Number.isInteger(value) || value < 0) return { state: "invalid" };
+  return { state: "counted", value };
+}
+
+// Mantém o rascunho digitado: só recarrega das contagens salvas quando a vistoria mudou
+// ou quando não há alterações pendentes.
+function syncInventoryDraft() {
+  const id = activeVistoria?.id || null;
+  if (id !== vistoriaDraftOwner) {
+    vistoriaDraftOwner = id;
+    vistoriaDirty = false;
+    vistoriaDraft = {};
+    Object.entries(activeVistoria?.contagens || {}).forEach(([productId, value]) => {
+      vistoriaDraft[productId] = String(value);
+    });
+  } else if (!vistoriaDirty) {
+    vistoriaDraft = {};
+    Object.entries(activeVistoria?.contagens || {}).forEach(([productId, value]) => {
+      vistoriaDraft[productId] = String(value);
+    });
+  }
+}
+
+function describeCount(product, raw) {
+  const parsed = parseCountValue(raw);
+  const balance = Number(product.quantidade) || 0;
+  if (parsed.state === "empty") return { text: "Não contado", cls: "pending", counted: false };
+  if (parsed.state === "invalid") return { text: "Valor inválido", cls: "invalid", counted: false };
+  const diff = parsed.value - balance;
+  if (diff === 0) return { text: "Sem diferença", cls: "ok", counted: true };
+  return { text: `${diff > 0 ? "+" : ""}${diff} un.`, cls: diff > 0 ? "plus" : "minus", counted: true };
+}
+
+function inventoryCounts() {
+  const activeProducts = products.filter((product) => !product.arquivado);
+  let counted = 0;
+  let withDiff = 0;
+  activeProducts.forEach((product) => {
+    const parsed = parseCountValue(vistoriaDraft[product.id]);
+    if (parsed.state === "counted") {
+      counted += 1;
+      if (parsed.value !== (Number(product.quantidade) || 0)) withDiff += 1;
+    }
+  });
+  return { total: activeProducts.length, counted, uncounted: activeProducts.length - counted, withDiff };
+}
+
+function updateInventorySummary() {
+  const counts = inventoryCounts();
+  $("#inventory-summary").innerHTML = `Contados: <strong>${counts.counted}</strong> de ${counts.total} · Não contados: <strong>${counts.uncounted}</strong> · Com diferença: <strong>${counts.withDiff}</strong>`;
+  $("#inventory-dirty").hidden = !vistoriaDirty;
+}
+
+function updateInventoryRow(productId) {
+  const product = products.find((item) => item.id === productId);
+  const row = document.querySelector(`[data-count-row="${CSS.escape(productId)}"]`);
+  if (!product || !row) return;
+  const info = describeCount(product, vistoriaDraft[productId]);
+  const diffElement = row.querySelector(".count-diff");
+  diffElement.textContent = info.text;
+  diffElement.className = `count-diff ${info.cls}`;
+  row.classList.toggle("is-counted", info.counted);
+}
+
+function renderInventoryList() {
+  const list = $("#inventory-list");
+  const queryText = normalizeText($("#inventory-search").value);
+  const onlyUncounted = $("#inventory-only-uncounted").checked;
+  const activeProducts = products.filter((product) => !product.arquivado)
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  if (!activeProducts.length) {
+    list.innerHTML = '<div class="empty-state">Nenhum produto ativo para contar.</div>';
+    return;
+  }
+  const visible = activeProducts.filter((product) => {
+    if (queryText && ![product.nome, product.codigoInterno, product.codigoBarras, product.marca, product.categoria]
+      .some((value) => normalizeText(value).includes(queryText))) return false;
+    if (onlyUncounted && parseCountValue(vistoriaDraft[product.id]).state === "counted") return false;
+    return true;
+  });
+  if (!visible.length) {
+    list.innerHTML = '<div class="empty-state">Nenhum produto para mostrar com esse filtro.</div>';
+    return;
+  }
+  list.innerHTML = visible.map((product) => {
+    const raw = vistoriaDraft[product.id] ?? "";
+    const info = describeCount(product, raw);
+    return `<article class="count-row${info.counted ? " is-counted" : ""}" data-count-row="${escapeHtml(product.id)}">
+      <div class="count-main">
+        <strong>${escapeHtml(product.nome)}</strong>
+        <small>${escapeHtml(product.codigoInterno || product.codigoBarras || "Sem código")} · Saldo no sistema: ${Number(product.quantidade) || 0}</small>
+      </div>
+      <div class="count-input-wrap">
+        <input class="count-input" type="number" min="0" step="1" inputmode="numeric" placeholder="—" value="${escapeHtml(raw)}" data-count-input="${escapeHtml(product.id)}" aria-label="Quantidade contada de ${escapeHtml(product.nome)}">
+        <span class="count-diff ${info.cls}">${escapeHtml(info.text)}</span>
+      </div>
+    </article>`;
+  }).join("");
+}
+
+function renderInventoryHistory() {
+  const list = $("#inventory-history");
+  if (!inventoryHistory.length) {
+    list.innerHTML = '<div class="empty-state">Nenhuma vistoria concluída ainda.</div>';
+    return;
+  }
+  list.innerHTML = inventoryHistory.map((vistoria) => {
+    const items = Array.isArray(vistoria.itens) ? vistoria.itens : [];
+    const adjusted = items.filter((item) => item.diferenca !== 0);
+    const notCounted = Array.isArray(vistoria.naoContados) ? vistoria.naoContados : [];
+    const ignored = Array.isArray(vistoria.ignorados) ? vistoria.ignorados : [];
+    const adjustedLines = adjusted.length
+      ? `<ul>${adjusted.map((item) => `<li>${escapeHtml(item.produtoNome || "Produto")} — saldo ${Number(item.saldoAnterior) || 0} → ${Number(item.contado) || 0} (${item.diferenca > 0 ? "+" : ""}${item.diferenca})</li>`).join("")}</ul>`
+      : "<p>Nenhum ajuste de saldo.</p>";
+    const notCountedLines = notCounted.length
+      ? `<ul>${notCounted.map((item) => `<li>${escapeHtml(item.produtoNome || "Produto")} — saldo mantido: ${Number(item.saldo) || 0}</li>`).join("")}</ul>`
+      : "<p>Todos os produtos foram contados.</p>";
+    const ignoredBlock = ignored.length
+      ? `<h4>Ignorados</h4><ul>${ignored.map((item) => `<li>${escapeHtml(item.produtoNome || "Produto")} — ${escapeHtml(item.motivo || "")}</li>`).join("")}</ul>`
+      : "";
+    return `<article class="entry-card">
+      <div class="item-title-row"><div class="item-title">Vistoria de ${escapeHtml(formatDate(vistoria.dataHora || vistoria.data) || "data não informada")}</div><span class="stock-badge">${items.length} contado(s)</span></div>
+      <p>Responsável: ${escapeHtml(vistoria.concluidaPor || "Não identificado")} · ${adjusted.length} ajustado(s) · ${notCounted.length} não contado(s)</p>
+      <details class="inventory-details">
+        <summary>Ver detalhes</summary>
+        <h4>Ajustes de saldo</h4>
+        ${adjustedLines}
+        <h4>Não contados (saldo mantido)</h4>
+        ${notCountedLines}
+        ${ignoredBlock}
+      </details>
+    </article>`;
+  }).join("");
+}
+
+function renderInventory() {
+  const hasActive = Boolean(activeVistoria);
+  $("#inventory-idle").hidden = hasActive;
+  $("#inventory-active").hidden = !hasActive;
+  $("#inventory-start").disabled = !inventoryAvailable;
+  if (hasActive) {
+    const savedAt = activeVistoria.atualizadoEmMs
+      ? new Date(activeVistoria.atualizadoEmMs).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+      : "";
+    $("#inventory-meta").textContent = `Iniciada em ${formatDate(activeVistoria.data)} por ${activeVistoria.criadoPor || "usuário não identificado"}.${savedAt ? ` Último salvamento: ${savedAt}.` : ""}`;
+    renderInventoryList();
+    updateInventorySummary();
+  }
+  renderInventoryHistory();
+}
+
+// Contagens válidas dos produtos ativos (ignora chaves de produtos que não existem mais).
+function buildInventoryCounts() {
+  const activeIds = new Set(products.filter((product) => !product.arquivado).map((product) => product.id));
+  const counts = {};
+  let hasInvalid = false;
+  Object.entries(vistoriaDraft).forEach(([productId, raw]) => {
+    if (!activeIds.has(productId)) return;
+    const parsed = parseCountValue(raw);
+    if (parsed.state === "invalid") hasInvalid = true;
+    else if (parsed.state === "counted") counts[productId] = parsed.value;
+  });
+  return { counts, hasInvalid };
+}
+
+async function startInventory() {
+  const button = $("#inventory-start");
+  button.disabled = true;
+  setFeedback("#inventory-feedback", "Iniciando vistoria…");
+  try {
+    await loadData();
+    if (activeVistoria) {
+      setFeedback("#inventory-feedback", "Já existe uma vistoria em andamento.", true);
+      return;
+    }
+    const email = auth.currentUser?.email || null;
+    await addDoc(collection(db, "vistorias"), {
+      status: "em_andamento",
+      contagens: {},
+      data: dateToday(),
+      criadoEm: serverTimestamp(),
+      criadoPor: email,
+      atualizadoEm: serverTimestamp(),
+      atualizadoPor: email
+    });
+    await loadData();
+    setFeedback("#inventory-feedback", "Vistoria iniciada. Preencha as quantidades contadas.");
+  } catch (error) {
+    console.error("Falha ao iniciar vistoria:", error);
+    setFeedback("#inventory-feedback", explainError(error), true);
+  } finally {
+    button.disabled = !inventoryAvailable;
+  }
+}
+
+async function saveInventory() {
+  if (!activeVistoria) return;
+  const button = $("#inventory-save");
+  const { counts, hasInvalid } = buildInventoryCounts();
+  if (hasInvalid) {
+    setFeedback("#inventory-feedback", "Há valores inválidos na contagem. Use números inteiros, 0 ou maiores.", true);
+    return;
+  }
+  button.disabled = true;
+  setFeedback("#inventory-feedback", "Salvando andamento…");
+  try {
+    await updateDoc(doc(db, "vistorias", activeVistoria.id), {
+      contagens: counts,
+      atualizadoEm: serverTimestamp(),
+      atualizadoPor: auth.currentUser?.email || null
+    });
+    vistoriaDirty = false;
+    await loadData();
+    setFeedback("#inventory-feedback", `Andamento salvo (${Object.keys(counts).length} produto(s) contado(s)).`);
+    showToast("Andamento da vistoria salvo.");
+  } catch (error) {
+    console.error("Falha ao salvar vistoria:", error);
+    setFeedback("#inventory-feedback", explainError(error), true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function discardInventory() {
+  if (!activeVistoria) return;
+  const confirmed = window.confirm("Descartar a vistoria em andamento?\n\nTodas as contagens (salvas ou não) serão perdidas. Nenhum saldo será alterado.");
+  if (!confirmed) return;
+  const button = $("#inventory-discard");
+  button.disabled = true;
+  try {
+    await deleteDoc(doc(db, "vistorias", activeVistoria.id));
+    vistoriaDirty = false;
+    await loadData();
+    setFeedback("#inventory-feedback", "Vistoria descartada. Nenhum saldo foi alterado.");
+  } catch (error) {
+    console.error("Falha ao descartar vistoria:", error);
+    setFeedback("#inventory-feedback", explainError(error), true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function finishInventory() {
+  if (!activeVistoria) return;
+  const button = $("#inventory-finish");
+  button.disabled = true;
+  setFeedback("#inventory-feedback", "Conferindo os saldos atuais…");
+  try {
+    if (Object.values(vistoriaDraft).some((raw) => parseCountValue(raw).state === "invalid")) {
+      throw new Error("Há valores inválidos na contagem. Use números inteiros, 0 ou maiores.");
+    }
+    // Recarrega os saldos: a diferença é calculada com o saldo do momento da conclusão.
+    await loadData();
+    if (!activeVistoria) throw new Error("A vistoria não está mais em andamento. Atualize a página.");
+    const vistoriaId = activeVistoria.id;
+
+    const counted = [];
+    const uncounted = [];
+    products.filter((product) => !product.arquivado).forEach((product) => {
+      const parsed = parseCountValue(vistoriaDraft[product.id]);
+      const balance = Number(product.quantidade) || 0;
+      if (parsed.state === "counted") {
+        counted.push({ id: product.id, nome: product.nome || "", valor: parsed.value, saldo: balance });
+      } else {
+        uncounted.push({ produtoId: product.id, produtoNome: product.nome || "", codigoInterno: product.codigoInterno || "", saldo: balance });
+      }
+    });
+    if (!counted.length) throw new Error("Informe a contagem de pelo menos um produto antes de concluir.");
+    const withDiff = counted.filter((item) => item.valor !== item.saldo).length;
+    if (withDiff > MAX_INVENTORY_ADJUSTMENTS) {
+      throw new Error(`Há ${withDiff} produtos com diferença. O limite é ${MAX_INVENTORY_ADJUSTMENTS} por vistoria: deixe alguns produtos em branco (não contados) e conclua; depois faça outra vistoria com o restante.`);
+    }
+
+    const confirmed = window.confirm(
+      `Concluir a vistoria?\n\n• ${counted.length} produto(s) contado(s)\n• ${withDiff} com diferença: o saldo será ajustado para a quantidade contada\n• ${uncounted.length} NÃO contado(s): mantêm o saldo atual\n\nA conclusão não pode ser desfeita.`
+    );
+    if (!confirmed) {
+      setFeedback("#inventory-feedback", "");
+      return;
+    }
+
+    setFeedback("#inventory-feedback", "Concluindo vistoria…");
+    const vistoriaRef = doc(db, "vistorias", vistoriaId);
+    const email = auth.currentUser?.email || "Usuário não identificado";
+    const date = dateToday();
+    const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    let result = null;
+    await runTransaction(db, async (transaction) => {
+      const vistoriaSnapshot = await transaction.get(vistoriaRef);
+      if (!vistoriaSnapshot.exists() || vistoriaSnapshot.data().status !== "em_andamento") {
+        throw new Error("Esta vistoria já foi concluída ou foi descartada.");
+      }
+      const snapshots = await Promise.all(counted.map((item) => transaction.get(doc(db, "produtos", item.id))));
+      const itens = [];
+      const ignorados = [];
+      snapshots.forEach((snapshot, index) => {
+        const item = counted[index];
+        if (!snapshot.exists() || snapshot.data().arquivado) {
+          ignorados.push({
+            produtoId: item.id, produtoNome: item.nome, contado: item.valor,
+            motivo: !snapshot.exists() ? "Produto não existe mais" : "Produto arquivado"
+          });
+          return;
+        }
+        const product = snapshot.data();
+        const saldoAnterior = Number(product.quantidade) || 0;
+        itens.push({
+          produtoId: item.id,
+          produtoNome: product.nome || item.nome,
+          codigoInterno: product.codigoInterno || "",
+          saldoAnterior,
+          contado: item.valor,
+          diferenca: item.valor - saldoAnterior
+        });
+      });
+      const ajustados = itens.filter((item) => item.diferenca !== 0);
+      if (ajustados.length > MAX_INVENTORY_ADJUSTMENTS) {
+        throw new Error(`Há ${ajustados.length} produtos com diferença. O limite é ${MAX_INVENTORY_ADJUSTMENTS} por vistoria: deixe alguns produtos em branco e conclua em partes.`);
+      }
+      ajustados.forEach((item) => {
+        transaction.update(doc(db, "produtos", item.produtoId), {
+          quantidade: item.contado,
+          atualizadoEm: serverTimestamp()
+        });
+      });
+      transaction.update(vistoriaRef, {
+        status: "concluida",
+        contagens: Object.fromEntries(counted.map((item) => [item.id, item.valor])),
+        itens,
+        naoContados: uncounted,
+        ignorados,
+        totalContados: itens.length,
+        totalNaoContados: uncounted.length,
+        totalComDiferenca: ajustados.length,
+        data: date,
+        dataHora: dateTime,
+        concluidaEm: serverTimestamp(),
+        concluidaPor: email,
+        atualizadoEm: serverTimestamp(),
+        atualizadoPor: email
+      });
+      result = { contados: itens.length, ajustados: ajustados.length, ignorados: ignorados.length };
+    });
+
+    vistoriaDirty = false;
+    await loadData();
+    const message = `Vistoria concluída: ${result.contados} produto(s) contado(s), ${result.ajustados} com saldo ajustado${result.ignorados ? `, ${result.ignorados} ignorado(s) (arquivado ou removido)` : ""}.`;
+    setFeedback("#inventory-feedback", message);
+    showToast("Vistoria concluída.");
+  } catch (error) {
+    console.error("Falha ao concluir vistoria:", error);
+    setFeedback("#inventory-feedback", explainError(error), true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function loadData() {
   const user = auth.currentUser;
   if (!user) return;
@@ -603,6 +979,7 @@ async function loadData() {
     ]);
     let exitSnapshot = null;
     let saleSnapshot = null;
+    let vistoriaFetch = null;
     try {
       saleSnapshot = await getDocs(collection(db, "vendas"));
     } catch (saleLoadError) {
@@ -616,6 +993,25 @@ async function loadData() {
       if (exitLoadError?.code?.includes("permission-denied")) {
         setFeedback("#exit-feedback", "O histórico de saídas ainda não tem permissão de leitura nas regras do Firestore.", true);
       }
+    }
+    try {
+      const [activeSnapshot, historySnapshot] = await Promise.all([
+        getDocs(query(collection(db, "vistorias"), where("status", "==", "em_andamento"))),
+        getDocs(query(collection(db, "vistorias"), orderBy("concluidaEm", "desc"), limit(10)))
+      ]);
+      vistoriaFetch = { activeSnapshot, historySnapshot };
+      inventoryAvailable = true;
+      if (inventoryLoadErrorShown) {
+        setFeedback("#inventory-feedback", "");
+        inventoryLoadErrorShown = false;
+      }
+    } catch (inventoryLoadError) {
+      console.error("Falha ao carregar vistorias:", inventoryLoadError);
+      inventoryAvailable = false;
+      inventoryLoadErrorShown = true;
+      setFeedback("#inventory-feedback", inventoryLoadError?.code?.includes("permission-denied")
+        ? "O Firestore ainda não permite acessar a coleção de vistorias. Publique as regras atualizadas no Firebase Console."
+        : "Não foi possível carregar as vistorias agora.", true);
     }
     const catalogOptionsDoc = productSnapshot.docs.find((item) => item.id === CATALOG_OPTIONS_ID);
     const settingsDoc = productSnapshot.docs.find((item) => item.id === STORE_SETTINGS_ID);
@@ -632,6 +1028,16 @@ async function loadData() {
     });
     exits = exitSnapshot ? exitSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })) : [];
     sales = saleSnapshot ? saleSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })) : [];
+    if (vistoriaFetch) {
+      const mapVistoria = (item) => {
+        const data = item.data();
+        return { id: item.id, ...data, criadoEmMs: data.criadoEm?.toMillis?.() || 0, atualizadoEmMs: data.atualizadoEm?.toMillis?.() || 0 };
+      };
+      activeVistoria = vistoriaFetch.activeSnapshot.docs.map(mapVistoria)
+        .sort((a, b) => b.criadoEmMs - a.criadoEmMs)[0] || null;
+      inventoryHistory = vistoriaFetch.historySnapshot.docs.map(mapVistoria);
+      syncInventoryDraft();
+    }
     renderCatalogOptions();
     renderStoreSettings();
     renderProducts();
@@ -642,6 +1048,7 @@ async function loadData() {
     renderSales();
     renderSaleCart();
     renderDashboard();
+    renderInventory();
   } catch (error) {
     console.error("Falha ao carregar dados do Firestore:", error);
     showToast(explainError(error));
@@ -700,6 +1107,24 @@ document.querySelectorAll("[data-shortcut]").forEach((button) => {
     switchTab(button.dataset.shortcut);
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
+});
+
+// Vistoria: iniciar, salvar, concluir, descartar, pesquisar e digitar contagens.
+$("#inventory-start").addEventListener("click", startInventory);
+$("#inventory-save").addEventListener("click", saveInventory);
+$("#inventory-finish").addEventListener("click", finishInventory);
+$("#inventory-discard").addEventListener("click", discardInventory);
+$("#inventory-search").addEventListener("input", renderInventoryList);
+$("#inventory-only-uncounted").addEventListener("change", renderInventoryList);
+$("#refresh-inventory").addEventListener("click", loadData);
+$("#inventory-list").addEventListener("input", (event) => {
+  const input = event.target.closest("[data-count-input]");
+  if (!input) return;
+  const productId = input.dataset.countInput;
+  vistoriaDraft[productId] = input.value;
+  vistoriaDirty = true;
+  updateInventoryRow(productId);
+  updateInventorySummary();
 });
 
 const updateSuggestedPrice = () => {
@@ -875,11 +1300,11 @@ $("#sale-product-search").addEventListener("input", renderSaleProductResults);
 $("#sale-product-search").addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   event.preventDefault();
-  const query = normalizeText($("#sale-product-search").value);
-  if (!query) return;
+  const queryText = normalizeText($("#sale-product-search").value);
+  if (!queryText) return;
   const exactMatches = products.filter((product) => !product.arquivado && [
     product.codigoBarras, product.codigoInterno, product.nome
-  ].some((value) => normalizeText(value) === query));
+  ].some((value) => normalizeText(value) === queryText));
   if (exactMatches.length === 1) addProductToSaleCart(exactMatches[0]);
 });
 $("#sale-product-results").addEventListener("click", (event) => {
