@@ -45,7 +45,8 @@
       </section>
 
       <nav class="tabs" aria-label="Seções do sistema">
-        <button class="tab active" data-tab="products" type="button">Produtos</button>
+        <button class="tab active" data-tab="dashboard" type="button">Painel</button>
+        <button class="tab" data-tab="products" type="button">Produtos</button>
         <button class="tab" data-tab="entries" type="button">Entradas</button>
         <button class="tab" data-tab="caja" type="button">Caixa</button>
         <button class="tab" data-tab="exits" type="button">Saídas</button>
@@ -53,7 +54,60 @@
         <button class="tab" data-tab="help" type="button">Ajuda</button>
       </nav>
 
-      <section id="products-panel" class="tab-panel">
+      <section id="dashboard-panel" class="tab-panel">
+        <div class="section-heading"><div><p class="eyebrow">VISÃO GERAL</p><h2>Painel</h2></div></div>
+        <div id="dashboard-empty" class="empty-state" hidden>Ainda não há produtos nem vendas registrados.<br>Cadastre o primeiro produto para começar a ver os indicadores.</div>
+        <div id="dashboard-stats">
+          <h3 class="dash-heading">Estoque</h3>
+          <div class="dashboard-grid">
+            <article class="stat-card">
+              <span class="stat-label">Produtos cadastrados</span>
+              <strong id="dash-products-count" class="stat-value">0</strong>
+              <small id="dash-units-count" class="stat-sub">0 unidades em estoque</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-label">Valor estimado do estoque</span>
+              <strong id="dash-stock-value" class="stat-value">R$ 0,00</strong>
+              <small class="stat-sub">Pelo custo cadastrado atual</small>
+            </article>
+          </div>
+          <p id="dash-zero-stock" class="dash-note"></p>
+
+          <div class="dash-heading-row">
+            <h3 class="dash-heading">Vendas</h3>
+            <select id="dashboard-period" class="dash-period" aria-label="Período das vendas">
+              <option value="today">Hoje</option>
+              <option value="week">Últimos 7 dias</option>
+              <option value="month" selected>Este mês</option>
+              <option value="all">Todo o período</option>
+            </select>
+          </div>
+          <div class="dashboard-grid">
+            <article class="stat-card">
+              <span class="stat-label">Faturamento</span>
+              <strong id="dash-revenue" class="stat-value">R$ 0,00</strong>
+              <small id="dash-sales-count" class="stat-sub">0 vendas registradas</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-label">Diferença bruta estimada</span>
+              <strong id="dash-gross" class="stat-value">R$ 0,00</strong>
+              <small class="stat-sub">Preço cobrado menos o custo cadastrado na venda</small>
+            </article>
+          </div>
+          <p id="dash-gross-note" class="notice" hidden></p>
+          <p class="notice">O lucro líquido não é apurado: o sistema ainda não registra as despesas da loja. A diferença bruta é apenas uma estimativa.</p>
+        </div>
+
+        <h3 class="dash-heading">Atalhos</h3>
+        <div class="dashboard-shortcuts">
+          <button class="button secondary" type="button" data-shortcut="products">Cadastrar produto</button>
+          <button class="button secondary" type="button" data-shortcut="entries">Registrar entrada</button>
+          <button class="button secondary" type="button" data-shortcut="caja">Registrar venda</button>
+          <button class="button secondary" type="button" data-shortcut="exits">Registrar saída</button>
+        </div>
+      </section>
+
+      <section id="products-panel" class="tab-panel" hidden>
         <div class="section-heading"><div><p class="eyebrow">CATÁLOGO</p><h2>Produtos</h2></div><span id="product-count" class="count-pill">0 itens</span></div>
         <form id="product-form" class="panel form-stack">
           <h3>Novo produto</h3>
@@ -234,8 +288,8 @@
         <div class="section-heading"><div><p class="eyebrow">PRIMEIROS PASSOS</p><h2>Ajuda</h2></div></div>
         <div class="panel help-card">
           <h3>Como usar o FayDai</h3>
-          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial. Se o custo mudar depois, o custo anterior fica registrado no histórico.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Ative o módulo Caixa em Configurações para registrar vendas. O preço de cada item pode ser ajustado no carrinho, com alertas de preço abaixo do sugerido ou do custo; o estoque é baixado automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>Confira o saldo no catálogo de produtos.</li></ol>
-          <p class="muted small">Cancelamentos, devoluções de venda, painel de indicadores e vistoria física serão adicionados nas próximas etapas.</p>
+          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial. Se o custo mudar depois, o custo anterior fica registrado no histórico.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Ative o módulo Caixa em Configurações para registrar vendas. O preço de cada item pode ser ajustado no carrinho, com alertas de preço abaixo do sugerido ou do custo; o estoque é baixado automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>No Painel, acompanhe o valor do estoque, o faturamento e a diferença bruta estimada das vendas por período.</li></ol>
+          <p class="muted small">Cancelamentos, devoluções de venda e vistoria física serão adicionados nas próximas etapas.</p>
           <button id="show-tutorial" class="button secondary" type="button">Ver tutorial inicial</button>
         </div>
       </section>
@@ -253,12 +307,12 @@
       <div class="tutorial-step"><span>1</span><div><strong>Cadastre os produtos</strong><p>Informe nome, marca, categoria, custo, ganho desejado e quantidade inicial.</p></div></div>
       <div class="tutorial-step"><span>2</span><div><strong>Registre as entradas</strong><p>Quando receber mercadoria, registre quantidade, custo da compra e fornecedor.</p></div></div>
       <div class="tutorial-step"><span>3</span><div><strong>Venda e dê baixa</strong><p>No Caixa, registre vendas e ajuste o preço se precisar; em Saídas, perdas e uso interno. O saldo é atualizado sozinho.</p></div></div>
-      <div class="tutorial-step"><span>4</span><div><strong>Confira o saldo</strong><p>O estoque é atualizado conforme os registros salvos.</p></div></div>
+      <div class="tutorial-step"><span>4</span><div><strong>Acompanhe o painel</strong><p>O Painel mostra produtos, valor do estoque e as vendas do período.</p></div></div>
       <button id="tutorial-understood" class="button primary full" type="button">Entendi, começar</button>
       <button id="tutorial-never" class="button quiet full" type="button">Não mostrar novamente</button>
     </section>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=20261021-b4"></script>
+  <script type="module" src="./app.js?v=20261021-b5"></script>
 </body>
-          </html>
+  </html>
