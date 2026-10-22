@@ -95,3 +95,28 @@
 #dashboard-panel .notice{margin-top:10px}
 .dashboard-shortcuts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .dashboard-shortcuts .button{width:100%}
+
+/* Vistoria física */
+#inventory-panel .feedback{margin-bottom:12px}
+.inventory-summary{margin:0;font-size:13px;line-height:1.7;color:var(--ink)}
+#inventory-active .panel{margin-bottom:12px}
+.inventory-list{margin-bottom:12px}
+.count-row{display:flex;justify-content:space-between;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}
+.count-row.is-counted{border-color:#b7e4cf;background:#f7fcf9}
+.count-main{display:grid;gap:3px;min-width:0}
+.count-main strong{font-size:14px;overflow-wrap:anywhere}
+.count-main small{font-size:12px;color:var(--muted)}
+.count-input-wrap{display:grid;gap:4px;justify-items:end;flex:0 0 auto}
+.count-input{width:96px;min-height:44px;border:1px solid #d8deea;border-radius:10px;padding:10px;text-align:center;font-size:16px;color:var(--ink);background:#fff;outline:none}
+.count-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px #3157d51a}
+.count-diff{min-height:14px;font-size:11px;font-weight:800}
+.count-diff.pending{color:var(--muted);font-weight:650}
+.count-diff.ok,.count-diff.plus{color:#067647}
+.count-diff.minus,.count-diff.invalid{color:var(--red)}
+.inventory-actions{position:sticky;bottom:10px;z-index:5;box-shadow:0 10px 30px #18254b22}
+.inventory-dirty{margin:0;color:#9a3412;font-weight:700}
+.inventory-details{margin-top:10px;font-size:13px}
+.inventory-details summary{cursor:pointer;font-weight:750;color:var(--navy)}
+.inventory-details h4{margin:12px 0 4px;font-size:12px;color:var(--muted)}
+.inventory-details ul{margin:0;padding-left:19px;line-height:1.7}
+.inventory-details p{margin:4px 0 0}
