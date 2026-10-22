@@ -78,3 +78,20 @@
 .sale-flag{display:inline-block;margin-left:4px;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:800;vertical-align:middle}
 .sale-flag.warning{background:#fff8e6;color:#785414}
 .sale-flag.danger{background:#fff0ef;color:var(--red)}
+
+/* Painel inicial (dashboard) */
+.dash-heading{font-size:16px;margin:22px 0 10px}
+.dash-heading-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:22px}
+.dash-heading-row .dash-heading{margin:0}
+.dash-period{border:1px solid #d8deea;background:#fff;border-radius:10px;padding:9px 10px;min-height:40px;color:var(--ink);font-size:13px;max-width:55%}
+.dash-heading-row+.dashboard-grid{margin-top:10px}
+.dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.stat-card{display:flex;flex-direction:column;gap:6px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:15px;box-shadow:0 5px 18px #18254b08;min-width:0}
+.stat-label{font-size:11px;font-weight:750;color:var(--muted)}
+.stat-value{font-size:clamp(18px,5vw,24px);letter-spacing:-.6px;color:var(--navy);overflow-wrap:anywhere}
+.stat-sub{font-size:11px;line-height:1.4;color:var(--muted)}
+.dash-note{margin:10px 0 0;font-size:12px;color:var(--muted)}
+.dash-note:empty{display:none}
+#dashboard-panel .notice{margin-top:10px}
+.dashboard-shortcuts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.dashboard-shortcuts .button{width:100%}
