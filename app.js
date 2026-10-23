@@ -1618,48 +1618,55 @@ async function finishInventory() {
         const item = counted[index];
         if (!snapshot.exists() || snapshot.data().arquivado) {
           ignorados.push({
-            produtoId: item.id,
-            produtoNome: item.nome,
-            motivo: !snapshot.exists() ? "Produto não existe mais" : "Produto arquivado durante a vistoria"
+            produtoId: item.id, produtoNome: item.nome, contado: item.valor,
+            motivo: !snapshot.exists() ? "Produto não existe mais" : "Produto arquivado"
           });
           return;
         }
-        const data = snapshot.data();
-        const saldoAnterior = Number(data.quantidade) || 0;
+        const product = snapshot.data();
+        const saldoAnterior = Number(product.quantidade) || 0;
         itens.push({
           produtoId: item.id,
-          produtoNome: data.nome || item.nome,
-          codigoInterno: data.codigoInterno || "",
+          produtoNome: product.nome || item.nome,
+          codigoInterno: product.codigoInterno || "",
           saldoAnterior,
           contado: item.valor,
           diferenca: item.valor - saldoAnterior
         });
-        if (item.valor !== saldoAnterior) {
-          transaction.update(snapshot.ref, { quantidade: item.valor, atualizadoEm: serverTimestamp() });
-        }
+      });
+      const ajustados = itens.filter((item) => item.diferenca !== 0);
+      if (ajustados.length > MAX_INVENTORY_ADJUSTMENTS) {
+        throw new Error(`Há ${ajustados.length} produtos com diferença. O limite é ${MAX_INVENTORY_ADJUSTMENTS} por vistoria: deixe alguns produtos em branco e conclua em partes.`);
+      }
+      ajustados.forEach((item) => {
+        transaction.update(doc(db, "produtos", item.produtoId), {
+          quantidade: item.contado,
+          atualizadoEm: serverTimestamp()
+        });
       });
       transaction.update(vistoriaRef, {
         status: "concluida",
+        contagens: Object.fromEntries(counted.map((item) => [item.id, item.valor])),
         itens,
         naoContados: uncounted,
-        ignorados: ignorados,
+        ignorados,
+        totalContados: itens.length,
+        totalNaoContados: uncounted.length,
+        totalComDiferenca: ajustados.length,
+        data: date,
+        dataHora: dateTime,
         concluidaEm: serverTimestamp(),
         concluidaPor: email,
-        dataConclusao: date,
-        dataHora: dateTime,
         atualizadoEm: serverTimestamp(),
         atualizadoPor: email
       });
-      result = { itens, ignorados };
+      result = { contados: itens.length, ajustados: ajustados.length, ignorados: ignorados.length };
     });
 
     vistoriaDirty = false;
-    vistoriaDraft = {};
-    vistoriaDraftOwner = null;
     await loadData();
-    const adjustedCount = result.itens.filter((item) => item.diferenca !== 0).length;
-    const ignoredText = result.ignorados.length ? ` ${result.ignorados.length} produto(s) ignorado(s).` : "";
-    setFeedback("#inventory-feedback", `Vistoria concluída: ${adjustedCount} saldo(s) ajustado(s).${ignoredText}`);
+    const message = `Vistoria concluída: ${result.contados} produto(s) contado(s), ${result.ajustados} com saldo ajustado${result.ignorados ? `, ${result.ignorados} ignorado(s) (arquivado ou removido)` : ""}.`;
+    setFeedback("#inventory-feedback", message);
     showToast("Vistoria concluída.");
   } catch (error) {
     console.error("Falha ao concluir vistoria:", error);
@@ -1668,38 +1675,62 @@ async function finishInventory() {
     button.disabled = false;
   }
 }
+// =====================================================================
+// PARTE 3 CORRIGIDA — substitui tudo do bloco
+// "// ---------- Auxiliares gerais (leitura de campos e eventos) ----------"
+// até o FIM do app.js.
+// Não esqueça o ajuste do setFeedback na parte 1 (veja a explicação).
+// =====================================================================
 
 // ---------- Auxiliares gerais (leitura de campos e eventos) ----------
 
-// Lê o valor de um campo; devolve "" se o elemento não existir na página.
 const fieldValue = (selector) => {
   const element = document.querySelector(selector);
   return element ? String(element.value ?? "") : "";
 };
-// Associa um evento só se o elemento existir (evita quebrar o arquivo inteiro por um id diferente).
 const onEvent = (selector, eventName, handler) => {
   const element = document.querySelector(selector);
   if (element) element.addEventListener(eventName, handler);
+  else console.warn(`Elemento não encontrado: ${selector}`);
 };
-// Aceita vírgula ou ponto como separador decimal.
 const parseDecimal = (value) => {
   const text = String(value ?? "").trim().replace(",", ".");
   if (text === "") return NaN;
   return Number(text);
 };
-const nowDateTime = () => `${dateToday()} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+const dateTimeFor = (date) => `${date || dateToday()} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+const nowDateTime = () => dateTimeFor(dateToday());
 const currentEmail = () => auth.currentUser?.email || "Usuário não identificado";
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Preenche os campos de data (entrada, venda, saída) com a data de hoje quando estiverem vazios.
+function initDateFields(force = false) {
+  ["#entry-date", "#sale-date", "#exit-date"].forEach((selector) => {
+    const input = document.querySelector(selector);
+    if (input && (force || !input.value)) input.value = dateToday();
+  });
+}
 
 // ---------- Exportação CSV ----------
 
-// CSV com ponto e vírgula e BOM, para o Excel em português abrir com acentos e colunas corretos.
+// Texto que o Excel deve tratar como texto puro (ex.: código de barras só com dígitos).
+const excelText = (value) => {
+  const text = String(value ?? "");
+  return text ? { raw: `="${text.replace(/"/g, '""')}"` } : "";
+};
+
 function csvCell(value) {
-  const text = value === null || value === undefined ? "" : String(value);
+  if (value && typeof value === "object" && "raw" in value) return value.raw;
+  let text = value === null || value === undefined ? "" : String(value);
+  // Impede que a planilha trate o texto como fórmula.
+  if (/^[=+\-@]/.test(text) && !/^-?\d+([.,]\d+)?$/.test(text)) text = `'${text}`;
   return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 const csvNumber = (value) => (Number.isFinite(Number(value)) ? Number(value).toFixed(2).replace(".", ",") : "");
 
+// Devolve false (e não baixa nada) quando não há linhas.
 function downloadCsv(filename, header, rows) {
+  if (!rows.length) return false;
   const lines = [header, ...rows].map((row) => row.map(csvCell).join(";"));
   const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -1710,18 +1741,22 @@ function downloadCsv(filename, header, rows) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  showToast("Arquivo CSV gerado.");
+  return true;
 }
 
 function exportProductsCsv() {
-  const rows = products.filter((product) => !product.arquivado)
+  const rows = [...products]
     .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"))
     .map((product) => [
-      product.nome, product.marca, product.categoria, product.codigoInterno, product.codigoBarras,
+      product.nome, product.marca, product.categoria, product.codigoInterno, excelText(product.codigoBarras),
       Number(product.quantidade) || 0, csvNumber(product.custo), csvNumber(getRegisteredSalePrice(product)),
-      csvNumber(calcSuggestedPrice(product)), minStockOf(product) ?? "", isLowStock(product) ? "Sim" : "Não"
+      csvNumber(calcSuggestedPrice(product)), minStockOf(product) ?? "", isLowStock(product) ? "Sim" : "Não",
+      csvNumber(roundMoney((Number(product.quantidade) || 0) * roundMoney(product.custo))),
+      product.arquivado ? "Arquivado" : "Ativo"
     ]);
-  downloadCsv("produtos", ["Produto", "Marca", "Categoria", "Código interno", "Código de barras", "Quantidade", "Custo", "Preço de venda", "Preço sugerido", "Estoque mínimo", "Abaixo do mínimo"], rows);
+  return downloadCsv("produtos",
+    ["Produto", "Marca", "Categoria", "Código interno", "Código de barras", "Quantidade", "Custo", "Preço de venda", "Preço sugerido", "Estoque mínimo", "Abaixo do mínimo", "Valor em estoque", "Situação"],
+    rows);
 }
 
 function exportEntriesCsv() {
@@ -1732,7 +1767,7 @@ function exportEntriesCsv() {
       Number(entry.quantidade) || 0, csvNumber(entry.custoUnitario),
       csvNumber((Number(entry.quantidade) || 0) * (Number(entry.custoUnitario) || 0)), entry.fornecedor, entry.observacao
     ]);
-  downloadCsv("entradas", ["Data", "Produto", "Tipo", "Quantidade", "Custo unitário", "Total", "Fornecedor", "Observação"], rows);
+  return downloadCsv("entradas", ["Data", "Produto", "Tipo", "Quantidade", "Custo unitário", "Total", "Fornecedor", "Observação"], rows);
 }
 
 function exportExitsCsv() {
@@ -1742,57 +1777,92 @@ function exportExitsCsv() {
       formatDate(exit.dataHora || exit.data), exit.produtoNome, EXIT_REASON_LABELS[exit.motivo] || exit.motivo,
       Number(exit.quantidade) || 0, exit.usuario, exit.observacao
     ]);
-  downloadCsv("saidas", ["Data", "Produto", "Motivo", "Quantidade", "Responsável", "Observação"], rows);
+  return downloadCsv("saidas", ["Data", "Produto", "Motivo", "Quantidade", "Responsável", "Observação"], rows);
 }
 
-// Uma linha por item vendido.
+// Uma linha por item vendido; o total da venda se repete em cada linha.
 function exportSalesCsv() {
+  const start = getSalePeriodStart(fieldValue("#export-period") || "all");
+  const today = dateToday();
   const rows = [];
-  [...sales].sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || ""))).forEach((sale) => {
-    saleItemsOf(sale).forEach((item) => {
-      rows.push([
-        formatDate(sale.dataHora || sale.data), sale.status === "cancelada" ? "Cancelada" : "Concluída",
-        item.produtoNome || item.nome, Number(item.quantidade) || 0, csvNumber(item.precoUnitario),
-        csvNumber(item.subtotal ?? (Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0)),
-        sale.formaPagamento, sale.usuario, yesNo(item.abaixoDoCusto)
-      ]);
+  [...sales]
+    .filter((sale) => inPeriod(saleDateOf(sale), start, today))
+    .sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || "")))
+    .forEach((sale) => {
+      const returned = returnedByProduct(sale.id);
+      const cancelled = sale.status === "cancelada";
+      saleItemsOf(sale).forEach((item) => {
+        rows.push([
+          formatDate(sale.dataHora || sale.data), cancelled ? "Cancelada" : "Concluída",
+          item.produtoNome || item.nome, Number(item.quantidade) || 0, csvNumber(item.precoUnitario),
+          typeof item.custoUnitario === "number" ? csvNumber(item.custoUnitario) : "",
+          csvNumber(item.subtotal ?? (Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0)),
+          csvNumber(saleTotalOf(sale)), sale.formaPagamento, returned[item.produtoId] || 0,
+          sale.usuario, yesNo(item.abaixoDoCusto),
+          cancelled ? formatTimestamp(sale.canceladaEm) : "", cancelled ? sale.motivoCancelamento : ""
+        ]);
+      });
     });
-  });
-  downloadCsv("vendas", ["Data", "Situação", "Produto", "Quantidade", "Preço unitário", "Subtotal", "Pagamento", "Responsável", "Abaixo do custo"], rows);
+  return downloadCsv("vendas",
+    ["Data", "Situação", "Produto", "Quantidade", "Preço unitário", "Custo unitário", "Subtotal", "Total da venda", "Pagamento", "Quantidade devolvida (produto)", "Responsável", "Abaixo do custo", "Cancelada em", "Motivo do cancelamento"],
+    rows);
 }
 
 function exportReturnsCsv() {
+  const start = getSalePeriodStart(fieldValue("#export-period") || "all");
+  const today = dateToday();
   const rows = [];
-  [...saleReturns].sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || ""))).forEach((saleReturn) => {
-    (saleReturn.itens || []).forEach((item) => {
-      rows.push([
-        formatDate(saleReturn.dataHora || saleReturn.data), item.produtoNome, Number(item.quantidade) || 0,
-        csvNumber(item.precoUnitario), csvNumber(item.subtotal), saleReturn.motivo, saleReturn.usuario
-      ]);
+  [...saleReturns]
+    .filter((saleReturn) => inPeriod(returnDateOf(saleReturn), start, today))
+    .sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || "")))
+    .forEach((saleReturn) => {
+      (saleReturn.itens || []).forEach((item) => {
+        rows.push([
+          formatDate(saleReturn.dataHora || saleReturn.data), item.produtoNome, Number(item.quantidade) || 0,
+          csvNumber(item.precoUnitario), csvNumber(item.subtotal), saleReturn.motivo, saleReturn.usuario
+        ]);
+      });
     });
-  });
-  downloadCsv("devolucoes", ["Data", "Produto", "Quantidade", "Preço unitário", "Valor devolvido", "Motivo", "Responsável"], rows);
+  return downloadCsv("devolucoes", ["Data", "Produto", "Quantidade", "Preço unitário", "Valor devolvido", "Motivo", "Responsável"], rows);
 }
 
-function exportInventoryCsv() {
-  const rows = [];
-  inventoryHistory.forEach((vistoria) => {
-    (vistoria.itens || []).forEach((item) => {
-      rows.push([
-        formatDate(vistoria.dataHora || vistoria.data), item.produtoNome, Number(item.saldoAnterior) || 0,
-        Number(item.contado) || 0, Number(item.diferenca) || 0, vistoria.concluidaPor
-      ]);
-    });
-  });
-  downloadCsv("vistorias", ["Data", "Produto", "Saldo anterior", "Contado", "Diferença", "Responsável"], rows);
+const EXPORTERS = {
+  produtos: { label: "Produtos", run: exportProductsCsv },
+  vendas: { label: "Vendas", run: exportSalesCsv },
+  devolucoes: { label: "Devoluções", run: exportReturnsCsv },
+  entradas: { label: "Entradas", run: exportEntriesCsv },
+  saidas: { label: "Saídas", run: exportExitsCsv }
+};
+
+async function runExport(keys) {
+  const feedback = "#export-feedback";
+  setFeedback(feedback, "Atualizando dados…");
+  try {
+    await loadData();
+    const done = [];
+    const empty = [];
+    for (const key of keys) {
+      const exporter = EXPORTERS[key];
+      if (!exporter) continue;
+      if (exporter.run()) done.push(exporter.label);
+      else empty.push(exporter.label);
+      if (keys.length > 1) await wait(500); // dá tempo ao navegador entre downloads
+    }
+    const parts = [];
+    if (done.length) parts.push(`Gerado: ${done.join(", ")}.`);
+    if (empty.length) parts.push(`Sem registros (não baixado): ${empty.join(", ")}.`);
+    setFeedback(feedback, parts.join(" "), false);
+    if (done.length) showToast("Arquivo CSV gerado.");
+  } catch (error) {
+    console.error("Falha na exportação:", error);
+    setFeedback(feedback, explainError(error), true);
+  }
 }
 
-onEvent("#export-products", "click", exportProductsCsv);
-onEvent("#export-entries", "click", exportEntriesCsv);
-onEvent("#export-exits", "click", exportExitsCsv);
-onEvent("#export-sales", "click", exportSalesCsv);
-onEvent("#export-returns", "click", exportReturnsCsv);
-onEvent("#export-inventory", "click", exportInventoryCsv);
+document.querySelectorAll("[data-export]").forEach((button) => {
+  button.addEventListener("click", () => runExport([button.dataset.export]));
+});
+onEvent("#export-all", "click", () => runExport(Object.keys(EXPORTERS)));
 
 // ---------- Carregamento de dados do Firestore ----------
 
@@ -1837,7 +1907,6 @@ async function loadData() {
   brands = uniqueOptions([...(catalogData.marcas || []), ...products.map((product) => product.marca)]);
   categories = uniqueOptions([...(catalogData.categorias || []), ...products.map((product) => product.categoria)]);
 
-  // Devoluções: se as regras do Firestore ainda não liberam a coleção, o resto do sistema continua funcionando.
   try {
     const returnsSnap = await getDocs(collection(db, "devolucoes"));
     saleReturns = returnsSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
@@ -1852,7 +1921,6 @@ async function loadData() {
     }
   }
 
-  // Vistorias: idem.
   try {
     const inventorySnap = await getDocs(collection(db, "vistorias"));
     const all = inventorySnap.docs.map((item) => {
@@ -1878,13 +1946,26 @@ async function loadData() {
   renderAll();
 }
 
+// Botões "Atualizar" de cada aba.
+["#refresh-products", "#refresh-entries", "#refresh-sales", "#refresh-exits", "#refresh-inventory"].forEach((selector) => {
+  onEvent(selector, "click", async () => {
+    try {
+      await loadData();
+      showToast("Dados atualizados.");
+    } catch (error) {
+      console.error("Falha ao atualizar:", error);
+      showToast(explainError(error));
+    }
+  });
+});
+
 // ---------- Produtos: formulário ----------
 
 function updateSuggestedPrice() {
   const cost = parseDecimal(fieldValue("#product-cost"));
   const gain = parseDecimal(fieldValue("#product-gain"));
   const suggested = calcSuggestedPrice({ custo: Number.isFinite(cost) ? cost : 0, percentualGanho: Number.isFinite(gain) ? gain : 0 });
-  const label = document.querySelector("#product-suggested-price");
+  const label = document.querySelector("#suggested-price");
   if (label) label.textContent = money(suggested);
   const saleInput = document.querySelector("#product-sale-price");
   if (saleInput && !salePriceManuallyEdited) saleInput.value = suggested > 0 ? suggested.toFixed(2) : "";
@@ -1893,6 +1974,27 @@ function updateSuggestedPrice() {
 onEvent("#product-cost", "input", updateSuggestedPrice);
 onEvent("#product-gain", "input", updateSuggestedPrice);
 onEvent("#product-sale-price", "input", () => { salePriceManuallyEdited = true; });
+
+// Botão "Cancelar edição" criado pelo JS (não existe no HTML).
+function setCancelEditVisible(visible) {
+  let button = document.querySelector("#product-cancel-edit");
+  if (!button) {
+    const submit = document.querySelector("#product-form button[type=submit]");
+    if (!submit) return;
+    button = document.createElement("button");
+    button.id = "product-cancel-edit";
+    button.type = "button";
+    button.className = "button quiet";
+    button.textContent = "Cancelar edição";
+    button.addEventListener("click", () => {
+      resetProductForm();
+      setFeedback("#product-feedback", "");
+      setCancelEditVisible(false);
+    });
+    submit.insertAdjacentElement("afterend", button);
+  }
+  button.hidden = !visible;
+}
 
 function startEditProduct(productId) {
   const product = products.find((item) => item.id === productId);
@@ -1911,18 +2013,17 @@ function startEditProduct(productId) {
   set("#product-min-stock", minStockOf(product) ?? "");
   set("#product-internal-code", product.codigoInterno || "");
   set("#product-barcode", product.codigoBarras || "");
-  // Se a marca/categoria ainda não estiver na lista, a lista é recarregada antes de selecionar.
   renderCatalogOptions();
   set("#product-brand", product.marca || "");
   set("#product-category", product.categoria || "");
   salePriceManuallyEdited = true;
-  set("#product-sale-price", getRegisteredSalePrice(product).toFixed(2));
   updateSuggestedPrice();
   set("#product-sale-price", getRegisteredSalePrice(product).toFixed(2));
   $("#product-quantity").disabled = true;
   $("#product-barcode").disabled = false;
   $("#product-form h3").textContent = "Editar produto";
   $("#product-form button[type=submit]").textContent = "Salvar alterações";
+  setCancelEditVisible(true);
   setFeedback("#product-feedback", "Para mudar o saldo use Entradas, Saídas ou a Vistoria.");
   $("#product-form").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -1933,7 +2034,7 @@ async function saveProduct(event) {
   const editing = editingProductId ? products.find((item) => item.id === editingProductId) : null;
 
   const nome = cleanOption(fieldValue("#product-name"));
-  const descricao = String(fieldValue("#product-description")).trim();
+  const descricao = fieldValue("#product-description").trim();
   const custo = roundMoney(parseDecimal(fieldValue("#product-cost")));
   const percentualGanho = parseDecimal(fieldValue("#product-gain"));
   const quantity = editing ? Number(editing.quantidade) || 0 : Number(fieldValue("#product-quantity") || 0);
@@ -1947,7 +2048,6 @@ async function saveProduct(event) {
   if (categoria === NEW_CATEGORY_VALUE) categoria = cleanOption(fieldValue("#product-category-new"));
   marca = cleanOption(marca);
   categoria = cleanOption(categoria);
-  // Reaproveita a grafia já cadastrada (ex.: "samsung" vira "Samsung").
   marca = brands.find((value) => normalizeText(value) === normalizeText(marca)) || marca;
   categoria = [...SUGGESTED_CATEGORIES, ...categories].find((value) => normalizeText(value) === normalizeText(categoria)) || categoria;
 
@@ -1991,14 +2091,25 @@ async function saveProduct(event) {
         custo, percentualGanho, precoVenda, estoqueMinimo,
         atualizadoEm: serverTimestamp()
       };
-      // Guarda o custo anterior quando o custo muda.
       if (roundMoney(editing.custo) !== custo) {
         changes.custoAnterior = roundMoney(editing.custo);
         changes.custoAlteradoEm = dateToday();
+        // Registro imutável do histórico de custos.
+        batch.set(doc(collection(db, "historico_custos")), {
+          produtoId: editing.id,
+          produtoNome: nome,
+          custoAnterior: roundMoney(editing.custo),
+          custoNovo: custo,
+          origem: "edicao_produto",
+          data: dateToday(),
+          usuario: currentEmail(),
+          criadoEm: serverTimestamp()
+        });
       }
       batch.update(doc(db, "produtos", editing.id), changes);
       await batch.commit();
       resetProductForm();
+      setCancelEditVisible(false);
       setFeedback("#product-feedback", "Produto atualizado.");
       showToast("Produto atualizado.");
     } else {
@@ -2055,7 +2166,10 @@ async function archiveProduct(productId) {
       atualizadoEm: serverTimestamp()
     });
     saleCart = saleCart.filter((item) => item.produtoId !== productId);
-    if (editingProductId === productId) resetProductForm();
+    if (editingProductId === productId) {
+      resetProductForm();
+      setCancelEditVisible(false);
+    }
     await loadData();
     showToast("Produto excluído (arquivado).");
   } catch (error) {
@@ -2065,10 +2179,6 @@ async function archiveProduct(productId) {
 }
 
 onEvent("#product-form", "submit", saveProduct);
-onEvent("#product-cancel-edit", "click", () => {
-  resetProductForm();
-  setFeedback("#product-feedback", "");
-});
 $("#products-list").addEventListener("click", (event) => {
   const edit = event.target.closest("[data-edit-product]");
   if (edit) return startEditProduct(edit.dataset.editProduct);
@@ -2102,11 +2212,20 @@ async function saveEntry(event) {
         quantidade: (Number(data.quantidade) || 0) + quantity,
         atualizadoEm: serverTimestamp()
       };
-      // Custo da última compra passa a ser o custo cadastrado; o anterior fica guardado.
       if (roundMoney(data.custo) !== cost) {
         changes.custoAnterior = roundMoney(data.custo);
         changes.custoAlteradoEm = dateToday();
         changes.custo = cost;
+        transaction.set(doc(collection(db, "historico_custos")), {
+          produtoId: product.id,
+          produtoNome: data.nome || product.nome,
+          custoAnterior: roundMoney(data.custo),
+          custoNovo: cost,
+          origem: "entrada",
+          data: dateToday(),
+          usuario: currentEmail(),
+          criadoEm: serverTimestamp()
+        });
       }
       transaction.update(productRef, changes);
       transaction.set(entryRef, {
@@ -2125,8 +2244,7 @@ async function saveEntry(event) {
     });
     $("#entry-form").reset();
     selectedEntryProductId = "";
-    const dateInput = document.querySelector("#entry-date");
-    if (dateInput) dateInput.value = dateToday();
+    initDateFields();
     await loadData();
     setFeedback("#entry-feedback", "Entrada registrada.");
     showToast("Entrada registrada.");
@@ -2166,6 +2284,7 @@ async function saveExit(event) {
   const product = products.find((item) => item.id === selectedExitProductId && !item.arquivado);
   const quantity = Number(fieldValue("#exit-quantity"));
   const reason = fieldValue("#exit-reason");
+  const date = fieldValue("#exit-date") || dateToday();
   if (!product) return setFeedback("#exit-feedback", "Selecione o produto da saída.", true);
   if (!Number.isInteger(quantity) || quantity < 1) return setFeedback("#exit-feedback", "A quantidade deve ser um número inteiro maior que zero.", true);
   if (!reason) return setFeedback("#exit-feedback", "Escolha o motivo da saída.", true);
@@ -2189,14 +2308,15 @@ async function saveExit(event) {
         quantidade: quantity,
         motivo: reason,
         observacao: fieldValue("#exit-notes").trim(),
-        data: dateToday(),
-        dataHora: nowDateTime(),
+        data: date,
+        dataHora: dateTimeFor(date),
         usuario: currentEmail(),
         criadoEm: serverTimestamp()
       });
     });
     $("#exit-form").reset();
     selectedExitProductId = "";
+    initDateFields();
     await loadData();
     setFeedback("#exit-feedback", "Saída registrada.");
     showToast("Saída registrada.");
@@ -2266,12 +2386,24 @@ $("#sale-cart-list").addEventListener("input", (event) => {
   updateCartSummary();
 });
 
+let finishingSale = false;
 async function finishSale() {
-  if (!saleCart.length) return;
+  if (finishingSale || !saleCart.length) return;
   if (cartHasInvalidPrice()) return setFeedback("#sale-feedback", "Há item com preço vazio ou zerado. Corrija antes de finalizar.", true);
-  const payment = fieldValue("#sale-payment");
+  const payment = fieldValue("#sale-payment-method");
   if (!payment) return setFeedback("#sale-feedback", "Escolha a forma de pagamento.", true);
+  const date = fieldValue("#sale-date") || dateToday();
 
+  // Confirmação quando algum item está abaixo do custo cadastrado.
+  const belowCost = saleCart.filter((item) => {
+    const product = products.find((entry) => entry.id === item.produtoId);
+    return product && item.precoUnitario < roundMoney(product.custo);
+  });
+  if (belowCost.length && !window.confirm(
+    `${belowCost.length} item(ns) com preço ABAIXO DO CUSTO:\n\n${belowCost.map((item) => `• ${item.nome}`).join("\n")}\n\nFinalizar a venda mesmo assim?`
+  )) return;
+
+  finishingSale = true;
   const button = $("#sale-finish-button");
   button.disabled = true;
   setFeedback("#sale-feedback", "Registrando venda…");
@@ -2299,7 +2431,9 @@ async function finishSale() {
           codigoBarras: data.codigoBarras || "",
           quantidade: item.quantidade,
           precoCadastrado: getRegisteredSalePrice(data),
+          precoSugerido: calcSuggestedPrice(data),
           precoUnitario: item.precoUnitario,
+          precoAlterado: item.precoUnitario !== getRegisteredSalePrice(data),
           custoUnitario: custo,
           subtotal: roundMoney(item.quantidade * item.precoUnitario),
           abaixoDoCusto: item.precoUnitario < custo,
@@ -2317,32 +2451,32 @@ async function finishSale() {
         total: roundMoney(itens.reduce((sum, item) => sum + item.subtotal, 0)),
         formaPagamento: payment,
         status: "concluida",
-        // Vendas novas já nascem com os contadores de devolução.
         devolvidoPorProduto: {},
         valorDevolvido: 0,
-        data: dateToday(),
-        dataHora: nowDateTime(),
+        data: date,
+        dataHora: dateTimeFor(date),
         usuario: currentEmail(),
         criadoEm: serverTimestamp()
       });
     });
     saleCart = [];
-    const paymentSelect = document.querySelector("#sale-payment");
+    const paymentSelect = document.querySelector("#sale-payment-method");
     if (paymentSelect) paymentSelect.value = "";
+    initDateFields(true);
     await loadData();
     setFeedback("#sale-feedback", "Venda registrada.");
     showToast("Venda registrada.");
   } catch (error) {
     console.error("Falha ao registrar venda:", error);
     setFeedback("#sale-feedback", explainError(error), true);
-    // Os saldos podem ter mudado em outro aparelho: atualiza a tela.
     try { await loadData(); } catch (reloadError) { console.error(reloadError); }
   } finally {
+    finishingSale = false;
     updateCartSummary();
   }
 }
 
-onEvent("#sale-finish-button", "click", finishSale);
+// Só o submit do formulário: o botão é type="submit", então clique e Enter passam por aqui uma única vez.
 onEvent("#sale-form", "submit", (event) => {
   event.preventDefault();
   finishSale();
@@ -2366,30 +2500,32 @@ $("#sale-action-items").addEventListener("input", (event) => {
 });
 
 onEvent("#sale-action-close", "click", closeSaleAction);
-onEvent("#sale-action-back", "click", closeSaleAction);
 onEvent("#sale-action-overlay", "click", (event) => {
   if (event.target.id === "sale-action-overlay") closeSaleAction();
 });
 
-$("#sale-action-confirm").addEventListener("click", async () => {
+// O botão de confirmar é type="submit" dentro do <form>: tratamos o submit (e bloqueamos o recarregamento da página).
+onEvent("#sale-action-form", "submit", async (event) => {
+  event.preventDefault();
   if (!saleAction) return;
   const sale = sales.find((item) => item.id === saleAction.saleId);
   if (!sale) return closeSaleAction();
   const reason = $("#sale-action-reason").value.trim();
   const button = $("#sale-action-confirm");
 
-  if (saleAction.mode === "cancel" && !reason) {
-    return setFeedback("#sale-action-feedback", "Informe o motivo do cancelamento.", true);
+  if (!reason) {
+    return setFeedback("#sale-action-feedback", saleAction.mode === "cancel"
+      ? "Informe o motivo do cancelamento."
+      : "Informe o motivo da devolução.", true);
   }
 
-  let requested = [];
+  const requested = [];
   if (saleAction.mode === "return") {
     document.querySelectorAll("#sale-action-items [data-return-index]").forEach((input) => {
       const quantity = Number(input.value);
       if (Number.isInteger(quantity) && quantity > 0) requested.push({ index: Number(input.dataset.returnIndex), quantidade: quantity });
     });
     if (!requested.length) return setFeedback("#sale-action-feedback", "Informe a quantidade de pelo menos um item.", true);
-    if (!reason) return setFeedback("#sale-action-feedback", "Informe o motivo da devolução.", true);
   }
 
   button.disabled = true;
@@ -2423,6 +2559,11 @@ onEvent("#dash-daily-chart", "click", (event) => {
   if (item) $("#dash-daily-detail").textContent = `${formatDate(item.date)}: ${money(item.value)}`;
 });
 
+// Atalhos do Painel.
+document.querySelectorAll("[data-shortcut]").forEach((button) => {
+  button.addEventListener("click", () => switchTab(button.dataset.shortcut));
+});
+
 // ---------- Vistoria: eventos ----------
 
 onEvent("#inventory-start", "click", startInventory);
@@ -2442,7 +2583,6 @@ onEvent("#inventory-list", "input", (event) => {
   updateInventoryRow(input.dataset.countInput);
   updateInventorySummary();
 });
-// Avisa antes de sair da página com contagens ainda não salvas.
 window.addEventListener("beforeunload", (event) => {
   if (vistoriaDirty) {
     event.preventDefault();
@@ -2486,7 +2626,6 @@ async function saveStoreSettings(event) {
 }
 
 onEvent("#store-settings-form", "submit", saveStoreSettings);
-// Ligar/desligar módulos já mostra o efeito na tela (só grava ao salvar).
 onEvent("#setting-caja-active", "change", (event) => {
   storeSettings.caixaAtivo = event.target.checked;
   renderModuleAvailability();
@@ -2502,10 +2641,12 @@ document.querySelectorAll(".tab").forEach((button) => {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
 });
 onEvent("#tutorial-close", "click", closeTutorialForNow);
-onEvent("#tutorial-dismiss", "click", () => {
+onEvent("#tutorial-understood", "click", closeTutorialForNow);
+onEvent("#tutorial-never", "click", () => {
   localStorage.setItem("faydai-tutorial-dismissed", "yes");
   closeTutorialForNow();
 });
+onEvent("#show-tutorial", "click", () => { $("#tutorial-overlay").hidden = false; });
 
 // ---------- Login, sessão e inicialização ----------
 
@@ -2513,13 +2654,13 @@ onEvent("#login-form", "submit", async (event) => {
   event.preventDefault();
   const submit = $("#login-form button[type=submit]");
   submit.disabled = true;
-  setFeedback("#login-feedback", "Entrando…");
+  setFeedback("#login-error", "Entrando…");
   try {
     await signInWithEmailAndPassword(auth, fieldValue("#login-email").trim(), fieldValue("#login-password"));
-    setFeedback("#login-feedback", "");
+    setFeedback("#login-error", "");
   } catch (error) {
     console.error("Falha no login:", error);
-    setFeedback("#login-feedback", explainError(error), true);
+    setFeedback("#login-error", explainError(error), true);
   } finally {
     submit.disabled = false;
   }
@@ -2537,7 +2678,6 @@ onEvent("#logout-button", "click", async () => {
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
-    // Limpa tudo que estava em memória ao sair.
     products = []; entries = []; exits = []; sales = []; saleReturns = [];
     saleCart = []; activeVistoria = null; inventoryHistory = [];
     vistoriaDraft = {}; vistoriaDraftOwner = null; vistoriaDirty = false;
@@ -2546,8 +2686,7 @@ onAuthStateChanged(auth, async (user) => {
   }
   showApp(true);
   resetProductForm();
-  const dateInput = document.querySelector("#entry-date");
-  if (dateInput && !dateInput.value) dateInput.value = dateToday();
+  initDateFields();
   try {
     await loadData();
     showTutorialIfNeeded();
