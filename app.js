@@ -1820,16 +1820,29 @@ $("#logout-button").addEventListener("click", async () => {
   }
 });
 
-onAuthStateChanged(auth, async (user) => {
-  showApp(Boolean(user));
-  if (user) {
-    await loadData();
-    showTutorialIfNeeded();
-  } else {
-    $("#tutorial-overlay").hidden = true;
-    closeSaleAction();
+// Aguarda a restauração inicial da sessão antes de decidir qual tela mostrar.
+async function startAuthObserver() {
+  try {
+    await auth.authStateReady();
+  } catch (error) {
+    console.error("Falha ao verificar a sessão inicial:", error);
+    showApp(false);
+    return;
   }
-});
+
+  onAuthStateChanged(auth, async (user) => {
+    showApp(Boolean(user));
+    if (user) {
+      await loadData();
+      showTutorialIfNeeded();
+    } else {
+      $("#tutorial-overlay").hidden = true;
+      closeSaleAction();
+    }
+  });
+}
+
+startAuthObserver();
 
 document.querySelectorAll(".tab").forEach((button) => {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
