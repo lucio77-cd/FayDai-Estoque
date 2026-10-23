@@ -2074,4 +2074,502 @@ $("#sale-product-search").addEventListener("keydown", (event) => {
   const exactMatches = products.filter((product) => !product.arquivado && [
     product.codigoBarras, product.codigoInterno, product.nome
   ].some((value) => normalizeText(value) === queryText));
-  if (exactMatches.length === 1) addProduct
+  if (exactMatches.length === 1) addProductToSaleCart(exactMatches[0]);
+});
+$("#sale-product-results").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-select-sale-product]");
+  if (!button) return;
+  const product = products.find((item) => item.id === button.dataset.selectSaleProduct && !item.arquivado);
+  if (!product) return;
+  addProductToSaleCart(product);
+});
+
+$("#sale-cart-list").addEventListener("click", (event) => {
+  const plusButton = event.target.closest("[data-cart-plus]");
+  const minusButton = event.target.closest("[data-cart-minus]");
+  const removeButton = event.target.closest("[data-cart-remove]");
+  if (plusButton) {
+    const item = saleCart[Number(plusButton.dataset.cartPlus)];
+    const product = products.find((entry) => entry.id === item?.produtoId);
+    if (!item || !product) return;
+    if (item.quantidade + 1 > (Number(product.quantidade) || 0)) {
+      setFeedback("#sale-feedback", `Saldo insuficiente. Disponível: ${Number(product.quantidade) || 0} unidade(s).`, true);
+      return;
+    }
+    item.quantidade += 1;
+  } else if (minusButton) {
+    const index = Number(minusButton.dataset.cartMinus);
+    if (!saleCart[index]) return;
+    saleCart[index].quantidade -= 1;
+    if (saleCart[index].quantidade <= 0) saleCart.splice(index, 1);
+  } else if (removeButton) {
+    saleCart.splice(Number(removeButton.dataset.cartRemove), 1);
+  } else return;
+  renderSaleCart();
+});
+
+// Edição do preço cobrado: atualiza subtotal, alerta e total enquanto o usuário digita.
+$("#sale-cart-list").addEventListener("input", (event) => {
+  const input = event.target.closest("[data-cart-price]");
+  if (!input) return;
+  const index = Number(input.dataset.cartPrice);
+  const item = saleCart[index];
+  if (!item) return;
+  const raw = input.value.trim();
+  const parsed = raw === "" ? NaN : Number(raw);
+  item.precoUnitario = Number.isFinite(parsed) ? roundMoney(parsed) : null;
+  updateCartRow(index);
+  updateCartSummary();
+});
+// Ao sair do campo, mostra o preço já arredondado em centavos.
+$("#sale-cart-list").addEventListener("change", (event) => {
+  const input = event.target.closest("[data-cart-price]");
+  if (!input) return;
+  const item = saleCart[Number(input.dataset.cartPrice)];
+  if (item && Number.isFinite(item.precoUnitario)) input.value = item.precoUnitario.toFixed(2);
+});
+// Enter no campo de preço só confirma o valor; não finaliza a venda sem querer.
+$("#sale-cart-list").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && event.target.matches("[data-cart-price]")) {
+    event.preventDefault();
+    event.target.blur();
+  }
+});
+
+$("#sale-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = $("#sale-finish-button");
+  if (!storeSettings.caixaAtivo) {
+    setFeedback("#sale-feedback", "O módulo Caixa está desativado nas configurações.", true);
+    return;
+  }
+  if (!saleCart.length) {
+    setFeedback("#sale-feedback", "Adicione pelo menos um produto à compra.", true);
+    return;
+  }
+  if (cartHasInvalidPrice()) {
+    setFeedback("#sale-feedback", "Informe um preço maior que zero em todos os itens.", true);
+    return;
+  }
+  const date = $("#sale-date").value;
+  const paymentMethod = $("#sale-payment-method").value;
+  if (!date || !paymentMethod) {
+    setFeedback("#sale-feedback", "Selecione a data e a forma de pagamento.", true);
+    return;
+  }
+  // Preço abaixo do custo não bloqueia a venda, mas exige confirmação.
+  const belowCostNames = saleCart.filter((item) => getPriceAlert(item)?.level === "danger").map((item) => item.nome);
+  if (belowCostNames.length) {
+    const headline = belowCostNames.length === 1 ? "1 item está" : `${belowCostNames.length} itens estão`;
+    const confirmed = window.confirm(
+      `Atenção: ${headline} com preço abaixo do custo cadastrado:\n\n${belowCostNames.map((name) => `• ${name}`).join("\n")}\n\nDeseja finalizar a venda mesmo assim?`
+    );
+    if (!confirmed) return;
+  }
+  button.disabled = true;
+  setFeedback("#sale-feedback", "Registrando venda…");
+  try {
+    const saleRef = doc(collection(db, "vendas"));
+    const userEmail = auth.currentUser?.email || "Usuário não identificado";
+    const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    const cartItems = saleCart.map((item) => ({ ...item }));
+    const productRefs = cartItems.map((item) => ({ item, ref: doc(db, "produtos", item.produtoId) }));
+    await runTransaction(db, async (transaction) => {
+      const snapshots = [];
+      for (const productRef of productRefs) {
+        snapshots.push({ ...productRef, snapshot: await transaction.get(productRef.ref) });
+      }
+      for (const entry of snapshots) {
+        if (!entry.snapshot.exists()) throw new Error(`O produto "${entry.item.nome}" não existe mais. Atualize a lista.`);
+        const product = entry.snapshot.data();
+        if (product.arquivado) throw new Error(`O produto "${entry.item.nome}" está arquivado.`);
+        const currentStock = Number(product.quantidade) || 0;
+        if (entry.item.quantidade > currentStock) {
+          throw new Error(`Saldo insuficiente para "${product.nome || entry.item.nome}". Disponível: ${currentStock}; solicitado: ${entry.item.quantidade}.`);
+        }
+      }
+
+      // Itens vendidos: guardam o preço praticado e, lidos do produto dentro da transação,
+      // o custo, o preço cadastrado e o sugerido NO MOMENTO da venda. Assim, mudanças futuras
+      // de custo ou de preço não alteram o cálculo histórico.
+      const soldItems = snapshots.map((entry) => {
+        const product = entry.snapshot.data();
+        const precoUnitario = roundMoney(entry.item.precoUnitario);
+        const custoUnitario = roundMoney(product.custo);
+        const precoSugerido = calcSuggestedPrice(product);
+        const precoCadastrado = getRegisteredSalePrice(product);
+        return {
+          produtoId: entry.item.produtoId,
+          produtoNome: entry.item.nome,
+          codigoInterno: entry.item.codigoInterno || "",
+          codigoBarras: entry.item.codigoBarras || "",
+          quantidade: entry.item.quantidade,
+          precoUnitario,
+          precoCadastrado,
+          precoSugerido,
+          custoUnitario,
+          precoAlterado: precoUnitario !== precoCadastrado,
+          abaixoDoCusto: precoUnitario < custoUnitario,
+          abaixoDoSugerido: precoUnitario < precoSugerido,
+          subtotal: roundMoney(entry.item.quantidade * precoUnitario)
+        };
+      });
+      const saleTotal = roundMoney(soldItems.reduce((sum, item) => sum + item.subtotal, 0));
+      const saleCostTotal = roundMoney(soldItems.reduce((sum, item) => sum + roundMoney(item.quantidade * item.custoUnitario), 0));
+
+      for (const entry of snapshots) {
+        const product = entry.snapshot.data();
+        const currentStock = Number(product.quantidade) || 0;
+        transaction.update(entry.ref, {
+          quantidade: currentStock - entry.item.quantidade,
+          atualizadoEm: serverTimestamp()
+        });
+      }
+      transaction.set(saleRef, {
+        itens: soldItems,
+        total: saleTotal,
+        custoTotal: saleCostTotal,
+        formaPagamento: paymentMethod,
+        data: date,
+        dataHora: dateTime,
+        usuario: userEmail,
+        criadoEm: serverTimestamp()
+      });
+    });
+    saleCart = [];
+    form.reset();
+    $("#sale-date").value = dateToday();
+    renderSaleProductResults();
+    renderSaleCart();
+    setFeedback("#sale-feedback", "Venda registrada e estoque atualizado.");
+    await loadData();
+    showToast("Venda registrada. Estoque atualizado.");
+  } catch (error) {
+    console.error("Falha ao registrar venda:", error);
+    setFeedback("#sale-feedback", explainError(error), true);
+  } finally {
+    updateCartSummary();
+  }
+});
+$("#sale-date").value = dateToday();
+renderSaleCart();
+
+// Histórico de vendas: abrir o painel de cancelamento ou de devolução.
+$("#sales-list").addEventListener("click", (event) => {
+  const cancelButton = event.target.closest("[data-sale-cancel]");
+  const returnButton = event.target.closest("[data-sale-return]");
+  if (cancelButton) openSaleAction("cancel", cancelButton.dataset.saleCancel);
+  else if (returnButton) openSaleAction("return", returnButton.dataset.saleReturn);
+});
+$("#sale-action-close").addEventListener("click", closeSaleAction);
+$("#sale-action-overlay").addEventListener("click", (event) => {
+  if (event.target === $("#sale-action-overlay")) closeSaleAction();
+});
+$("#sale-action-items").addEventListener("input", (event) => {
+  if (event.target.closest("[data-return-index]")) updateReturnTotal();
+});
+$("#sale-action-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!saleAction) return;
+  const sale = sales.find((item) => item.id === saleAction.saleId);
+  if (!sale) {
+    setFeedback("#sale-action-feedback", "Venda não encontrada. Atualize a lista.", true);
+    return;
+  }
+  const reason = cleanOption($("#sale-action-reason").value);
+  if (!reason) {
+    setFeedback("#sale-action-feedback", "Informe o motivo.", true);
+    return;
+  }
+  const button = $("#sale-action-confirm");
+  button.disabled = true;
+  try {
+    if (saleAction.mode === "cancel") {
+      const unitCount = saleItemsOf(sale).reduce((sum, item) => sum + (Number(item.quantidade) || 0), 0);
+      const confirmed = window.confirm(`Cancelar esta venda?\n\n• ${unitCount} unidade(s) voltam ao estoque\n• A venda sai dos indicadores\n\nIsso não pode ser desfeito.`);
+      if (!confirmed) return;
+      setFeedback("#sale-action-feedback", "Cancelando venda…");
+      await cancelSale(sale, reason);
+      closeSaleAction();
+      await loadData();
+      setFeedback("#sale-feedback", "Venda cancelada e estoque devolvido.");
+      showToast("Venda cancelada. Estoque devolvido.");
+    } else {
+      const requested = [];
+      let invalid = false;
+      document.querySelectorAll("#sale-action-items [data-return-index]").forEach((input) => {
+        const raw = input.value.trim();
+        if (raw === "") return;
+        const quantity = Number(raw);
+        const max = Number(input.dataset.returnMax);
+        if (!Number.isInteger(quantity) || quantity < 0 || quantity > max) {
+          invalid = true;
+          return;
+        }
+        if (quantity > 0) requested.push({ index: Number(input.dataset.returnIndex), quantidade: quantity });
+      });
+      if (invalid) throw new Error("Confira as quantidades: use números inteiros, sem passar do máximo permitido.");
+      if (!requested.length) throw new Error("Informe a quantidade de pelo menos um item.");
+      const unitCount = requested.reduce((sum, item) => sum + item.quantidade, 0);
+      const confirmed = window.confirm(`Registrar a devolução?\n\n• ${unitCount} unidade(s) voltam ao estoque\n• O valor devolvido será descontado dos indicadores\n\nIsso não pode ser desfeito.`);
+      if (!confirmed) return;
+      setFeedback("#sale-action-feedback", "Registrando devolução…");
+      const returnedTotal = await registerReturn(sale, requested, reason);
+      closeSaleAction();
+      await loadData();
+      setFeedback("#sale-feedback", `Devolução registrada (${money(returnedTotal)}) e estoque atualizado.`);
+      showToast("Devolução registrada. Estoque atualizado.");
+    }
+  } catch (error) {
+    console.error("Falha na ação da venda:", error);
+    setFeedback("#sale-action-feedback", explainError(error), true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#exit-product-search").addEventListener("input", () => {
+  selectedExitProductId = "";
+  renderExitProductResults();
+});
+$("#exit-product-results").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-select-exit-product]");
+  if (!button) return;
+  const product = products.find((item) => item.id === button.dataset.selectExitProduct && !item.arquivado);
+  if (!product) return;
+  selectedExitProductId = product.id;
+  $("#exit-product-search").value = product.nome;
+  renderExitProductResults();
+});
+$("#exit-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  setFeedback("#exit-feedback", "Registrando saída…");
+  if (storeSettings.saidasAtivo === false) {
+    setFeedback("#exit-feedback", "O módulo Saídas está desativado nas configurações.", true);
+    button.disabled = false;
+    return;
+  }
+  const productId = selectedExitProductId;
+  const quantity = Number($("#exit-quantity").value);
+  const motive = $("#exit-reason").value;
+  const date = $("#exit-date").value;
+  const notes = $("#exit-notes").value.trim();
+  if (!productId || !Number.isInteger(quantity) || quantity < 1 || !motive || !date) {
+    setFeedback("#exit-feedback", "Pesquise e selecione um produto, informe a quantidade, o motivo e a data.", true);
+    button.disabled = false;
+    return;
+  }
+  try {
+    const productRef = doc(db, "produtos", productId);
+    const exitRef = doc(collection(db, "saidas"));
+    const userEmail = auth.currentUser?.email || "Usuário não identificado";
+    const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    await runTransaction(db, async (transaction) => {
+      const productSnapshot = await transaction.get(productRef);
+      if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
+      const product = productSnapshot.data();
+      if (product.arquivado) throw new Error("Este produto está arquivado e não pode receber movimentações.");
+      const currentStock = Number(product.quantidade) || 0;
+      if (quantity > currentStock) throw new Error(`Saldo insuficiente. Disponível: ${currentStock} unidade(s); solicitado: ${quantity}.`);
+      transaction.update(productRef, { quantidade: currentStock - quantity, atualizadoEm: serverTimestamp() });
+      transaction.set(exitRef, {
+        produtoId: productId, produtoNome: product.nome || "",
+        codigoInterno: product.codigoInterno || "", codigoBarras: product.codigoBarras || "",
+        quantidade: quantity, motivo: motive, data: date, dataHora: dateTime, observacao: notes,
+        usuario: userEmail, criadoEm: serverTimestamp()
+      });
+    });
+    form.reset();
+    selectedExitProductId = "";
+    $("#exit-date").value = dateToday();
+    renderExitProductResults();
+    setFeedback("#exit-feedback", "Saída registrada e saldo atualizado.");
+    await loadData();
+    showToast("Saída registrada. Estoque atualizado.");
+  } catch (error) {
+    console.error("Falha ao registrar saída:", error);
+    setFeedback("#exit-feedback", explainError(error), true);
+  } finally { button.disabled = false; }
+});
+$("#exit-date").value = dateToday();
+
+$("#entry-date").value = dateToday();
+$("#entry-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  setFeedback("#entry-feedback", "Registrando entrada…");
+  const productId = $("#entry-product").value;
+  const quantidade = Number($("#entry-quantity").value);
+  const quantity = quantidade;
+  const unitCostRaw = Number($("#entry-cost").value);
+  const date = $("#entry-date").value;
+  const supplier = $("#entry-supplier").value.trim();
+  const notes = $("#entry-notes").value.trim();
+  if (!productId || !Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(unitCostRaw) || unitCostRaw < 0 || !date) {
+    setFeedback("#entry-feedback", "Confira o produto, a quantidade, o custo e a data.", true);
+    button.disabled = false;
+    return;
+  }
+  const unitCost = roundMoney(unitCostRaw);
+  try {
+    const productRef = doc(db, "produtos", productId);
+    await runTransaction(db, async (transaction) => {
+      const productSnapshot = await transaction.get(productRef);
+      if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
+      const product = productSnapshot.data();
+      if (product.arquivado) throw new Error("Este produto está arquivado e não pode receber movimentações.");
+      const entryRef = doc(collection(db, "entradas"));
+      transaction.update(productRef, {
+        quantidade: (Number(product.quantidade) || 0) + quantity,
+        atualizadoEm: serverTimestamp()
+      });
+      transaction.set(entryRef, {
+        produtoId: productId,
+        produtoNome: product.nome,
+        quantidade,
+        custoUnitario: unitCost,
+        data: date,
+        fornecedor: supplier,
+        observacao: notes,
+        tipo: "entrada",
+        criadoEm: serverTimestamp(),
+        criadoPor: auth.currentUser?.email || null
+      });
+    });
+    form.reset();
+    $("#entry-date").value = dateToday();
+    setFeedback("#entry-feedback", "Entrada registrada e estoque atualizado.");
+    await loadData();
+    showToast("Entrada registrada.");
+  } catch (error) {
+    console.error("Falha ao registrar entrada:", error);
+    setFeedback("#entry-feedback", explainError(error), true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#products-list").addEventListener("click", async (event) => {
+  const editButton = event.target.closest("[data-edit-product]");
+  if (editButton) {
+    const product = products.find((item) => item.id === editButton.dataset.editProduct);
+    if (!product) return;
+    editingProductId = product.id;
+    $("#product-form h3").textContent = "Editar produto";
+    $("#product-form button[type=submit]").textContent = "Salvar alterações";
+    $("#product-name").value = product.nome || "";
+    renderCatalogOptions();
+    $("#product-brand").value = product.marca || "";
+    $("#product-category").value = product.categoria || "";
+    $("#product-description").value = product.descricao || "";
+    $("#product-cost").value = Number(product.custo) || 0;
+    $("#product-gain").value = Number(product.percentualGanho) || 0;
+    $("#product-sale-price").value = getRegisteredSalePrice(product).toFixed(2);
+    salePriceManuallyEdited = true;
+    $("#product-quantity").value = Number(product.quantidade) || 0;
+    $("#product-quantity").disabled = true;
+    $("#product-internal-code").value = product.codigoInterno || "";
+    $("#product-barcode").value = product.codigoBarras || "";
+    $("#product-barcode").disabled = !storeSettings.codigoBarrasAtivo;
+    updateSuggestedPrice();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setFeedback("#product-feedback", "Modo de edição: saldo e histórico de entradas não serão alterados. Se o custo mudar, o custo anterior ficará registrado no histórico.");
+    return;
+  }
+  const button = event.target.closest("[data-delete-product]");
+  if (!button) return;
+
+  const productId = button.dataset.deleteProduct;
+  const product = products.find((item) => item.id === productId);
+  if (!product || product.arquivado) return;
+
+  const confirmed = window.confirm(
+    `Deseja excluir o produto "${product.nome}"?\n\nSe houver estoque ou histórico de movimentações, ele será arquivado para preservar os registros. Caso contrário, será excluído permanentemente.`
+  );
+  if (!confirmed) return;
+
+  button.disabled = true;
+  button.textContent = "Processando…";
+  try {
+    const hasHistory =
+      entries.some((entry) => entry.produtoId === productId) ||
+      exits.some((exit) => exit.produtoId === productId) ||
+      sales.some((sale) => Array.isArray(sale.itens) && sale.itens.some((item) => item.produtoId === productId)) ||
+      saleReturns.some((saleReturn) => Array.isArray(saleReturn.itens) && saleReturn.itens.some((item) => item.produtoId === productId));
+    const hasStock = (Number(product.quantidade) || 0) > 0;
+
+    if (hasHistory || hasStock) {
+      await updateDoc(doc(db, "produtos", productId), {
+        arquivado: true,
+        arquivadoEm: serverTimestamp(),
+        arquivadoPor: auth.currentUser?.email || null,
+        atualizadoEm: serverTimestamp()
+      });
+      showToast("Produto arquivado. O histórico foi preservado.");
+    } else {
+      await deleteDoc(doc(db, "produtos", productId));
+      showToast("Produto excluído.");
+    }
+    await loadData();
+  } catch (error) {
+    console.error("Falha ao excluir/arquivar produto:", error);
+    showToast(explainError(error));
+    button.disabled = false;
+    button.textContent = "Excluir produto";
+  }
+});
+
+$("#store-settings-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const updated = {
+      nome: cleanOption($("#store-name").value), responsavel: cleanOption($("#store-manager").value),
+      telefone: cleanOption($("#store-phone").value), endereco: cleanOption($("#store-address").value),
+      cnpj: cleanOption($("#store-cnpj").value),
+      codigoInternoAtivo: $("#setting-internal-code").checked,
+      codigoBarrasAtivo: $("#setting-barcode").checked,
+      caixaAtivo: $("#setting-caja-active").checked,
+      saidasAtivo: $("#setting-exits-active").checked,
+      atualizadoEm: serverTimestamp(), atualizadoPor: auth.currentUser?.email || null
+    };
+    const settingsRef = doc(db, "produtos", STORE_SETTINGS_ID);
+    await runTransaction(db, async (transaction) => {
+      transaction.set(settingsRef, updated, { merge: true });
+    });
+    storeSettings = { ...storeSettings, ...updated };
+    renderStoreSettings();
+    setFeedback("#settings-feedback", "Configurações salvas.");
+    showToast("Configurações salvas.");
+  } catch (error) {
+    console.error("Falha ao salvar configurações:", error);
+    setFeedback("#settings-feedback", explainError(error), true);
+  } finally { button.disabled = false; }
+});
+
+$("#refresh-products").addEventListener("click", loadData);
+$("#refresh-entries").addEventListener("click", loadData);
+$("#refresh-exits").addEventListener("click", loadData);
+$("#refresh-sales").addEventListener("click", loadData);
+$("#show-archived-entries").addEventListener("change", (event) => {
+  showArchivedEntries = event.currentTarget.checked;
+  renderEntries();
+});
+$("#show-tutorial").addEventListener("click", () => { $("#tutorial-overlay").hidden = false; });
+$("#tutorial-close").addEventListener("click", closeTutorialForNow);
+$("#tutorial-understood").addEventListener("click", closeTutorialForNow);
+$("#tutorial-never").addEventListener("click", () => {
+  localStorage.setItem("faydai-tutorial-dismissed", "yes");
+  closeTutorialForNow();
+  showToast("O tutorial não será exibido automaticamente.");
+});
+$("#tutorial-overlay").addEventListener("click", (event) => {
+  if (event.target === $("#tutorial-overlay")) closeTutorialForNow();
+});
