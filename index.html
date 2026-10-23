@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#172554">
   <title>FayDai Estoque</title>
-  <link rel="stylesheet" href="./styles.css?v=20261022-b7">
+  <link rel="stylesheet" href="./styles.css?v=20261022-b8">
 </head>
 <body>
   <main class="app-shell">
@@ -74,6 +74,9 @@
           </div>
           <p id="dash-zero-stock" class="dash-note"></p>
 
+          <h3 class="dash-heading">Estoque baixo</h3>
+          <div id="dash-low-stock"></div>
+
           <div class="dash-heading-row">
             <h3 class="dash-heading">Vendas</h3>
             <select id="dashboard-period" class="dash-period" aria-label="Período das vendas">
@@ -94,9 +97,37 @@
               <strong id="dash-gross" class="stat-value">R$ 0,00</strong>
               <small class="stat-sub">Preço cobrado menos o custo cadastrado na venda</small>
             </article>
+            <article class="stat-card">
+              <span class="stat-label">Ticket médio</span>
+              <strong id="dash-avg-ticket" class="stat-value">—</strong>
+              <small class="stat-sub">Faturamento líquido ÷ vendas</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-label">Unidades vendidas</span>
+              <strong id="dash-units-sold" class="stat-value">0</strong>
+              <small id="dash-units-sold-sub" class="stat-sub">Unidades vendidas no período</small>
+            </article>
           </div>
           <p id="dash-gross-note" class="notice" hidden></p>
           <p class="notice">O lucro líquido não é apurado: o sistema ainda não registra as despesas da loja. A diferença bruta é apenas uma estimativa. Vendas canceladas ficam fora dos cálculos e as devoluções são descontadas no período em que foram registradas.</p>
+
+          <h3 class="dash-heading">Mais vendidos no período</h3>
+          <div id="dash-top-products"></div>
+
+          <h3 class="dash-heading">Formas de pagamento no período</h3>
+          <div id="dash-payments"></div>
+
+          <div class="dash-heading-row">
+            <h3 class="dash-heading">Vendas por dia</h3>
+            <select id="dashboard-daily-range" class="dash-period" aria-label="Intervalo do gráfico">
+              <option value="7" selected>Últimos 7 dias</option>
+              <option value="30">Últimos 30 dias</option>
+            </select>
+          </div>
+          <div class="chart-card">
+            <div id="dash-daily-chart"></div>
+            <p id="dash-daily-detail" class="chart-detail" aria-live="polite"></p>
+          </div>
         </div>
 
         <h3 class="dash-heading">Atalhos</h3>
@@ -149,6 +180,9 @@
           <p class="small muted">Este será o preço inicial no Caixa, que ainda pode ser ajustado em cada venda. Você pode definir um preço comercial diferente do sugerido.</p>
           <label for="product-quantity">Quantidade inicial *</label>
           <input id="product-quantity" type="number" min="0" step="1" inputmode="numeric" value="0" required>
+          <label for="product-min-stock">Estoque mínimo (opcional)</label>
+          <input id="product-min-stock" type="number" min="0" step="1" inputmode="numeric" placeholder="Ex.: 3">
+          <p class="small muted">O Painel avisa quando o saldo ficar igual ou abaixo deste número. Deixe vazio para não receber aviso deste produto.</p>
           <button class="button primary" type="submit">Salvar produto</button>
           <p id="product-feedback" class="feedback" role="status"></p>
         </form>
@@ -317,13 +351,35 @@
           <button class="button primary" type="submit">Salvar configurações</button>
           <p id="settings-feedback" class="feedback" role="status"></p>
         </form>
+
+        <div id="export-panel" class="panel form-stack export-panel">
+          <h3>Exportar dados (CSV)</h3>
+          <p class="small muted">Arquivos para abrir no Excel ou nas Planilhas Google. Também servem como cópia de segurança dos seus dados.</p>
+          <label for="export-period">Período (vale para Vendas e Devoluções)</label>
+          <select id="export-period">
+            <option value="all" selected>Todo o período</option>
+            <option value="month">Este mês</option>
+            <option value="week">Últimos 7 dias</option>
+            <option value="today">Hoje</option>
+          </select>
+          <div class="export-grid">
+            <button class="button secondary" type="button" data-export="produtos">Produtos</button>
+            <button class="button secondary" type="button" data-export="vendas">Vendas</button>
+            <button class="button secondary" type="button" data-export="devolucoes">Devoluções</button>
+            <button class="button secondary" type="button" data-export="entradas">Entradas</button>
+            <button class="button secondary" type="button" data-export="saidas">Saídas</button>
+          </div>
+          <button id="export-all" class="button primary" type="button">Exportar tudo</button>
+          <p class="notice">"Exportar tudo" baixa 5 arquivos seguidos; se o navegador perguntar, permita os downloads. Vendas e devoluções têm uma linha por item, e o total da venda se repete em cada linha: não some essa coluna.</p>
+          <p id="export-feedback" class="feedback" role="status"></p>
+        </div>
       </section>
 
       <section id="help-panel" class="tab-panel" hidden>
         <div class="section-heading"><div><p class="eyebrow">PRIMEIROS PASSOS</p><h2>Ajuda</h2></div></div>
         <div class="panel help-card">
           <h3>Como usar o FayDai</h3>
-          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial. Se o custo mudar depois, o custo anterior fica registrado no histórico.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Ative o módulo Caixa em Configurações para registrar vendas. O preço de cada item pode ser ajustado no carrinho, com alertas de preço abaixo do sugerido ou do custo; o estoque é baixado automaticamente.</li><li>Para desfazer uma venda, abra o histórico do Caixa: use <strong>Devolver itens</strong> para devolver só alguns itens ou <strong>Cancelar venda</strong> para cancelar a venda inteira (só se ela não teve devolução). Em ambos os casos o estoque volta automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>Use a Vistoria para contar o estoque físico: campo vazio mantém o saldo; digite 0 quando contar e não houver unidade. Você pode salvar o andamento e concluir depois.</li><li>No Painel, acompanhe o valor do estoque, o faturamento e a diferença bruta estimada das vendas por período.</li></ol>
+          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial. Se quiser receber aviso de reposição, informe o estoque mínimo. Se o custo mudar depois, o custo anterior fica registrado no histórico.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Ative o módulo Caixa em Configurações para registrar vendas. O preço de cada item pode ser ajustado no carrinho, com alertas de preço abaixo do sugerido ou do custo; o estoque é baixado automaticamente.</li><li>Para desfazer uma venda, abra o histórico do Caixa: use <strong>Devolver itens</strong> para devolver só alguns itens ou <strong>Cancelar venda</strong> para cancelar a venda inteira (só se ela não teve devolução). Em ambos os casos o estoque volta automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>Use a Vistoria para contar o estoque físico: campo vazio mantém o saldo; digite 0 quando contar e não houver unidade. Você pode salvar o andamento e concluir depois.</li><li>No Painel, acompanhe o valor do estoque, os produtos abaixo do mínimo, o faturamento, o ticket médio, os mais vendidos, as formas de pagamento e as vendas por dia.</li><li>Em Configurações → Exportar dados, baixe planilhas CSV de produtos, vendas, devoluções, entradas e saídas. Faça isso de tempos em tempos como cópia de segurança.</li></ol>
           <p class="muted small">Cancelamentos e devoluções não podem ser desfeitos e ficam registrados no histórico.</p>
           <button id="show-tutorial" class="button secondary" type="button">Ver tutorial inicial</button>
         </div>
@@ -339,10 +395,10 @@
       <p class="eyebrow">BEM-VINDO AO SISTEMA</p>
       <h2 id="tutorial-title">Vamos organizar seu estoque?</h2>
       <p class="muted">Você pode consultar este tutorial sempre que precisar.</p>
-      <div class="tutorial-step"><span>1</span><div><strong>Cadastre os produtos</strong><p>Informe nome, marca, categoria, custo, ganho desejado e quantidade inicial.</p></div></div>
+      <div class="tutorial-step"><span>1</span><div><strong>Cadastre os produtos</strong><p>Informe nome, marca, categoria, custo, ganho desejado, quantidade inicial e, se quiser, o estoque mínimo.</p></div></div>
       <div class="tutorial-step"><span>2</span><div><strong>Registre as entradas</strong><p>Quando receber mercadoria, registre quantidade, custo da compra e fornecedor.</p></div></div>
       <div class="tutorial-step"><span>3</span><div><strong>Venda e dê baixa</strong><p>No Caixa, registre vendas e ajuste o preço se precisar; em Saídas, perdas e uso interno. O saldo é atualizado sozinho.</p></div></div>
-      <div class="tutorial-step"><span>4</span><div><strong>Acompanhe e confira</strong><p>O Painel mostra produtos, valor do estoque e vendas. Na Vistoria, conte o estoque físico e ajuste os saldos.</p></div></div>
+      <div class="tutorial-step"><span>4</span><div><strong>Acompanhe e confira</strong><p>O Painel mostra estoque baixo, vendas e rankings. Na Vistoria, conte o estoque físico e ajuste os saldos. Em Configurações, exporte seus dados em planilha.</p></div></div>
       <button id="tutorial-understood" class="button primary full" type="button">Entendi, começar</button>
       <button id="tutorial-never" class="button quiet full" type="button">Não mostrar novamente</button>
     </section>
@@ -366,6 +422,6 @@
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=20261022-b7"></script>
+  <script type="module" src="./app.js?v=20261022-b8"></script>
 </body>
 </html>
