@@ -193,8 +193,10 @@
       <section id="entries-panel" class="tab-panel" hidden>
         <div class="section-heading"><div><p class="eyebrow">REPOSIÇÃO</p><h2>Registrar entrada</h2></div></div>
         <form id="entry-form" class="panel form-stack">
-          <label for="entry-product">Produto *</label>
-          <select id="entry-product" required><option value="">Selecione um produto</option></select>
+          <label for="entry-product-search">Pesquisar produto por nome ou código *</label>
+          <input id="entry-product-search" type="search" autocomplete="off" placeholder="Nome, código interno ou leia o código de barras" required>
+          <div id="entry-product-results" class="search-results" aria-live="polite"><div class="small muted">Digite o nome ou o código, ou leia o código de barras.</div></div>
+          <div id="entry-selected-product" class="selected-product" hidden></div>
           <label for="entry-quantity">Quantidade recebida *</label>
           <input id="entry-quantity" type="number" min="1" step="1" inputmode="numeric" required placeholder="Ex.: 10">
           <label for="entry-cost">Custo unitário desta compra (R$) *</label>
@@ -313,8 +315,10 @@
             <p id="inventory-meta" class="small muted"></p>
             <p id="inventory-summary" class="inventory-summary"></p>
             <p class="notice">Campo vazio = não contado (o saldo é mantido). Digite 0 se contou e não há unidades. A diferença final é calculada com o saldo do momento em que você concluir.</p>
-            <label for="inventory-search">Pesquisar produto</label>
-            <input id="inventory-search" type="search" autocomplete="off" placeholder="Nome, código ou marca">
+            <p class="notice">Leitor de código de barras: cada leitura soma 1 à contagem do produto. Você ainda pode corrigir o número direto no campo do produto.</p>
+            <label for="inventory-search">Pesquisar produto ou ler código de barras</label>
+            <input id="inventory-search" type="search" autocomplete="off" placeholder="Nome, código, marca ou leitor">
+            <p id="inventory-scan-feedback" class="feedback" role="status"></p>
             <label class="setting-toggle"><input id="inventory-only-uncounted" type="checkbox"> Mostrar só os não contados</label>
           </div>
           <div id="inventory-list" class="item-list inventory-list"></div>
@@ -347,7 +351,7 @@
           <label class="setting-toggle"><input id="setting-internal-code" type="checkbox"> Gerar código interno automaticamente</label>
           <p class="small muted">Novos códigos sequenciais, como FON001. Códigos já atribuídos serão preservados.</p>
           <label class="setting-toggle"><input id="setting-barcode" type="checkbox"> Usar código de barras</label>
-          <p class="small muted">É possível digitar o código ou usar um scanner USB/Bluetooth que funcione como teclado. Leitura pela câmera será implementada na próxima etapa.</p>
+          <p class="small muted">Use um leitor USB ou Bluetooth que funcione como teclado. Nos campos de busca do Caixa, de Entradas, de Saídas e da Vistoria, basta ler o código: o produto é localizado na hora. Cada código de barras só pode pertencer a um produto ativo.</p>
           <button class="button primary" type="submit">Salvar configurações</button>
           <p id="settings-feedback" class="feedback" role="status"></p>
         </form>
@@ -439,6 +443,6 @@
       }, 10000);
     })();
   </script>
-  <script type="module" src="./app.js?v=20261023-authfix2"></script>
+  <script type="module" src="./app.js?v=20261023-leitor"></script>
 </body>
 </html>
