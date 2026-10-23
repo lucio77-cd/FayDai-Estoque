@@ -2,7 +2,7 @@
 
 Sistema simples de gestão de estoque, entradas, saídas e preços, pensado inicialmente para uma loja de celulares e acessórios. A primeira versão será priorizada para uso no celular e construída para ser demonstrada e validada com o responsável pela loja.
 
-> **Status:** protótipo em desenvolvimento. Já inclui login, painel inicial (dashboard), produtos (com histórico de alteração de custo), entradas, Caixa (vendas com preço ajustável e alertas, cancelamentos e devoluções), Saídas, vistoria física e configurações. A vistoria foi validada em teste real; cancelamentos e devoluções ainda precisam ser validados no navegador com o projeto Firebase.
+> **Status:** protótipo em desenvolvimento. Já inclui login, painel inicial (dashboard com estoque baixo, rankings e gráfico), produtos (com histórico de alteração de custo e estoque mínimo), entradas, Caixa (vendas com preço ajustável e alertas, cancelamentos e devoluções), Saídas, vistoria física, exportação para CSV e configurações. A vistoria e os cancelamentos/devoluções foram validados em teste real; o dashboard novo e a exportação CSV ainda precisam ser validados no navegador.
 
 ## Objetivo
 
@@ -24,8 +24,11 @@ O sistema começará com uma loja e um único usuário. Novas necessidades serã
 - Calcular o preço sugerido a partir do custo e do percentual.
 - Manter o estoque controlado exclusivamente por quantidade.
 - Permitir edição dos dados do produto.
+- Informar, opcionalmente, o **estoque mínimo** de cada produto.
 
 Não haverá rastreamento individual de celulares por IMEI ou número de série.
+
+**Estoque mínimo:** campo opcional e inteiro, definido manualmente pelo usuário. Vazio significa "sem aviso" para aquele produto. Quando o saldo fica igual ou abaixo do mínimo, o cartão do produto mostra "baixo" e o Painel lista o produto em "Estoque baixo". Uma previsão automática de duração do estoque, baseada nas saídas, fica para depois de algumas semanas de vendas reais.
 
 ### 2. Entradas de estoque
 Cada entrada deverá registrar:
@@ -109,15 +112,36 @@ Cada alteração do custo cadastrado gera um registro imutável na coleção `hi
 O painel deverá apresentar, conforme existirem dados suficientes:
 - quantidade de produtos cadastrados;
 - valor estimado do estoque, usando o custo cadastrado vigente;
+- produtos abaixo do estoque mínimo;
 - total de vendas registradas;
 - diferença bruta estimada das vendas;
 - atalhos para cadastrar produtos e registrar movimentações.
 
 Os indicadores devem ser calculados a partir dos registros reais do sistema. Não devem ser exibidos dados de exemplo como se fossem dados reais.
 
-**Implementação atual:** o Painel é a primeira aba do sistema. O estoque (produtos cadastrados, unidades, produtos sem estoque e valor estimado) é sempre o do momento. O faturamento e a diferença bruta estimada seguem o período escolhido (hoje, últimos 7 dias, este mês ou todo o período; padrão: este mês). A diferença bruta usa o custo gravado em cada item no momento da venda; vendas antigas, feitas antes desse registro existir, ficam fora desse cálculo e o painel informa quantas foram. Produtos arquivados e saídas manuais não entram nos cálculos. O lucro líquido não é apresentado, pois as despesas ainda não são registradas.
+**Implementação atual:** o Painel é a primeira aba do sistema.
+- **Estoque** (sempre o do momento): produtos cadastrados, unidades, produtos sem estoque e valor estimado pelo custo.
+- **Estoque baixo:** produtos ativos com mínimo definido e saldo igual ou abaixo dele (os 8 mais urgentes; os demais aparecem em Produtos).
+- **Vendas do período** (hoje, últimos 7 dias, este mês ou todo o período; padrão: este mês): faturamento líquido, diferença bruta estimada, ticket médio (faturamento líquido ÷ número de vendas) e unidades vendidas (vendidas menos devolvidas).
+- **Mais vendidos no período:** top 5 produtos por unidades líquidas.
+- **Formas de pagamento no período:** faturamento líquido por forma de pagamento; a devolução é descontada da forma usada na venda original.
+- **Vendas por dia:** gráfico de barras dos últimos 7 ou 30 dias (independente do período escolhido); toque em uma barra para ver o valor do dia. Dias em que as devoluções superam as vendas aparecem sem barra.
+- A diferença bruta usa o custo gravado em cada item no momento da venda; vendas antigas, feitas antes desse registro existir, ficam fora desse cálculo e o painel informa quantas foram. Produtos arquivados e saídas manuais não entram nos cálculos. O lucro líquido não é apresentado, pois as despesas ainda não são registradas.
+- **Cancelamentos e devoluções no Painel:** vendas canceladas ficam fora de todos os cálculos do período (e o painel informa quantas foram). Devoluções são descontadas no período em que foram registradas, usando o preço e o custo gravados na venda original.
 
-**Cancelamentos e devoluções no Painel:** vendas canceladas ficam fora de todos os cálculos do período (e o painel informa quantas foram). Devoluções são descontadas do faturamento e da diferença bruta no período em que foram registradas, usando o preço e o custo gravados na venda original.
+### 8. Exportação para CSV
+Em **Configurações → Exportar dados (CSV)** há um botão para cada arquivo e um botão **Exportar tudo** (cópia de segurança).
+
+- **Produtos:** todos os produtos (ativos e arquivados), com custo, preços, saldo, estoque mínimo e valor em estoque.
+- **Vendas:** uma linha por item vendido, com status (ativa ou cancelada), preço, custo da época, forma de pagamento, quantidade devolvida e dados do cancelamento. O total da venda se repete em cada linha do item: não some essa coluna.
+- **Devoluções:** uma linha por item devolvido, ligada à venda.
+- **Entradas** e **Saídas:** todo o histórico.
+- O filtro de período (hoje, últimos 7 dias, este mês, todo o período) vale só para Vendas e Devoluções; o padrão é "Todo o período".
+- Formato: separador ponto e vírgula, vírgula decimal, datas dd/mm/aaaa e acentos corretos no Excel brasileiro.
+- Os códigos de barras só com dígitos saem protegidos (`="..."`) para o Excel não transformá-los em notação científica. Textos que começam com `=`, `+`, `-` ou `@` recebem um apóstrofo na frente, para impedir que a planilha os trate como fórmula.
+- Antes de gerar, o sistema recarrega os dados do banco. Não há nova gravação nem mudança nas regras do Firestore.
+- "Exportar tudo" baixa até 5 arquivos seguidos; o navegador pode pedir permissão para múltiplos downloads. Arquivos sem registros não são baixados e o sistema avisa quais foram.
+- As vistorias ainda não são exportadas.
 
 ## Regras gerais de negócio
 
@@ -133,21 +157,22 @@ Os indicadores devem ser calculados a partir dos registros reais do sistema. Nã
 
 ## Prioridade de implementação
 
-A primeira demonstração será construída por etapas:
+A primeira demonstração foi construída por etapas:
 
 1. **Cadastro de produtos**, incluindo custo, percentual de ganho, preço sugerido e quantidade inicial.
 2. **Registro de entradas**, com atualização do saldo e histórico da compra.
 3. **Registro de saídas e vendas**, incluindo validação do estoque disponível.
 4. **Dashboard básico**, com indicadores derivados dos registros.
 5. **Vistoria física**, com contagem por lista e ajustes rastreáveis.
-6. **Cancelamentos, devoluções e refinamentos**, conforme o fluxo básico for testado.
+6. **Cancelamentos e devoluções.**
+7. **Dashboard ampliado, estoque mínimo e exportação CSV** (pacote atual, a validar).
 
-A prioridade imediata é validar no uso real os cancelamentos e devoluções. Os refinamentos seguem de forma incremental, sem ampliar o escopo antes de testar o fluxo principal.
+Próximos passos previstos: página de administração (licença por data, aviso de vencimento, acompanhamento de acessos e erros) e preparação da conta do cliente. A previsão de duração do estoque fica para depois de algumas semanas de vendas reais.
 
 ## Decisões pendentes
 
 - Validar as regras do Firestore, a autenticação e a persistência no navegador.
-- Validar o fluxo de cancelamentos e devoluções com dados de teste.
+- Validar o dashboard ampliado e a exportação CSV com dados de teste.
 - Confirmar com o responsável pela loja as necessidades adicionais após experimentar o protótipo (por exemplo, forma de reembolso e prazo para cancelar).
 
 ## Critérios para validar a demonstração
@@ -160,6 +185,7 @@ A prioridade imediata é validar no uso real os cancelamentos e devoluções. Os
 - Conferir se os indicadores do dashboard correspondem aos registros existentes.
 - Realizar uma vistoria de teste e verificar se os ajustes e o histórico estão corretos.
 - Cancelar uma venda de teste e devolver itens de outra, conferindo estoque e Painel.
+- Exportar os CSV e conferir se os números batem com o sistema.
 
 ## Princípio do projeto
 
@@ -171,9 +197,9 @@ As funcionalidades e regras deste documento poderão evoluir com base nessa vali
 ## Protótipo atual
 
 Arquivos:
-- `index.html`: telas de login, painel, produtos, entradas, Caixa, saídas, vistoria, configurações, ajuda, tutorial e painel de cancelamento/devolução.
+- `index.html`: telas de login, painel, produtos, entradas, Caixa, saídas, vistoria, configurações (com exportação), ajuda, tutorial e painel de cancelamento/devolução.
 - `styles.css`: layout responsivo com prioridade para celular.
-- `app.js`: autenticação Firebase, painel, produtos, entradas, vendas, cancelamentos e devoluções, saídas, vistoria e leitura/gravação no Cloud Firestore.
+- `app.js`: autenticação Firebase, painel, produtos, entradas, vendas, cancelamentos e devoluções, saídas, vistoria, exportação CSV e leitura/gravação no Cloud Firestore.
 
 ### Configuração necessária no Firebase
 
@@ -212,7 +238,7 @@ Arquivos:
 5. Confira se a quantidade diminuiu em Produtos e se a venda aparece no histórico do Caixa.
 6. Tente vender mais unidades do que o saldo disponível; o sistema deve bloquear a operação.
 7. No carrinho, altere o preço cobrado para um valor abaixo do sugerido e confira o alerta amarelo. Altere para abaixo do custo e confira o alerta vermelho e a confirmação ao finalizar.
-8. Em Saídas, teste uma retirada manual com motivo, por exemplo, perda ou uso interno. Confira a baixa e o histórico.
+9. Em Saídas, teste uma retirada manual com motivo, por exemplo, perda ou uso interno. Confira a baixa e o histórico.
 9. Desative e reative os módulos para confirmar que o histórico permanece.
 
 ### Teste do Painel
@@ -247,6 +273,26 @@ Use poucos produtos de teste.
 7. Devolva o restante da venda A até esgotar: a etiqueta deve virar "Totalmente devolvida".
 8. Em Produtos, tente excluir um produto que teve devolução com saldo zero: ele deve ser arquivado, não apagado.
 
+### Teste do Painel ampliado, do estoque mínimo e da exportação CSV
+
+**Estoque mínimo**
+1. Em Produtos, edite um produto com saldo 5 e defina **Estoque mínimo = 5**. Salve.
+2. O cartão do produto deve mostrar "5 un. · baixo" e "Estoque mínimo 5 un.". No Painel, em "Estoque baixo", o produto deve aparecer.
+3. Registre uma entrada de 10 unidades desse produto: ele deve sair da lista de estoque baixo.
+4. Edite o produto e apague o estoque mínimo (campo vazio): nenhum aviso deve aparecer para ele.
+
+**Painel**
+5. Com vendas de teste no mês, confira: ticket médio (faturamento ÷ número de vendas), unidades vendidas, top 5 mais vendidos e formas de pagamento (os valores somados devem bater com o faturamento).
+6. Faça uma devolução e confira que as unidades, o faturamento e o pagamento correspondente diminuem.
+7. Em "Vendas por dia", alterne entre 7 e 30 dias e toque em uma barra para ver o valor do dia.
+
+**Exportação**
+8. Em Configurações → Exportar dados, escolha "Todo o período" e toque em **Produtos**. Abra o arquivo no Excel: acentos corretos, valores com vírgula, código de barras sem notação científica.
+9. Exporte **Vendas**: confira que há uma linha por item, que a venda cancelada aparece com o status "Cancelada" e que a quantidade devolvida aparece no item.
+10. Exporte **Devoluções**, **Entradas** e **Saídas** e confira se os totais batem com o sistema.
+11. Toque em **Exportar tudo**: o navegador pode pedir permissão para múltiplos downloads; aceite e confira os 5 arquivos.
+12. Troque o período para "Hoje" e exporte **Vendas**: só as vendas de hoje devem aparecer.
+
 **Atenção:** o registro de vendas usa a coleção `vendas`, as devoluções usam `devolucoes` e a vistoria usa `vistorias` no Cloud Firestore. Se o Firebase negar leitura ou gravação, será necessário conferir as regras publicadas do Firestore para permitir o acesso autorizado a essas coleções. O código no GitHub não altera as regras diretamente no console do Firebase.
 
 
@@ -260,5 +306,7 @@ As regras de segurança são publicadas no **Firebase Console → Firestore Data
 - exigir que o campo `usuario` das vendas, saídas e devoluções seja o e-mail da conta autenticada;
 - permitir excluir produto apenas com saldo zero;
 - em `vistorias`, permitir salvar, concluir ou descartar apenas vistorias em andamento; uma vistoria concluída nunca mais pode ser alterada ou apagada.
+
+O campo `estoqueMinimo` dos produtos não exige nenhuma regra nova.
 
 Não publique o e-mail real da conta autorizada neste repositório.
