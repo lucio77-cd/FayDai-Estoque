@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#172554">
   <title>FayDai Estoque</title>
-  <link rel="stylesheet" href="./styles.css?v=20261023-authfix1">
+  <link rel="stylesheet" href="./styles.css?v=20261023-authfix2">
 </head>
 <body>
   <main class="app-shell">
@@ -422,6 +422,23 @@
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=20261023-authfix1"></script>
+  <script>
+    // Aviso de segurança: se o sistema não sair de "Verificando sua sessão…", mostra o motivo provável.
+    (function () {
+      function mostrarFalha(msg) {
+        var el = document.getElementById("auth-loading-view");
+        if (!el || el.hidden) return;
+        var p = el.querySelector(".muted");
+        if (p) p.textContent = msg;
+      }
+      window.addEventListener("error", function (e) {
+        mostrarFalha("Erro ao carregar o sistema: " + (e.message || "arquivo app.js inválido") + ". Atualize a página; se continuar, avise o suporte.");
+      });
+      setTimeout(function () {
+        mostrarFalha("Demorou mais que o normal. Confira a internet e atualize a página; se continuar, avise o suporte.");
+      }, 10000);
+    })();
+  </script>
+  <script type="module" src="./app.js?v=20261023-authfix2"></script>
 </body>
 </html>
