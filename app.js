@@ -56,6 +56,7 @@ const STORE_SETTINGS_ID = "configuracoes_faydai";
 const INTERNAL_COUNTER_ID = "contador_codigo_interno_faydai";
 // Limite de produtos ajustados por vistoria (limite de escritas de uma transação do Firestore).
 const MAX_INVENTORY_ADJUSTMENTS = 400;
+const EXIT_REASON_LABELS = { perda: "Perda", devolucao: "Devolução ao fornecedor", uso_interno: "Uso interno", outro: "Outra saída" };
 let storeSettings = { nome: "", responsavel: "", telefone: "", endereco: "", cnpj: "", codigoInternoAtivo: false, codigoBarrasAtivo: false, caixaAtivo: false, saidasAtivo: true };
 let editingProductId = null;
 let salePriceManuallyEdited = false;
@@ -94,6 +95,9 @@ let saleReturnsAvailable = true;
 let returnsLoadErrorShown = false;
 let saleAction = null; // { mode: "cancel" | "return", saleId }
 
+// Painel: série diária usada pelo gráfico de vendas por dia
+let dailySeries = [];
+
 const normalizeText = (value = "") => String(value || "")
   .normalize("NFD")
   .replace(/[\u0300-\u036f]/g, "")
@@ -115,6 +119,36 @@ function uniqueOptions(values = []) {
     })
     .sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
+
+// ---------- Auxiliares de produtos, vendas e devoluções ----------
+
+// Estoque mínimo definido pelo usuário (null = sem aviso para o produto).
+const minStockOf = (product) => (Number.isInteger(product.estoqueMinimo) && product.estoqueMinimo >= 0 ? product.estoqueMinimo : null);
+const isLowStock = (product) => {
+  const minimum = minStockOf(product);
+  return minimum !== null && (Number(product.quantidade) || 0) <= minimum;
+};
+
+const saleItemsOf = (sale) => (Array.isArray(sale.itens) && sale.itens.length
+  ? sale.itens
+  : [{ produtoNome: sale.produtoNome || "Produto", quantidade: sale.quantidade || 0, precoUnitario: sale.precoUnitario || 0 }]);
+
+const saleTotalOf = (sale) => Number(sale.total) || roundMoney(saleItemsOf(sale).reduce((sum, item) => (
+  sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0))
+), 0));
+
+const returnTotalOf = (saleReturn) => {
+  const items = Array.isArray(saleReturn.itens) ? saleReturn.itens : [];
+  return Number(saleReturn.totalDevolvido) || roundMoney(items.reduce((sum, item) => (
+    sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0))
+  ), 0));
+};
+
+const saleDateOf = (sale) => sale.data || String(sale.dataHora || "").slice(0, 10);
+const returnDateOf = (saleReturn) => saleReturn.data || String(saleReturn.dataHora || "").slice(0, 10);
+// Datas no formato AAAA-MM-DD; sem data inicial significa "todo o período".
+const inPeriod = (dateText, start, today) => !start || (dateText >= start && dateText <= today);
+const yesNo = (value) => (value === true ? "Sim" : (value === false ? "Não" : ""));
 
 const NEW_BRAND_VALUE = "__nova_marca__";
 const NEW_CATEGORY_VALUE = "__nova_categoria__";
@@ -236,6 +270,7 @@ function resetProductForm() {
   $("#product-category-new").hidden = true;
   $("#product-gain").value = "20";
   $("#product-quantity").value = "0";
+  $("#product-min-stock").value = "";
   salePriceManuallyEdited = false;
   updateSuggestedPrice();
 }
@@ -269,6 +304,146 @@ function getSalePeriodStart(period) {
   return null;
 }
 
+// Produtos ativos com saldo igual ou abaixo do estoque mínimo definido pelo usuário.
+function renderLowStock(activeProducts) {
+  const container = $("#dash-low-stock");
+  const withMinimum = activeProducts.filter((product) => minStockOf(product) !== null);
+  if (!withMinimum.length) {
+    container.innerHTML = '<div class="empty-state">Nenhum produto tem estoque mínimo definido.<br>Defina em Produtos → Editar para receber avisos aqui.</div>';
+    return;
+  }
+  const low = withMinimum.filter(isLowStock).sort((a, b) => (
+    ((Number(a.quantidade) || 0) - minStockOf(a)) - ((Number(b.quantidade) || 0) - minStockOf(b))
+    || String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR")
+  ));
+  if (!low.length) {
+    container.innerHTML = '<div class="dash-ok">Nenhum produto abaixo do estoque mínimo.</div>';
+    return;
+  }
+  const shown = low.slice(0, 8);
+  container.innerHTML = `<div class="low-list">${shown.map((product) => {
+    const balance = Number(product.quantidade) || 0;
+    return `<div class="low-row">
+      <div class="low-main"><strong>${escapeHtml(product.nome)}</strong><small>Mínimo definido: ${minStockOf(product)} un.</small></div>
+      <span class="low-badge${balance <= 0 ? " zero" : ""}">${balance <= 0 ? "Sem estoque" : `${balance} un.`}</span>
+    </div>`;
+  }).join("")}</div>${low.length > shown.length ? `<p class="low-more">+ ${low.length - shown.length} produto(s) abaixo do mínimo. Veja a lista completa em Produtos.</p>` : ""}`;
+}
+
+// Faturamento líquido por forma de pagamento (devoluções descontadas da forma usada na venda).
+function renderPaymentBreakdown(countedSales, periodReturns) {
+  const container = $("#dash-payments");
+  const totals = new Map();
+  const add = (name, value) => {
+    const key = cleanOption(name) || "Não informado";
+    totals.set(key, roundMoney((totals.get(key) || 0) + value));
+  };
+  countedSales.forEach((sale) => add(sale.formaPagamento, saleTotalOf(sale)));
+  periodReturns.forEach((saleReturn) => {
+    const sale = sales.find((item) => item.id === saleReturn.vendaId);
+    add(sale?.formaPagamento, -returnTotalOf(saleReturn));
+  });
+  const rows = [...totals.entries()].filter(([, value]) => value !== 0).sort((a, b) => b[1] - a[1]);
+  if (!rows.length) {
+    container.innerHTML = '<div class="empty-state">Nenhuma venda no período.</div>';
+    return;
+  }
+  const positiveSum = rows.reduce((sum, [, value]) => sum + Math.max(value, 0), 0);
+  container.innerHTML = `<div class="bar-list">${rows.map(([name, value]) => {
+    const share = positiveSum > 0 && value > 0 ? (value / positiveSum) * 100 : 0;
+    return `<div class="bar-row">
+      <div class="bar-head"><span>${escapeHtml(name)}${share ? ` · ${Math.round(share)}%` : ""}</span><strong>${money(value)}</strong></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${share.toFixed(1)}%"></div></div>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+// Top 5 produtos por unidades líquidas (vendidas menos devolvidas) no período.
+function renderTopProducts(countedSales, periodReturns) {
+  const container = $("#dash-top-products");
+  const map = new Map();
+  const rowFor = (key, name) => {
+    if (!map.has(key)) map.set(key, { name, units: 0, revenue: 0 });
+    return map.get(key);
+  };
+  const subtotalOf = (item, quantity) => (typeof item.subtotal === "number"
+    ? item.subtotal
+    : roundMoney(quantity * (Number(item.precoUnitario) || 0)));
+  countedSales.forEach((sale) => {
+    saleItemsOf(sale).forEach((item) => {
+      const name = item.produtoNome || item.nome || "Produto";
+      const row = rowFor(item.produtoId || `nome:${normalizeText(name)}`, name);
+      const quantity = Number(item.quantidade) || 0;
+      row.units += quantity;
+      row.revenue = roundMoney(row.revenue + subtotalOf(item, quantity));
+    });
+  });
+  periodReturns.forEach((saleReturn) => {
+    (Array.isArray(saleReturn.itens) ? saleReturn.itens : []).forEach((item) => {
+      const name = item.produtoNome || "Produto";
+      const row = rowFor(item.produtoId || `nome:${normalizeText(name)}`, name);
+      const quantity = Number(item.quantidade) || 0;
+      row.units -= quantity;
+      row.revenue = roundMoney(row.revenue - subtotalOf(item, quantity));
+    });
+  });
+  const ranking = [...map.values()].filter((row) => row.units > 0)
+    .sort((a, b) => b.units - a.units || b.revenue - a.revenue)
+    .slice(0, 5);
+  if (!ranking.length) {
+    container.innerHTML = '<div class="empty-state">Nenhuma venda no período.</div>';
+    return;
+  }
+  container.innerHTML = `<ol class="rank-list">${ranking.map((row, index) => `
+    <li class="rank-row">
+      <span class="rank-pos">${index + 1}</span>
+      <div class="rank-main"><strong>${escapeHtml(row.name)}</strong><small>${money(row.revenue)} no período</small></div>
+      <span class="rank-units">${row.units} un.</span>
+    </li>`).join("")}</ol>`;
+}
+
+// Gráfico de vendas líquidas por dia (últimos 7 ou 30 dias).
+function renderDailyChart() {
+  const chart = $("#dash-daily-chart");
+  const detail = $("#dash-daily-detail");
+  const days = Number($("#dashboard-daily-range").value) === 30 ? 30 : 7;
+  const now = new Date();
+  const dates = [];
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    dates.push(toDateString(new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset)));
+  }
+  const totals = new Map(dates.map((date) => [date, 0]));
+  sales.filter((sale) => sale.status !== "cancelada").forEach((sale) => {
+    const date = saleDateOf(sale);
+    if (totals.has(date)) totals.set(date, roundMoney(totals.get(date) + saleTotalOf(sale)));
+  });
+  saleReturns.forEach((saleReturn) => {
+    const date = returnDateOf(saleReturn);
+    if (totals.has(date)) totals.set(date, roundMoney(totals.get(date) - returnTotalOf(saleReturn)));
+  });
+  dailySeries = dates.map((date) => ({ date, value: totals.get(date) }));
+  if (dailySeries.every((item) => item.value === 0)) {
+    chart.innerHTML = `<div class="empty-state">Nenhuma venda nos últimos ${days} dias.</div>`;
+    detail.textContent = "";
+    return;
+  }
+  const max = Math.max(...dailySeries.map((item) => item.value), 0);
+  const total = roundMoney(dailySeries.reduce((sum, item) => sum + item.value, 0));
+  const best = dailySeries.reduce((top, item) => (item.value > top.value ? item : top), dailySeries[0]);
+  const bars = dailySeries.map((item, index) => {
+    const height = max > 0 && item.value > 0 ? Math.max((item.value / max) * 100, 3) : 0;
+    return `<button type="button" class="chart-bar-wrap" data-chart-index="${index}" aria-label="${escapeHtml(formatDate(item.date))}: ${escapeHtml(money(item.value))}"><span class="chart-bar" style="height:${height.toFixed(1)}%"></span></button>`;
+  }).join("");
+  const labels = dailySeries.map((item, index) => {
+    const label = days === 7
+      ? `${item.date.slice(8)}/${item.date.slice(5, 7)}`
+      : (index % 5 === 0 || index === days - 1 ? item.date.slice(8) : "");
+    return `<span>${label}</span>`;
+  }).join("");
+  chart.innerHTML = `<div class="chart-plot">${bars}</div><div class="chart-axis">${labels}</div>`;
+  detail.textContent = `Total: ${money(total)} · Média por dia: ${money(roundMoney(total / days))} · Melhor dia: ${formatDate(best.date).slice(0, 5)} (${money(best.value)}). Toque em uma barra para ver o valor do dia.`;
+}
+
 // Todos os indicadores são calculados a partir dos registros reais carregados do Firestore.
 // Vendas canceladas ficam fora do cálculo; devoluções são descontadas no período em que foram registradas.
 function renderDashboard() {
@@ -290,26 +465,24 @@ function renderDashboard() {
   $("#dash-zero-stock").textContent = zeroStock === 0
     ? "Nenhum produto sem estoque."
     : `${zeroStock} ${zeroStock === 1 ? "produto está sem estoque." : "produtos estão sem estoque."}`;
+  renderLowStock(activeProducts);
 
   // Vendas do período escolhido.
   const start = getSalePeriodStart($("#dashboard-period").value);
   const today = dateToday();
-  const periodSales = sales.filter((sale) => {
-    const saleDate = sale.data || String(sale.dataHora || "").slice(0, 10);
-    return !start || (saleDate >= start && saleDate <= today);
-  });
+  const periodSales = sales.filter((sale) => inPeriod(saleDateOf(sale), start, today));
   const countedSales = periodSales.filter((sale) => sale.status !== "cancelada");
   const canceledCount = periodSales.length - countedSales.length;
+  const periodReturns = saleReturns.filter((saleReturn) => inPeriod(returnDateOf(saleReturn), start, today));
 
   let revenue = 0;
   let grossDifference = 0;
   let salesWithoutCost = 0;
+  let soldUnits = 0;
   countedSales.forEach((sale) => {
     const items = Array.isArray(sale.itens) ? sale.itens : [];
-    const totalItems = items.length ? items : [{ quantidade: sale.quantidade, precoUnitario: sale.precoUnitario }];
-    revenue += Number(sale.total) || roundMoney(totalItems.reduce((sum, item) => (
-      sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0))
-    ), 0));
+    revenue += saleTotalOf(sale);
+    soldUnits += saleItemsOf(sale).reduce((sum, item) => sum + (Number(item.quantidade) || 0), 0);
 
     // Diferença bruta: só itens com o custo da época gravado na venda.
     let missingCost = !items.length;
@@ -323,31 +496,32 @@ function renderDashboard() {
     if (missingCost) salesWithoutCost += 1;
   });
 
-  // Devoluções registradas no período: reduzem faturamento e diferença bruta.
-  const periodReturns = saleReturns.filter((saleReturn) => {
-    const returnDate = saleReturn.data || String(saleReturn.dataHora || "").slice(0, 10);
-    return !start || (returnDate >= start && returnDate <= today);
-  });
+  // Devoluções registradas no período: reduzem faturamento, unidades e diferença bruta.
   let returnsTotal = 0;
   let returnsGross = 0;
+  let returnedUnits = 0;
   periodReturns.forEach((saleReturn) => {
-    const items = Array.isArray(saleReturn.itens) ? saleReturn.itens : [];
-    returnsTotal += Number(saleReturn.totalDevolvido) || roundMoney(items.reduce((sum, item) => (
-      sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0))
-    ), 0));
-    items.forEach((item) => {
+    returnsTotal += returnTotalOf(saleReturn);
+    (Array.isArray(saleReturn.itens) ? saleReturn.itens : []).forEach((item) => {
+      returnedUnits += Number(item.quantidade) || 0;
       if (typeof item.custoUnitario === "number") {
         returnsGross += roundMoney((Number(item.quantidade) || 0) * ((Number(item.precoUnitario) || 0) - item.custoUnitario));
       }
     });
   });
 
-  $("#dash-revenue").textContent = money(roundMoney(revenue - returnsTotal));
+  const netRevenue = roundMoney(revenue - returnsTotal);
+  $("#dash-revenue").textContent = money(netRevenue);
   const countParts = [`${countedSales.length} ${countedSales.length === 1 ? "venda registrada" : "vendas registradas"}`];
   if (canceledCount) countParts.push(`${canceledCount} ${canceledCount === 1 ? "cancelada (fora do cálculo)" : "canceladas (fora do cálculo)"}`);
   if (periodReturns.length) countParts.push(`devoluções: −${money(roundMoney(returnsTotal))}`);
   $("#dash-sales-count").textContent = countParts.join(" · ");
   $("#dash-gross").textContent = money(roundMoney(grossDifference - returnsGross));
+  $("#dash-avg-ticket").textContent = countedSales.length ? money(roundMoney(netRevenue / countedSales.length)) : "—";
+  $("#dash-units-sold").textContent = String(soldUnits - returnedUnits);
+  $("#dash-units-sold-sub").textContent = returnedUnits
+    ? `${soldUnits} vendidas − ${returnedUnits} devolvidas`
+    : "Unidades vendidas no período";
   const note = $("#dash-gross-note");
   note.hidden = salesWithoutCost === 0;
   note.textContent = salesWithoutCost === 0
@@ -355,6 +529,10 @@ function renderDashboard() {
     : (salesWithoutCost === 1
       ? "1 venda sem custo registrado (feita antes desse registro existir) não entrou no cálculo da diferença bruta."
       : `${salesWithoutCost} vendas sem custo registrado (feitas antes desse registro existir) não entraram no cálculo da diferença bruta.`);
+
+  renderPaymentBreakdown(countedSales, periodReturns);
+  renderTopProducts(countedSales, periodReturns);
+  renderDailyChart();
 }
 
 function renderProducts() {
@@ -368,13 +546,15 @@ function renderProducts() {
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
       .map((product) => {
         const suggested = calcSuggestedPrice(product);
+        const minimum = minStockOf(product);
+        const low = isLowStock(product);
         const previousCostCell = product.custoAnterior !== undefined && product.custoAnterior !== null && product.custoAlteradoEm
           ? `<div><span>Custo anterior (alterado em ${escapeHtml(formatDate(product.custoAlteradoEm))})</span><strong>${money(product.custoAnterior)}</strong></div>`
           : "";
         return `<article class="product-card">
           <div class="item-title-row">
             <div class="item-title">${escapeHtml(product.nome)}</div>
-            <span class="stock-badge">${Number(product.quantidade) || 0} un.</span>
+            <span class="stock-badge${low ? " low" : ""}">${Number(product.quantidade) || 0} un.${low ? " · baixo" : ""}</span>
           </div>
           ${product.marca || product.categoria ? `<p class="item-description">${[product.marca, product.categoria].filter(Boolean).map(escapeHtml).join(" · ")}</p>` : ""}
           ${product.descricao ? `<p class="item-description">${escapeHtml(product.descricao)}</p>` : ""}
@@ -384,6 +564,7 @@ function renderProducts() {
             <div><span>Preço de venda cadastrado</span><strong>${money(getRegisteredSalePrice(product))}</strong></div>
             <div><span>Preço sugerido</span><strong>${money(suggested)}</strong></div>
             <div><span>Ganho sobre custo</span><strong>${(Number(product.percentualGanho) || 0).toLocaleString("pt-BR")}%</strong></div>
+            ${minimum !== null ? `<div><span>Estoque mínimo</span><strong>${minimum} un.</strong></div>` : ""}
             <div><span>Cadastro</span><strong>${product.criadoEmData ? new Date(product.criadoEmData + "T12:00:00").toLocaleDateString("pt-BR") : "—"}</strong></div>
             ${previousCostCell}
           </div>
@@ -541,14 +722,6 @@ function addProductToSaleCart(product) {
 }
 
 // ---------- Histórico de vendas, cancelamentos e devoluções ----------
-
-const saleItemsOf = (sale) => (Array.isArray(sale.itens) && sale.itens.length
-  ? sale.itens
-  : [{ produtoNome: sale.produtoNome || "Produto", quantidade: sale.quantidade || 0, precoUnitario: sale.precoUnitario || 0 }]);
-
-const saleTotalOf = (sale) => Number(sale.total) || roundMoney(saleItemsOf(sale).reduce((sum, item) => (
-  sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0))
-), 0));
 
 // Só vendas no formato atual (com produtoId em todos os itens) aceitam cancelamento e devolução.
 const isActionableSale = (sale) => Array.isArray(sale.itens) && sale.itens.length > 0
@@ -846,13 +1019,12 @@ function renderExits() {
     list.innerHTML = '<div class="empty-state">Nenhuma saída registrada ainda.</div>';
     return;
   }
-  const labels = { perda: "Perda", devolucao: "Devolução ao fornecedor", uso_interno: "Uso interno", outro: "Outra saída" };
   list.innerHTML = [...exits].sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || "")))
     .map((exit) => {
       const product = products.find((item) => item.id === exit.produtoId);
       return `<article class="entry-card exit-card">
         <div class="item-title-row"><div class="item-title">${escapeHtml(exit.produtoNome || product?.nome || "Produto")}</div><span class="exit-badge">−${Number(exit.quantidade) || 0} un.</span></div>
-        <p><strong>${escapeHtml(labels[exit.motivo] || exit.motivo || "Saída")}</strong> · ${escapeHtml(formatDate(exit.dataHora || exit.data) || "Data não informada")}</p>
+        <p><strong>${escapeHtml(EXIT_REASON_LABELS[exit.motivo] || exit.motivo || "Saída")}</strong> · ${escapeHtml(formatDate(exit.dataHora || exit.data) || "Data não informada")}</p>
         <p>Responsável: ${escapeHtml(exit.usuario || "Não identificado")}</p>
         ${exit.observacao ? `<p>${escapeHtml(exit.observacao)}</p>` : ""}
       </article>`;
@@ -1251,6 +1423,214 @@ async function finishInventory() {
   }
 }
 
+// ---------- Exportação para CSV ----------
+
+const CSV_SEPARATOR = ";";
+const PERIOD_SLUGS = { today: "hoje", week: "ultimos-7-dias", month: "este-mes", all: "todo-o-periodo" };
+
+// Texto: protege contra fórmulas em planilhas (células que começam com = + - @).
+function csvText(value) {
+  const text = String(value ?? "");
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+}
+// Número no formato brasileiro (vírgula decimal). Vazio quando não há valor.
+function csvNumber(value, decimals = 2) {
+  if (value === null || value === undefined || value === "") return "";
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(decimals).replace(".", ",") : "";
+}
+// Códigos só com dígitos (ex.: código de barras) não podem virar notação científica no Excel.
+function csvDigits(value) {
+  const text = String(value ?? "").trim();
+  return /^\d{9,}$/.test(text) ? `="${text}"` : csvText(text);
+}
+const csvCell = (cell) => {
+  const text = String(cell ?? "");
+  return /[";\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+
+function downloadCsv(filename, headers, rows) {
+  const content = "\uFEFF" + [headers, ...rows].map((row) => row.map(csvCell).join(CSV_SEPARATOR)).join("\r\n") + "\r\n";
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+const productCodeOf = (productId) => products.find((product) => product.id === productId)?.codigoInterno || "";
+
+function buildProductsExport() {
+  const headers = [
+    "Código interno", "Código de barras", "Nome", "Marca", "Categoria", "Descrição",
+    "Custo (R$)", "Ganho sobre custo (%)", "Preço sugerido (R$)", "Preço de venda (R$)",
+    "Estoque (un.)", "Estoque mínimo (un.)", "Valor em estoque pelo custo (R$)", "Situação", "Cadastrado em"
+  ];
+  const rows = [...products]
+    .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"))
+    .map((product) => {
+      const minimum = minStockOf(product);
+      const balance = Number(product.quantidade) || 0;
+      return [
+        csvText(product.codigoInterno), csvDigits(product.codigoBarras), csvText(product.nome),
+        csvText(product.marca), csvText(product.categoria), csvText(product.descricao),
+        csvNumber(roundMoney(product.custo)), csvNumber(product.percentualGanho),
+        csvNumber(calcSuggestedPrice(product)), csvNumber(getRegisteredSalePrice(product)),
+        csvNumber(balance, 0), minimum === null ? "" : csvNumber(minimum, 0),
+        csvNumber(roundMoney(balance * roundMoney(product.custo))),
+        product.arquivado ? "Arquivado" : "Ativo", csvText(formatDate(product.criadoEmData))
+      ];
+    });
+  return { headers, rows };
+}
+
+function buildSalesExport(period) {
+  const headers = [
+    "Data", "Data e hora", "ID da venda", "Status", "Produto", "Código interno", "Quantidade",
+    "Preço unitário (R$)", "Custo unitário (R$)", "Subtotal do item (R$)",
+    "Total da venda (R$) - repete em cada item", "Forma de pagamento", "Qtd. devolvida do item",
+    "Abaixo do custo", "Abaixo do sugerido", "Responsável", "Cancelada em", "Cancelada por", "Motivo do cancelamento"
+  ];
+  const start = getSalePeriodStart(period);
+  const today = dateToday();
+  const selected = sales.filter((sale) => inPeriod(saleDateOf(sale), start, today))
+    .sort((a, b) => String(a.dataHora || a.data || "").localeCompare(String(b.dataHora || b.data || "")));
+  const rows = [];
+  selected.forEach((sale) => {
+    const returned = returnedByProduct(sale.id);
+    const cancelled = sale.status === "cancelada";
+    const total = saleTotalOf(sale);
+    saleItemsOf(sale).forEach((item) => {
+      const quantity = Number(item.quantidade) || 0;
+      const price = Number(item.precoUnitario) || 0;
+      rows.push([
+        csvText(formatDate(saleDateOf(sale))), csvText(formatDate(sale.dataHora || sale.data)), csvText(sale.id),
+        cancelled ? "Cancelada" : "Ativa", csvText(item.produtoNome || item.nome || "Produto"), csvText(item.codigoInterno),
+        csvNumber(quantity, 0), csvNumber(price),
+        typeof item.custoUnitario === "number" ? csvNumber(item.custoUnitario) : "",
+        csvNumber(typeof item.subtotal === "number" ? item.subtotal : roundMoney(quantity * price)),
+        csvNumber(total), csvText(sale.formaPagamento),
+        item.produtoId ? csvNumber(returned[item.produtoId] || 0, 0) : "",
+        yesNo(item.abaixoDoCusto), yesNo(item.abaixoDoSugerido), csvText(sale.usuario),
+        csvText(formatTimestamp(sale.canceladaEm)), csvText(sale.canceladaPor), csvText(sale.motivoCancelamento)
+      ]);
+    });
+  });
+  return { headers, rows };
+}
+
+function buildReturnsExport(period) {
+  const headers = [
+    "Data", "Data e hora", "ID da devolução", "ID da venda", "Data da venda", "Produto", "Código interno",
+    "Quantidade", "Preço unitário (R$)", "Custo unitário (R$)", "Subtotal do item (R$)",
+    "Total da devolução (R$) - repete em cada item", "Motivo", "Responsável"
+  ];
+  const start = getSalePeriodStart(period);
+  const today = dateToday();
+  const selected = saleReturns.filter((saleReturn) => inPeriod(returnDateOf(saleReturn), start, today))
+    .sort((a, b) => String(a.dataHora || a.data || "").localeCompare(String(b.dataHora || b.data || "")));
+  const rows = [];
+  selected.forEach((saleReturn) => {
+    const total = returnTotalOf(saleReturn);
+    (Array.isArray(saleReturn.itens) ? saleReturn.itens : []).forEach((item) => {
+      const quantity = Number(item.quantidade) || 0;
+      const price = Number(item.precoUnitario) || 0;
+      rows.push([
+        csvText(formatDate(returnDateOf(saleReturn))), csvText(formatDate(saleReturn.dataHora || saleReturn.data)),
+        csvText(saleReturn.id), csvText(saleReturn.vendaId), csvText(formatDate(saleReturn.vendaDataHora)),
+        csvText(item.produtoNome || "Produto"), csvText(item.codigoInterno), csvNumber(quantity, 0), csvNumber(price),
+        typeof item.custoUnitario === "number" ? csvNumber(item.custoUnitario) : "",
+        csvNumber(typeof item.subtotal === "number" ? item.subtotal : roundMoney(quantity * price)),
+        csvNumber(total), csvText(saleReturn.motivo), csvText(saleReturn.usuario)
+      ]);
+    });
+  });
+  return { headers, rows };
+}
+
+function buildEntriesExport() {
+  const headers = [
+    "Data", "Produto", "Código interno", "Tipo", "Quantidade", "Custo unitário (R$)",
+    "Total da compra (R$)", "Fornecedor", "Observação", "Registrado por", "Produto arquivado"
+  ];
+  const rows = [...entries]
+    .sort((a, b) => String(a.data || "").localeCompare(String(b.data || "")) || (a.criadoEmMs || 0) - (b.criadoEmMs || 0))
+    .map((entry) => {
+      const linkedProduct = products.find((product) => product.id === entry.produtoId);
+      const quantity = Number(entry.quantidade) || 0;
+      const cost = Number(entry.custoUnitario) || 0;
+      return [
+        csvText(formatDate(entry.data)), csvText(entry.produtoNome || linkedProduct?.nome || "Produto"),
+        csvText(productCodeOf(entry.produtoId)), entry.tipo === "estoque_inicial" ? "Estoque inicial" : "Entrada de mercadoria",
+        csvNumber(quantity, 0), csvNumber(cost), csvNumber(roundMoney(quantity * cost)),
+        csvText(entry.fornecedor), csvText(entry.observacao), csvText(entry.criadoPor),
+        linkedProduct ? yesNo(Boolean(linkedProduct.arquivado)) : ""
+      ];
+    });
+  return { headers, rows };
+}
+
+function buildExitsExport() {
+  const headers = ["Data", "Data e hora", "Produto", "Código interno", "Quantidade", "Motivo", "Observação", "Responsável"];
+  const rows = [...exits]
+    .sort((a, b) => String(a.dataHora || a.data || "").localeCompare(String(b.dataHora || b.data || "")))
+    .map((exit) => [
+      csvText(formatDate(exit.data || String(exit.dataHora || "").slice(0, 10))), csvText(formatDate(exit.dataHora || exit.data)),
+      csvText(exit.produtoNome || products.find((product) => product.id === exit.produtoId)?.nome || "Produto"),
+      csvText(exit.codigoInterno || productCodeOf(exit.produtoId)), csvNumber(Number(exit.quantidade) || 0, 0),
+      EXIT_REASON_LABELS[exit.motivo] || csvText(exit.motivo), csvText(exit.observacao), csvText(exit.usuario)
+    ]);
+  return { headers, rows };
+}
+
+const EXPORT_DEFINITIONS = {
+  produtos: { label: "Produtos", usesPeriod: false, build: () => buildProductsExport() },
+  vendas: { label: "Vendas", usesPeriod: true, build: (period) => buildSalesExport(period) },
+  devolucoes: { label: "Devoluções", usesPeriod: true, build: (period) => buildReturnsExport(period) },
+  entradas: { label: "Entradas", usesPeriod: false, build: () => buildEntriesExport() },
+  saidas: { label: "Saídas", usesPeriod: false, build: () => buildExitsExport() }
+};
+
+async function exportCsv(kinds) {
+  const buttons = document.querySelectorAll("[data-export], #export-all");
+  buttons.forEach((button) => { button.disabled = true; });
+  setFeedback("#export-feedback", "Preparando o(s) arquivo(s)…");
+  try {
+    // Recarrega os dados para exportar o que está salvo no banco neste momento.
+    await loadData();
+    const period = $("#export-period").value;
+    const slug = PERIOD_SLUGS[period] || PERIOD_SLUGS.all;
+    const done = [];
+    const empty = [];
+    for (const kind of kinds) {
+      const definition = EXPORT_DEFINITIONS[kind];
+      if (!definition) continue;
+      const file = definition.build(period);
+      if (!file.rows.length) {
+        empty.push(definition.label);
+        continue;
+      }
+      downloadCsv(`faydai-${kind}${definition.usesPeriod ? `-${slug}` : ""}-${dateToday()}.csv`, file.headers, file.rows);
+      done.push(`${definition.label} (${file.rows.length} linha(s))`);
+      if (kinds.length > 1) await new Promise((resolve) => setTimeout(resolve, 450));
+    }
+    const parts = [];
+    if (done.length) parts.push(`Baixado: ${done.join("; ")}.`);
+    if (empty.length) parts.push(`Sem registros para exportar: ${empty.join(", ")}.`);
+    setFeedback("#export-feedback", parts.join(" ") || "Nada para exportar.");
+    if (done.length) showToast(done.length === 1 ? "Arquivo baixado." : `${done.length} arquivos baixados.`);
+  } catch (error) {
+    console.error("Falha ao exportar CSV:", error);
+    setFeedback("#export-feedback", explainError(error), true);
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; });
+  }
+}
+
 async function loadData() {
   const user = auth.currentUser;
   if (!user) return;
@@ -1401,14 +1781,31 @@ document.querySelectorAll(".tab").forEach((button) => {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
 });
 
-// Painel: troca do período de vendas e atalhos para as outras abas.
+// Painel: troca do período de vendas, do intervalo do gráfico e atalhos para as outras abas.
 $("#dashboard-period").addEventListener("change", renderDashboard);
+$("#dashboard-daily-range").addEventListener("change", renderDailyChart);
+$("#dash-daily-chart").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-chart-index]");
+  if (!button) return;
+  const item = dailySeries[Number(button.dataset.chartIndex)];
+  if (!item) return;
+  document.querySelectorAll("#dash-daily-chart .chart-bar-wrap").forEach((element) => {
+    element.classList.toggle("is-selected", element === button);
+  });
+  $("#dash-daily-detail").textContent = `${formatDate(item.date)}: ${money(item.value)}`;
+});
 document.querySelectorAll("[data-shortcut]").forEach((button) => {
   button.addEventListener("click", () => {
     switchTab(button.dataset.shortcut);
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 });
+
+// Exportação CSV (Configurações).
+document.querySelectorAll("[data-export]").forEach((button) => {
+  button.addEventListener("click", () => exportCsv([button.dataset.export]));
+});
+$("#export-all").addEventListener("click", () => exportCsv(Object.keys(EXPORT_DEFINITIONS)));
 
 // Vistoria: iniciar, salvar, concluir, descartar, pesquisar e digitar contagens.
 $("#inventory-start").addEventListener("click", startInventory);
@@ -1459,8 +1856,12 @@ $("#product-form").addEventListener("submit", async (event) => {
   const percentualGanho = Number($("#product-gain").value);
   const precoVendaBruto = Number($("#product-sale-price").value);
   const quantidade = Number($("#product-quantity").value);
-  if (!nome || !Number.isFinite(custoBruto) || custoBruto < 0 || !Number.isFinite(percentualGanho) || percentualGanho < 0 || !Number.isFinite(precoVendaBruto) || precoVendaBruto < 0 || !Number.isInteger(quantidade) || quantidade < 0) {
-    setFeedback("#product-feedback", "Confira os campos, o preço de venda e informe quantidades inteiras não negativas.", true);
+  // Estoque mínimo: vazio = sem aviso (null); caso contrário, inteiro não negativo.
+  const minimoTexto = $("#product-min-stock").value.trim();
+  const estoqueMinimo = minimoTexto === "" ? null : Number(minimoTexto);
+  if (!nome || !Number.isFinite(custoBruto) || custoBruto < 0 || !Number.isFinite(percentualGanho) || percentualGanho < 0 || !Number.isFinite(precoVendaBruto) || precoVendaBruto < 0 || !Number.isInteger(quantidade) || quantidade < 0
+    || (estoqueMinimo !== null && (!Number.isInteger(estoqueMinimo) || estoqueMinimo < 0))) {
+    setFeedback("#product-feedback", "Confira os campos, o preço de venda, o estoque mínimo e informe quantidades inteiras não negativas.", true);
     button.disabled = false;
     return;
   }
@@ -1517,7 +1918,7 @@ $("#product-form").addEventListener("submit", async (event) => {
         custoAlterado = custoMudou ? { de: custoAnterior, para: custo } : null;
 
         transaction.update(productRef, {
-          nome, marca, categoria, descricao, custo, percentualGanho, precoVenda,
+          nome, marca, categoria, descricao, custo, percentualGanho, precoVenda, estoqueMinimo,
           ...(codigoInterno ? { codigoInterno } : {}),
           ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
           ...(custoMudou ? { custoAnterior, custoAlteradoEm: dateToday() } : {}),
@@ -1545,7 +1946,7 @@ $("#product-form").addEventListener("submit", async (event) => {
     const codigoInterno = storeSettings.codigoInternoAtivo ? await generateInternalCode() : "";
     codigoGeradoNestaOperacao = codigoInterno;
     batch.set(productRef, {
-      nome, marca, categoria, descricao, custo, percentualGanho, precoVenda, quantidade,
+      nome, marca, categoria, descricao, custo, percentualGanho, precoVenda, quantidade, estoqueMinimo,
       codigoInterno,
       ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
       criadoEm: serverTimestamp(),
@@ -2006,6 +2407,7 @@ $("#products-list").addEventListener("click", async (event) => {
     salePriceManuallyEdited = true;
     $("#product-quantity").value = Number(product.quantidade) || 0;
     $("#product-quantity").disabled = true;
+    $("#product-min-stock").value = minStockOf(product) ?? "";
     $("#product-internal-code").value = product.codigoInterno || "";
     $("#product-barcode").value = product.codigoBarras || "";
     $("#product-barcode").disabled = !storeSettings.codigoBarrasAtivo;
