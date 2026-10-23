@@ -73,6 +73,7 @@ let entries = [];
 let exits = [];
 let sales = [];
 let selectedExitProductId = "";
+let selectedEntryProductId = "";
 let selectedSaleProductId = "";
 let saleCart = [];
 let brands = [];
@@ -221,6 +222,17 @@ function switchTab(tabName) {
   document.querySelectorAll(".tab-panel").forEach((panel) => {
     panel.hidden = panel.id !== `${tabName}-panel`;
   });
+  // No computador, já deixa o cursor no campo onde o leitor de código de barras digita.
+  const scanFields = {
+    caja: "#sale-product-search",
+    entries: "#entry-product-search",
+    exits: "#exit-product-search",
+    inventory: "#inventory-search"
+  };
+  if (scanFields[tabName] && window.matchMedia("(pointer: fine)").matches) {
+    const field = $(scanFields[tabName]);
+    if (field && !field.closest("[hidden]")) field.focus();
+  }
 }
 
 function showTutorialIfNeeded() {
@@ -576,16 +588,202 @@ function renderProducts() {
       }).join("");
   }
 
-  const select = $("#entry-product");
-  const previousValue = select.value;
-  select.innerHTML = '<option value="">Selecione um produto</option>' + [...activeProducts]
-    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
-    .map((product) => `<option value="${escapeHtml(product.id)}">${escapeHtml(product.nome)} — saldo: ${Number(product.quantidade) || 0}</option>`)
-    .join("");
-  if (activeProducts.some((product) => product.id === previousValue)) select.value = previousValue;
+  renderEntryProductResults();
 }
 
 
+// ---------- Leitor de código de barras ----------
+// O leitor "digita" o código e termina com Enter (alguns terminam com Tab).
+// Funciona no Caixa, em Entradas, em Saídas, na Vistoria e no cadastro de produto.
+
+// Som curto de confirmação (agudo) ou de erro (grave), gerado pelo navegador, sem arquivo de áudio.
+let scanAudioContext = null;
+function scanBeep(ok = true) {
+  try {
+    scanAudioContext = scanAudioContext || new (window.AudioContext || window.webkitAudioContext)();
+    if (scanAudioContext.state === "suspended") scanAudioContext.resume();
+    const oscillator = scanAudioContext.createOscillator();
+    const gain = scanAudioContext.createGain();
+    oscillator.type = "square";
+    oscillator.frequency.value = ok ? 1500 : 300;
+    gain.gain.value = 0.04;
+    oscillator.connect(gain);
+    gain.connect(scanAudioContext.destination);
+    oscillator.start();
+    oscillator.stop(scanAudioContext.currentTime + (ok ? 0.08 : 0.3));
+  } catch (error) {
+    // O som é opcional: se o navegador bloquear, a leitura continua funcionando.
+  }
+  if (!ok && navigator.vibrate) navigator.vibrate(200);
+}
+
+// Produtos ativos cujo código de barras ou código interno é exatamente o código lido.
+// Se não houver, aceita o nome idêntico (como o Caixa já fazia).
+function scanMatches(rawCode) {
+  const code = normalizeText(rawCode);
+  if (!code) return [];
+  const active = products.filter((product) => !product.arquivado);
+  const byCode = active.filter((product) => normalizeText(product.codigoBarras) === code
+    || normalizeText(product.codigoInterno) === code);
+  return byCode.length ? byCode : active.filter((product) => normalizeText(product.nome) === code);
+}
+
+// Resolve o código lido: devolve o produto, ou null avisando o usuário (com som de erro quando é um código).
+function resolveScannedProduct(rawCode, inputSelector, feedbackSelector) {
+  const text = String(rawCode || "").trim();
+  const matches = scanMatches(text);
+  if (matches.length === 1) {
+    setFeedback(feedbackSelector, "");
+    return matches[0];
+  }
+  if (matches.length > 1) {
+    scanBeep(false);
+    setFeedback(feedbackSelector, "Mais de um produto com este código. Escolha na lista.", true);
+    return null;
+  }
+  if (/^\d{6,}$/.test(text)) {
+    scanBeep(false);
+    setFeedback(feedbackSelector, `Código ${text} não encontrado. Confira o cadastro do produto.`, true);
+    // Limpa o campo para a próxima leitura não ser somada a este código.
+    const input = $(inputSelector);
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return null;
+  }
+  setFeedback(feedbackSelector, "Nenhum produto com exatamente este código ou nome. Toque em um item da lista.", true);
+  return null;
+}
+
+// Liga um campo de busca ao leitor. Enter nunca envia o formulário; Tab só vale quando o código existe.
+function bindScanner(selector, handleCode) {
+  $(selector).addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== "Tab") return;
+    const value = event.currentTarget.value.trim();
+    if (event.key === "Tab" && !(value && scanMatches(value).length)) return;
+    event.preventDefault();
+    if (value) handleCode(value);
+  });
+}
+
+// Caixa: cada leitura adiciona 1 unidade ao carrinho.
+bindScanner("#sale-product-search", (rawCode) => {
+  const product = resolveScannedProduct(rawCode, "#sale-product-search", "#sale-feedback");
+  if (!product) return;
+  const added = addProductToSaleCart(product);
+  scanBeep(added);
+  if (!added) {
+    $("#sale-product-search").value = "";
+    renderSaleProductResults();
+    $("#sale-product-search").focus();
+  }
+});
+
+// Saídas: a leitura seleciona o produto e vai para a quantidade.
+bindScanner("#exit-product-search", (rawCode) => {
+  const product = resolveScannedProduct(rawCode, "#exit-product-search", "#exit-feedback");
+  if (!product) return;
+  scanBeep(true);
+  selectedExitProductId = product.id;
+  $("#exit-product-search").value = product.nome;
+  renderExitProductResults();
+  $("#exit-quantity").focus();
+});
+
+// Vistoria: cada leitura soma 1 à contagem do produto.
+bindScanner("#inventory-search", (rawCode) => {
+  const product = resolveScannedProduct(rawCode, "#inventory-search", "#inventory-scan-feedback");
+  if (!product) return;
+  const parsed = parseCountValue(vistoriaDraft[product.id]);
+  const next = parsed.state === "counted" ? parsed.value + 1 : 1;
+  vistoriaDraft[product.id] = String(next);
+  vistoriaDirty = true;
+  scanBeep(true);
+  setFeedback("#inventory-scan-feedback", `${product.nome}: contagem ${next} (saldo no sistema: ${Number(product.quantidade) || 0})`);
+  $("#inventory-search").value = "";
+  renderInventoryList();
+  updateInventorySummary();
+  $("#inventory-search").focus();
+});
+
+// Cadastro de produto: o Enter do leitor não envia o formulário; confere se o código já existe.
+$("#product-barcode").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  const input = $("#product-barcode");
+  const code = cleanOption(input.value);
+  input.value = code;
+  if (!code) return;
+  const duplicate = products.find((product) => product.id !== editingProductId && !product.arquivado
+    && String(product.codigoBarras || "") === code);
+  if (duplicate) {
+    scanBeep(false);
+    const message = `Este código de barras já está associado ao produto "${duplicate.nome}".`;
+    setFeedback("#product-feedback", message, true);
+    showToast(message);
+    return;
+  }
+  scanBeep(true);
+  setFeedback("#product-feedback", "");
+  $("#product-description").focus();
+});
+
+// ---------- Entradas: busca de produto (nome, código ou leitor) ----------
+
+function renderEntryProductResults() {
+  const query = normalizeText($("#entry-product-search").value);
+  const results = $("#entry-product-results");
+  const selectedBox = $("#entry-selected-product");
+  const selected = products.find((product) => product.id === selectedEntryProductId && !product.arquivado);
+  if (!selected) selectedEntryProductId = "";
+  if (selected) {
+    selectedBox.innerHTML = `<strong>${escapeHtml(selected.nome)}</strong><span>Saldo atual: ${Number(selected.quantidade) || 0} un.</span>`;
+    selectedBox.hidden = false;
+    results.innerHTML = "";
+    return;
+  }
+  selectedBox.hidden = true;
+  if (!query) {
+    results.innerHTML = '<div class="small muted">Digite o nome ou o código, ou leia o código de barras.</div>';
+    return;
+  }
+  const matches = products.filter((product) => !product.arquivado && [
+    product.nome, product.codigoInterno, product.codigoBarras, product.marca, product.categoria
+  ].some((value) => normalizeText(value).includes(query))).slice(0, 8);
+  if (!matches.length) {
+    results.innerHTML = '<div class="empty-state">Nenhum produto encontrado.</div>';
+    return;
+  }
+  results.innerHTML = matches.map((product) => `
+    <button class="search-result" type="button" data-select-entry-product="${escapeHtml(product.id)}">
+      <span><strong>${escapeHtml(product.nome)}</strong><small>${escapeHtml(product.codigoInterno || product.codigoBarras || "Sem código")}</small></span>
+      <span class="search-result-stock">${Number(product.quantidade) || 0} un.</span>
+    </button>`).join("");
+}
+
+$("#entry-product-search").addEventListener("input", () => {
+  selectedEntryProductId = "";
+  renderEntryProductResults();
+});
+$("#entry-product-results").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-select-entry-product]");
+  if (!button) return;
+  const product = products.find((item) => item.id === button.dataset.selectEntryProduct && !item.arquivado);
+  if (!product) return;
+  selectedEntryProductId = product.id;
+  $("#entry-product-search").value = product.nome;
+  renderEntryProductResults();
+  $("#entry-quantity").focus();
+});
+// Entradas: a leitura seleciona o produto e vai para a quantidade.
+bindScanner("#entry-product-search", (rawCode) => {
+  const product = resolveScannedProduct(rawCode, "#entry-product-search", "#entry-feedback");
+  if (!product) return;
+  scanBeep(true);
+  selectedEntryProductId = product.id;
+  $("#entry-product-search").value = product.nome;
+  renderEntryProductResults();
+  $("#entry-quantity").focus();
+});
 // ---------- Caixa: carrinho com preço editável e alertas ----------
 
 // Preço do item (0 quando o campo está vazio ou inválido), subtotal e total em centavos exatos.
@@ -693,13 +891,13 @@ function renderSaleCart() {
 function addProductToSaleCart(product) {
   if ((Number(product.quantidade) || 0) < 1) {
     setFeedback("#sale-feedback", "Este produto está sem saldo disponível.", true);
-    return;
+    return false;
   }
   const existing = saleCart.find((item) => item.produtoId === product.id);
   if (existing) {
     if (existing.quantidade + 1 > (Number(product.quantidade) || 0)) {
       setFeedback("#sale-feedback", `Saldo insuficiente. Disponível: ${Number(product.quantidade) || 0} unidade(s).`, true);
-      return;
+      return false;
     }
     existing.quantidade += 1;
   } else {
@@ -719,6 +917,7 @@ function addProductToSaleCart(product) {
   renderSaleProductResults();
   renderSaleCart();
   $("#sale-product-search").focus();
+  return true;
 }
 
 // ---------- Histórico de vendas, cancelamentos e devoluções ----------
@@ -1419,55 +1618,48 @@ async function finishInventory() {
         const item = counted[index];
         if (!snapshot.exists() || snapshot.data().arquivado) {
           ignorados.push({
-            produtoId: item.id, produtoNome: item.nome, contado: item.valor,
-            motivo: !snapshot.exists() ? "Produto não existe mais" : "Produto arquivado"
+            produtoId: item.id,
+            produtoNome: item.nome,
+            motivo: !snapshot.exists() ? "Produto não existe mais" : "Produto arquivado durante a vistoria"
           });
           return;
         }
-        const product = snapshot.data();
-        const saldoAnterior = Number(product.quantidade) || 0;
+        const data = snapshot.data();
+        const saldoAnterior = Number(data.quantidade) || 0;
         itens.push({
           produtoId: item.id,
-          produtoNome: product.nome || item.nome,
-          codigoInterno: product.codigoInterno || "",
+          produtoNome: data.nome || item.nome,
+          codigoInterno: data.codigoInterno || "",
           saldoAnterior,
           contado: item.valor,
           diferenca: item.valor - saldoAnterior
         });
-      });
-      const ajustados = itens.filter((item) => item.diferenca !== 0);
-      if (ajustados.length > MAX_INVENTORY_ADJUSTMENTS) {
-        throw new Error(`Há ${ajustados.length} produtos com diferença. O limite é ${MAX_INVENTORY_ADJUSTMENTS} por vistoria: deixe alguns produtos em branco e conclua em partes.`);
-      }
-      ajustados.forEach((item) => {
-        transaction.update(doc(db, "produtos", item.produtoId), {
-          quantidade: item.contado,
-          atualizadoEm: serverTimestamp()
-        });
+        if (item.valor !== saldoAnterior) {
+          transaction.update(snapshot.ref, { quantidade: item.valor, atualizadoEm: serverTimestamp() });
+        }
       });
       transaction.update(vistoriaRef, {
         status: "concluida",
-        contagens: Object.fromEntries(counted.map((item) => [item.id, item.valor])),
         itens,
         naoContados: uncounted,
-        ignorados,
-        totalContados: itens.length,
-        totalNaoContados: uncounted.length,
-        totalComDiferenca: ajustados.length,
-        data: date,
-        dataHora: dateTime,
+        ignorados: ignorados,
         concluidaEm: serverTimestamp(),
         concluidaPor: email,
+        dataConclusao: date,
+        dataHora: dateTime,
         atualizadoEm: serverTimestamp(),
         atualizadoPor: email
       });
-      result = { contados: itens.length, ajustados: ajustados.length, ignorados: ignorados.length };
+      result = { itens, ignorados };
     });
 
     vistoriaDirty = false;
+    vistoriaDraft = {};
+    vistoriaDraftOwner = null;
     await loadData();
-    const message = `Vistoria concluída: ${result.contados} produto(s) contado(s), ${result.ajustados} com saldo ajustado${result.ignorados ? `, ${result.ignorados} ignorado(s) (arquivado ou removido)` : ""}.`;
-    setFeedback("#inventory-feedback", message);
+    const adjustedCount = result.itens.filter((item) => item.diferenca !== 0).length;
+    const ignoredText = result.ignorados.length ? ` ${result.ignorados.length} produto(s) ignorado(s).` : "";
+    setFeedback("#inventory-feedback", `Vistoria concluída: ${adjustedCount} saldo(s) ajustado(s).${ignoredText}`);
     showToast("Vistoria concluída.");
   } catch (error) {
     console.error("Falha ao concluir vistoria:", error);
@@ -1477,857 +1669,482 @@ async function finishInventory() {
   }
 }
 
-// ---------- Exportação para CSV ----------
+// ---------- Auxiliares gerais (leitura de campos e eventos) ----------
 
-const CSV_SEPARATOR = ";";
-const PERIOD_SLUGS = { today: "hoje", week: "ultimos-7-dias", month: "este-mes", all: "todo-o-periodo" };
-
-// Texto: protege contra fórmulas em planilhas (células que começam com = + - @).
-function csvText(value) {
-  const text = String(value ?? "");
-  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
-}
-// Número no formato brasileiro (vírgula decimal). Vazio quando não há valor.
-function csvNumber(value, decimals = 2) {
-  if (value === null || value === undefined || value === "") return "";
-  const number = Number(value);
-  return Number.isFinite(number) ? number.toFixed(decimals).replace(".", ",") : "";
-}
-// Códigos só com dígitos (ex.: código de barras) não podem virar notação científica no Excel.
-function csvDigits(value) {
-  const text = String(value ?? "").trim();
-  return /^\d{9,}$/.test(text) ? `="${text}"` : csvText(text);
-}
-const csvCell = (cell) => {
-  const text = String(cell ?? "");
-  return /[";\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+// Lê o valor de um campo; devolve "" se o elemento não existir na página.
+const fieldValue = (selector) => {
+  const element = document.querySelector(selector);
+  return element ? String(element.value ?? "") : "";
 };
+// Associa um evento só se o elemento existir (evita quebrar o arquivo inteiro por um id diferente).
+const onEvent = (selector, eventName, handler) => {
+  const element = document.querySelector(selector);
+  if (element) element.addEventListener(eventName, handler);
+};
+// Aceita vírgula ou ponto como separador decimal.
+const parseDecimal = (value) => {
+  const text = String(value ?? "").trim().replace(",", ".");
+  if (text === "") return NaN;
+  return Number(text);
+};
+const nowDateTime = () => `${dateToday()} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+const currentEmail = () => auth.currentUser?.email || "Usuário não identificado";
 
-function downloadCsv(filename, headers, rows) {
-  const content = "\uFEFF" + [headers, ...rows].map((row) => row.map(csvCell).join(CSV_SEPARATOR)).join("\r\n") + "\r\n";
-  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+// ---------- Exportação CSV ----------
+
+// CSV com ponto e vírgula e BOM, para o Excel em português abrir com acentos e colunas corretos.
+function csvCell(value) {
+  const text = value === null || value === undefined ? "" : String(value);
+  return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+const csvNumber = (value) => (Number.isFinite(Number(value)) ? Number(value).toFixed(2).replace(".", ",") : "");
+
+function downloadCsv(filename, header, rows) {
+  const lines = [header, ...rows].map((row) => row.map(csvCell).join(";"));
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename;
+  link.download = `${filename}-${dateToday()}.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast("Arquivo CSV gerado.");
 }
 
-const productCodeOf = (productId) => products.find((product) => product.id === productId)?.codigoInterno || "";
-
-function buildProductsExport() {
-  const headers = [
-    "Código interno", "Código de barras", "Nome", "Marca", "Categoria", "Descrição",
-    "Custo (R$)", "Ganho sobre custo (%)", "Preço sugerido (R$)", "Preço de venda (R$)",
-    "Estoque (un.)", "Estoque mínimo (un.)", "Valor em estoque pelo custo (R$)", "Situação", "Cadastrado em"
-  ];
-  const rows = [...products]
+function exportProductsCsv() {
+  const rows = products.filter((product) => !product.arquivado)
     .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"))
-    .map((product) => {
-      const minimum = minStockOf(product);
-      const balance = Number(product.quantidade) || 0;
-      return [
-        csvText(product.codigoInterno), csvDigits(product.codigoBarras), csvText(product.nome),
-        csvText(product.marca), csvText(product.categoria), csvText(product.descricao),
-        csvNumber(roundMoney(product.custo)), csvNumber(product.percentualGanho),
-        csvNumber(calcSuggestedPrice(product)), csvNumber(getRegisteredSalePrice(product)),
-        csvNumber(balance, 0), minimum === null ? "" : csvNumber(minimum, 0),
-        csvNumber(roundMoney(balance * roundMoney(product.custo))),
-        product.arquivado ? "Arquivado" : "Ativo", csvText(formatDate(product.criadoEmData))
-      ];
-    });
-  return { headers, rows };
-}
-
-function buildSalesExport(period) {
-  const headers = [
-    "Data", "Data e hora", "ID da venda", "Status", "Produto", "Código interno", "Quantidade",
-    "Preço unitário (R$)", "Custo unitário (R$)", "Subtotal do item (R$)",
-    "Total da venda (R$) - repete em cada item", "Forma de pagamento", "Qtd. devolvida do item",
-    "Abaixo do custo", "Abaixo do sugerido", "Responsável", "Cancelada em", "Cancelada por", "Motivo do cancelamento"
-  ];
-  const start = getSalePeriodStart(period);
-  const today = dateToday();
-  const selected = sales.filter((sale) => inPeriod(saleDateOf(sale), start, today))
-    .sort((a, b) => String(a.dataHora || a.data || "").localeCompare(String(b.dataHora || b.data || "")));
-  const rows = [];
-  selected.forEach((sale) => {
-    const returned = returnedByProduct(sale.id);
-    const cancelled = sale.status === "cancelada";
-    const total = saleTotalOf(sale);
-    saleItemsOf(sale).forEach((item) => {
-      const quantity = Number(item.quantidade) || 0;
-      const price = Number(item.precoUnitario) || 0;
-      rows.push([
-        csvText(formatDate(saleDateOf(sale))), csvText(formatDate(sale.dataHora || sale.data)), csvText(sale.id),
-        cancelled ? "Cancelada" : "Ativa", csvText(item.produtoNome || item.nome || "Produto"), csvText(item.codigoInterno),
-        csvNumber(quantity, 0), csvNumber(price),
-        typeof item.custoUnitario === "number" ? csvNumber(item.custoUnitario) : "",
-        csvNumber(typeof item.subtotal === "number" ? item.subtotal : roundMoney(quantity * price)),
-        csvNumber(total), csvText(sale.formaPagamento),
-        item.produtoId ? csvNumber(returned[item.produtoId] || 0, 0) : "",
-        yesNo(item.abaixoDoCusto), yesNo(item.abaixoDoSugerido), csvText(sale.usuario),
-        csvText(formatTimestamp(sale.canceladaEm)), csvText(sale.canceladaPor), csvText(sale.motivoCancelamento)
-      ]);
-    });
-  });
-  return { headers, rows };
-}
-
-function buildReturnsExport(period) {
-  const headers = [
-    "Data", "Data e hora", "ID da devolução", "ID da venda", "Data da venda", "Produto", "Código interno",
-    "Quantidade", "Preço unitário (R$)", "Custo unitário (R$)", "Subtotal do item (R$)",
-    "Total da devolução (R$) - repete em cada item", "Motivo", "Responsável"
-  ];
-  const start = getSalePeriodStart(period);
-  const today = dateToday();
-  const selected = saleReturns.filter((saleReturn) => inPeriod(returnDateOf(saleReturn), start, today))
-    .sort((a, b) => String(a.dataHora || a.data || "").localeCompare(String(b.dataHora || b.data || "")));
-  const rows = [];
-  selected.forEach((saleReturn) => {
-    const total = returnTotalOf(saleReturn);
-    (Array.isArray(saleReturn.itens) ? saleReturn.itens : []).forEach((item) => {
-      const quantity = Number(item.quantidade) || 0;
-      const price = Number(item.precoUnitario) || 0;
-      rows.push([
-        csvText(formatDate(returnDateOf(saleReturn))), csvText(formatDate(saleReturn.dataHora || saleReturn.data)),
-        csvText(saleReturn.id), csvText(saleReturn.vendaId), csvText(formatDate(saleReturn.vendaDataHora)),
-        csvText(item.produtoNome || "Produto"), csvText(item.codigoInterno), csvNumber(quantity, 0), csvNumber(price),
-        typeof item.custoUnitario === "number" ? csvNumber(item.custoUnitario) : "",
-        csvNumber(typeof item.subtotal === "number" ? item.subtotal : roundMoney(quantity * price)),
-        csvNumber(total), csvText(saleReturn.motivo), csvText(saleReturn.usuario)
-      ]);
-    });
-  });
-  return { headers, rows };
-}
-
-function buildEntriesExport() {
-  const headers = [
-    "Data", "Produto", "Código interno", "Tipo", "Quantidade", "Custo unitário (R$)",
-    "Total da compra (R$)", "Fornecedor", "Observação", "Registrado por", "Produto arquivado"
-  ];
-  const rows = [...entries]
-    .sort((a, b) => String(a.data || "").localeCompare(String(b.data || "")) || (a.criadoEmMs || 0) - (b.criadoEmMs || 0))
-    .map((entry) => {
-      const linkedProduct = products.find((product) => product.id === entry.produtoId);
-      const quantity = Number(entry.quantidade) || 0;
-      const cost = Number(entry.custoUnitario) || 0;
-      return [
-        csvText(formatDate(entry.data)), csvText(entry.produtoNome || linkedProduct?.nome || "Produto"),
-        csvText(productCodeOf(entry.produtoId)), entry.tipo === "estoque_inicial" ? "Estoque inicial" : "Entrada de mercadoria",
-        csvNumber(quantity, 0), csvNumber(cost), csvNumber(roundMoney(quantity * cost)),
-        csvText(entry.fornecedor), csvText(entry.observacao), csvText(entry.criadoPor),
-        linkedProduct ? yesNo(Boolean(linkedProduct.arquivado)) : ""
-      ];
-    });
-  return { headers, rows };
-}
-
-function buildExitsExport() {
-  const headers = ["Data", "Data e hora", "Produto", "Código interno", "Quantidade", "Motivo", "Observação", "Responsável"];
-  const rows = [...exits]
-    .sort((a, b) => String(a.dataHora || a.data || "").localeCompare(String(b.dataHora || b.data || "")))
-    .map((exit) => [
-      csvText(formatDate(exit.data || String(exit.dataHora || "").slice(0, 10))), csvText(formatDate(exit.dataHora || exit.data)),
-      csvText(exit.produtoNome || products.find((product) => product.id === exit.produtoId)?.nome || "Produto"),
-      csvText(exit.codigoInterno || productCodeOf(exit.produtoId)), csvNumber(Number(exit.quantidade) || 0, 0),
-      EXIT_REASON_LABELS[exit.motivo] || csvText(exit.motivo), csvText(exit.observacao), csvText(exit.usuario)
+    .map((product) => [
+      product.nome, product.marca, product.categoria, product.codigoInterno, product.codigoBarras,
+      Number(product.quantidade) || 0, csvNumber(product.custo), csvNumber(getRegisteredSalePrice(product)),
+      csvNumber(calcSuggestedPrice(product)), minStockOf(product) ?? "", isLowStock(product) ? "Sim" : "Não"
     ]);
-  return { headers, rows };
+  downloadCsv("produtos", ["Produto", "Marca", "Categoria", "Código interno", "Código de barras", "Quantidade", "Custo", "Preço de venda", "Preço sugerido", "Estoque mínimo", "Abaixo do mínimo"], rows);
 }
 
-const EXPORT_DEFINITIONS = {
-  produtos: { label: "Produtos", usesPeriod: false, build: () => buildProductsExport() },
-  vendas: { label: "Vendas", usesPeriod: true, build: (period) => buildSalesExport(period) },
-  devolucoes: { label: "Devoluções", usesPeriod: true, build: (period) => buildReturnsExport(period) },
-  entradas: { label: "Entradas", usesPeriod: false, build: () => buildEntriesExport() },
-  saidas: { label: "Saídas", usesPeriod: false, build: () => buildExitsExport() }
-};
+function exportEntriesCsv() {
+  const rows = [...entries]
+    .sort((a, b) => String(b.data || "").localeCompare(String(a.data || "")))
+    .map((entry) => [
+      formatDate(entry.data), entry.produtoNome, entry.tipo === "estoque_inicial" ? "Estoque inicial" : "Entrada",
+      Number(entry.quantidade) || 0, csvNumber(entry.custoUnitario),
+      csvNumber((Number(entry.quantidade) || 0) * (Number(entry.custoUnitario) || 0)), entry.fornecedor, entry.observacao
+    ]);
+  downloadCsv("entradas", ["Data", "Produto", "Tipo", "Quantidade", "Custo unitário", "Total", "Fornecedor", "Observação"], rows);
+}
 
-async function exportCsv(kinds) {
-  const buttons = document.querySelectorAll("[data-export], #export-all");
-  buttons.forEach((button) => { button.disabled = true; });
-  setFeedback("#export-feedback", "Preparando o(s) arquivo(s)…");
-  try {
-    // Recarrega os dados para exportar o que está salvo no banco neste momento.
-    await loadData();
-    const period = $("#export-period").value;
-    const slug = PERIOD_SLUGS[period] || PERIOD_SLUGS.all;
-    const done = [];
-    const empty = [];
-    for (const kind of kinds) {
-      const definition = EXPORT_DEFINITIONS[kind];
-      if (!definition) continue;
-      const file = definition.build(period);
-      if (!file.rows.length) {
-        empty.push(definition.label);
-        continue;
-      }
-      downloadCsv(`faydai-${kind}${definition.usesPeriod ? `-${slug}` : ""}-${dateToday()}.csv`, file.headers, file.rows);
-      done.push(`${definition.label} (${file.rows.length} linha(s))`);
-      if (kinds.length > 1) await new Promise((resolve) => setTimeout(resolve, 450));
-    }
-    const parts = [];
-    if (done.length) parts.push(`Baixado: ${done.join("; ")}.`);
-    if (empty.length) parts.push(`Sem registros para exportar: ${empty.join(", ")}.`);
-    setFeedback("#export-feedback", parts.join(" ") || "Nada para exportar.");
-    if (done.length) showToast(done.length === 1 ? "Arquivo baixado." : `${done.length} arquivos baixados.`);
-  } catch (error) {
-    console.error("Falha ao exportar CSV:", error);
-    setFeedback("#export-feedback", explainError(error), true);
-  } finally {
-    buttons.forEach((button) => { button.disabled = false; });
-  }
+function exportExitsCsv() {
+  const rows = [...exits]
+    .sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || "")))
+    .map((exit) => [
+      formatDate(exit.dataHora || exit.data), exit.produtoNome, EXIT_REASON_LABELS[exit.motivo] || exit.motivo,
+      Number(exit.quantidade) || 0, exit.usuario, exit.observacao
+    ]);
+  downloadCsv("saidas", ["Data", "Produto", "Motivo", "Quantidade", "Responsável", "Observação"], rows);
+}
+
+// Uma linha por item vendido.
+function exportSalesCsv() {
+  const rows = [];
+  [...sales].sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || ""))).forEach((sale) => {
+    saleItemsOf(sale).forEach((item) => {
+      rows.push([
+        formatDate(sale.dataHora || sale.data), sale.status === "cancelada" ? "Cancelada" : "Concluída",
+        item.produtoNome || item.nome, Number(item.quantidade) || 0, csvNumber(item.precoUnitario),
+        csvNumber(item.subtotal ?? (Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0)),
+        sale.formaPagamento, sale.usuario, yesNo(item.abaixoDoCusto)
+      ]);
+    });
+  });
+  downloadCsv("vendas", ["Data", "Situação", "Produto", "Quantidade", "Preço unitário", "Subtotal", "Pagamento", "Responsável", "Abaixo do custo"], rows);
+}
+
+function exportReturnsCsv() {
+  const rows = [];
+  [...saleReturns].sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || ""))).forEach((saleReturn) => {
+    (saleReturn.itens || []).forEach((item) => {
+      rows.push([
+        formatDate(saleReturn.dataHora || saleReturn.data), item.produtoNome, Number(item.quantidade) || 0,
+        csvNumber(item.precoUnitario), csvNumber(item.subtotal), saleReturn.motivo, saleReturn.usuario
+      ]);
+    });
+  });
+  downloadCsv("devolucoes", ["Data", "Produto", "Quantidade", "Preço unitário", "Valor devolvido", "Motivo", "Responsável"], rows);
+}
+
+function exportInventoryCsv() {
+  const rows = [];
+  inventoryHistory.forEach((vistoria) => {
+    (vistoria.itens || []).forEach((item) => {
+      rows.push([
+        formatDate(vistoria.dataHora || vistoria.data), item.produtoNome, Number(item.saldoAnterior) || 0,
+        Number(item.contado) || 0, Number(item.diferenca) || 0, vistoria.concluidaPor
+      ]);
+    });
+  });
+  downloadCsv("vistorias", ["Data", "Produto", "Saldo anterior", "Contado", "Diferença", "Responsável"], rows);
+}
+
+onEvent("#export-products", "click", exportProductsCsv);
+onEvent("#export-entries", "click", exportEntriesCsv);
+onEvent("#export-exits", "click", exportExitsCsv);
+onEvent("#export-sales", "click", exportSalesCsv);
+onEvent("#export-returns", "click", exportReturnsCsv);
+onEvent("#export-inventory", "click", exportInventoryCsv);
+
+// ---------- Carregamento de dados do Firestore ----------
+
+function renderAll() {
+  renderCatalogOptions();
+  renderStoreSettings();
+  renderProducts();
+  renderEntries();
+  renderExits();
+  renderExitProductResults();
+  renderSaleProductResults();
+  renderSaleCart();
+  renderSales();
+  syncInventoryDraft();
+  renderInventory();
+  renderDashboard();
 }
 
 async function loadData() {
-  const user = auth.currentUser;
-  if (!user) return;
-  try {
-    const [productSnapshot, entrySnapshot] = await Promise.all([
-      getDocs(collection(db, "produtos")),
-      getDocs(collection(db, "entradas"))
-    ]);
-    let exitSnapshot = null;
-    let saleSnapshot = null;
-    let returnSnapshot = null;
-    let vistoriaFetch = null;
-    try {
-      saleSnapshot = await getDocs(collection(db, "vendas"));
-    } catch (saleLoadError) {
-      console.error("Falha ao carregar histórico de vendas:", saleLoadError);
-      if (saleLoadError?.code?.includes("permission-denied")) setFeedback("#sale-feedback", "O Firestore ainda não permite ler a coleção de vendas.", true);
+  const [productsSnap, entriesSnap, exitsSnap, salesSnap] = await Promise.all([
+    getDocs(collection(db, "produtos")),
+    getDocs(collection(db, "entradas")),
+    getDocs(collection(db, "saidas")),
+    getDocs(collection(db, "vendas"))
+  ]);
+
+  const specialIds = new Set([CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID]);
+  let catalogData = {};
+  products = [];
+  productsSnap.docs.forEach((item) => {
+    if (item.id === CATALOG_OPTIONS_ID) catalogData = item.data();
+    else if (item.id === STORE_SETTINGS_ID) {
+      storeSettings = { ...storeSettings, ...item.data() };
+    } else if (!specialIds.has(item.id)) {
+      products.push({ id: item.id, ...item.data() });
     }
-    try {
-      returnSnapshot = await getDocs(collection(db, "devolucoes"));
-      saleReturnsAvailable = true;
-      if (returnsLoadErrorShown) {
-        setFeedback("#sale-feedback", "");
-        returnsLoadErrorShown = false;
-      }
-    } catch (returnLoadError) {
-      console.error("Falha ao carregar devoluções:", returnLoadError);
-      saleReturnsAvailable = false;
+  });
+  entries = entriesSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
+  exits = exitsSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
+  sales = salesSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
+
+  brands = uniqueOptions([...(catalogData.marcas || []), ...products.map((product) => product.marca)]);
+  categories = uniqueOptions([...(catalogData.categorias || []), ...products.map((product) => product.categoria)]);
+
+  // Devoluções: se as regras do Firestore ainda não liberam a coleção, o resto do sistema continua funcionando.
+  try {
+    const returnsSnap = await getDocs(collection(db, "devolucoes"));
+    saleReturns = returnsSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
+    saleReturnsAvailable = true;
+  } catch (error) {
+    console.error("Falha ao carregar devoluções:", error);
+    saleReturns = [];
+    saleReturnsAvailable = false;
+    if (!returnsLoadErrorShown) {
       returnsLoadErrorShown = true;
-      setFeedback("#sale-feedback", returnLoadError?.code?.includes("permission-denied")
-        ? "O Firestore ainda não permite acessar a coleção de devoluções. Publique as regras atualizadas no Firebase Console."
-        : "Não foi possível carregar as devoluções agora.", true);
+      showToast("Devoluções indisponíveis: publique as regras do Firestore.");
     }
-    try {
-      exitSnapshot = await getDocs(collection(db, "saidas"));
-    } catch (exitLoadError) {
-      console.error("Falha ao carregar histórico de saídas:", exitLoadError);
-      if (exitLoadError?.code?.includes("permission-denied")) {
-        setFeedback("#exit-feedback", "O histórico de saídas ainda não tem permissão de leitura nas regras do Firestore.", true);
-      }
-    }
-    try {
-      const [activeSnapshot, historySnapshot] = await Promise.all([
-        getDocs(query(collection(db, "vistorias"), where("status", "==", "em_andamento"))),
-        getDocs(query(collection(db, "vistorias"), orderBy("concluidaEm", "desc"), limit(10)))
-      ]);
-      vistoriaFetch = { activeSnapshot, historySnapshot };
-      inventoryAvailable = true;
-      if (inventoryLoadErrorShown) {
-        setFeedback("#inventory-feedback", "");
-        inventoryLoadErrorShown = false;
-      }
-    } catch (inventoryLoadError) {
-      console.error("Falha ao carregar vistorias:", inventoryLoadError);
-      inventoryAvailable = false;
-      inventoryLoadErrorShown = true;
-      setFeedback("#inventory-feedback", inventoryLoadError?.code?.includes("permission-denied")
-        ? "O Firestore ainda não permite acessar a coleção de vistorias. Publique as regras atualizadas no Firebase Console."
-        : "Não foi possível carregar as vistorias agora.", true);
-    }
-    const catalogOptionsDoc = productSnapshot.docs.find((item) => item.id === CATALOG_OPTIONS_ID);
-    const settingsDoc = productSnapshot.docs.find((item) => item.id === STORE_SETTINGS_ID);
-    storeSettings = { ...storeSettings, ...(settingsDoc?.data() || {}) };
-    const catalogOptions = catalogOptionsDoc?.data() || {};
-    brands = uniqueOptions(catalogOptions.marcas || []);
-    categories = uniqueOptions(catalogOptions.categorias || []);
-    products = productSnapshot.docs
-      .filter((item) => ![CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID].includes(item.id))
-      .map((item) => ({ id: item.id, ...item.data() }));
-    entries = entrySnapshot.docs.map((item) => {
+  }
+
+  // Vistorias: idem.
+  try {
+    const inventorySnap = await getDocs(collection(db, "vistorias"));
+    const all = inventorySnap.docs.map((item) => {
       const data = item.data();
-      return { id: item.id, ...data, criadoEmMs: data.criadoEm?.toMillis?.() || 0 };
+      return { id: item.id, ...data, atualizadoEmMs: data.atualizadoEm?.toMillis ? data.atualizadoEm.toMillis() : 0 };
     });
-    exits = exitSnapshot ? exitSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })) : [];
-    sales = saleSnapshot ? saleSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })) : [];
-    saleReturns = returnSnapshot ? returnSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })) : [];
-    if (vistoriaFetch) {
-      const mapVistoria = (item) => {
-        const data = item.data();
-        return { id: item.id, ...data, criadoEmMs: data.criadoEm?.toMillis?.() || 0, atualizadoEmMs: data.atualizadoEm?.toMillis?.() || 0 };
-      };
-      activeVistoria = vistoriaFetch.activeSnapshot.docs.map(mapVistoria)
-        .sort((a, b) => b.criadoEmMs - a.criadoEmMs)[0] || null;
-      inventoryHistory = vistoriaFetch.historySnapshot.docs.map(mapVistoria);
-      syncInventoryDraft();
-    }
-    renderCatalogOptions();
-    renderStoreSettings();
-    renderProducts();
-    renderEntries();
-    renderExitProductResults();
-    renderExits();
-    renderSaleProductResults();
-    renderSales();
-    renderSaleCart();
-    renderDashboard();
-    renderInventory();
+    activeVistoria = all.find((item) => item.status === "em_andamento") || null;
+    inventoryHistory = all.filter((item) => item.status === "concluida")
+      .sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || "")))
+      .slice(0, 30);
+    inventoryAvailable = true;
   } catch (error) {
-    console.error("Falha ao carregar dados do Firestore:", error);
-    showToast(explainError(error));
-    if (error?.code?.includes("permission-denied")) {
-      showToast("Acesso negado. Confira as regras do Firestore e se a conta autenticada tem permissão.");
+    console.error("Falha ao carregar vistorias:", error);
+    activeVistoria = null;
+    inventoryHistory = [];
+    inventoryAvailable = false;
+    if (!inventoryLoadErrorShown) {
+      inventoryLoadErrorShown = true;
+      showToast("Vistoria indisponível: publique as regras do Firestore.");
     }
   }
+
+  renderAll();
 }
 
-$("#login-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const button = event.currentTarget.querySelector('button[type="submit"]');
-  button.disabled = true;
-  button.textContent = "Entrando…";
-  setFeedback("#login-error", "");
-  try {
-    const email = $("#login-email").value.trim();
-    const password = $("#login-password").value;
-    await signInWithEmailAndPassword(auth, email, password);
-  } catch (error) {
-    setFeedback("#login-error", explainError(error), true);
-  } finally {
-    button.disabled = false;
-    button.textContent = "Entrar";
-  }
-});
+// ---------- Produtos: formulário ----------
 
-$("#logout-button").addEventListener("click", async () => {
-  try {
-    closeTutorialForNow();
-    closeSaleAction();
-    await signOut(auth);
-    $("#login-password").value = "";
-  } catch (error) {
-    showToast(explainError(error));
-  }
-});
-
-// Aguarda a restauração inicial da sessão antes de decidir qual tela mostrar.
-async function startAuthObserver() {
-  try {
-    await auth.authStateReady();
-  } catch (error) {
-    console.error("Falha ao verificar a sessão inicial:", error);
-    showApp(false);
-    return;
-  }
-
-  onAuthStateChanged(auth, async (user) => {
-    showApp(Boolean(user));
-    if (user) {
-      await loadData();
-      showTutorialIfNeeded();
-    } else {
-      $("#tutorial-overlay").hidden = true;
-      closeSaleAction();
-    }
-  });
+function updateSuggestedPrice() {
+  const cost = parseDecimal(fieldValue("#product-cost"));
+  const gain = parseDecimal(fieldValue("#product-gain"));
+  const suggested = calcSuggestedPrice({ custo: Number.isFinite(cost) ? cost : 0, percentualGanho: Number.isFinite(gain) ? gain : 0 });
+  const label = document.querySelector("#product-suggested-price");
+  if (label) label.textContent = money(suggested);
+  const saleInput = document.querySelector("#product-sale-price");
+  if (saleInput && !salePriceManuallyEdited) saleInput.value = suggested > 0 ? suggested.toFixed(2) : "";
 }
 
-startAuthObserver();
+onEvent("#product-cost", "input", updateSuggestedPrice);
+onEvent("#product-gain", "input", updateSuggestedPrice);
+onEvent("#product-sale-price", "input", () => { salePriceManuallyEdited = true; });
 
-document.querySelectorAll(".tab").forEach((button) => {
-  button.addEventListener("click", () => switchTab(button.dataset.tab));
-});
+function startEditProduct(productId) {
+  const product = products.find((item) => item.id === productId);
+  if (!product) return;
+  resetProductForm();
+  editingProductId = product.id;
+  const set = (selector, value) => {
+    const element = document.querySelector(selector);
+    if (element) element.value = value ?? "";
+  };
+  set("#product-name", product.nome);
+  set("#product-description", product.descricao);
+  set("#product-cost", Number.isFinite(Number(product.custo)) ? roundMoney(product.custo).toFixed(2) : "");
+  set("#product-gain", product.percentualGanho ?? 0);
+  set("#product-quantity", Number(product.quantidade) || 0);
+  set("#product-min-stock", minStockOf(product) ?? "");
+  set("#product-internal-code", product.codigoInterno || "");
+  set("#product-barcode", product.codigoBarras || "");
+  // Se a marca/categoria ainda não estiver na lista, a lista é recarregada antes de selecionar.
+  renderCatalogOptions();
+  set("#product-brand", product.marca || "");
+  set("#product-category", product.categoria || "");
+  salePriceManuallyEdited = true;
+  set("#product-sale-price", getRegisteredSalePrice(product).toFixed(2));
+  updateSuggestedPrice();
+  set("#product-sale-price", getRegisteredSalePrice(product).toFixed(2));
+  $("#product-quantity").disabled = true;
+  $("#product-barcode").disabled = false;
+  $("#product-form h3").textContent = "Editar produto";
+  $("#product-form button[type=submit]").textContent = "Salvar alterações";
+  setFeedback("#product-feedback", "Para mudar o saldo use Entradas, Saídas ou a Vistoria.");
+  $("#product-form").scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
-// Painel: troca do período de vendas, do intervalo do gráfico e atalhos para as outras abas.
-$("#dashboard-period").addEventListener("change", renderDashboard);
-$("#dashboard-daily-range").addEventListener("change", renderDailyChart);
-$("#dash-daily-chart").addEventListener("click", (event) => {
-  const button = event.target.closest("[data-chart-index]");
-  if (!button) return;
-  const item = dailySeries[Number(button.dataset.chartIndex)];
-  if (!item) return;
-  document.querySelectorAll("#dash-daily-chart .chart-bar-wrap").forEach((element) => {
-    element.classList.toggle("is-selected", element === button);
-  });
-  $("#dash-daily-detail").textContent = `${formatDate(item.date)}: ${money(item.value)}`;
-});
-document.querySelectorAll("[data-shortcut]").forEach((button) => {
-  button.addEventListener("click", () => {
-    switchTab(button.dataset.shortcut);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  });
-});
-
-// Exportação CSV (Configurações).
-document.querySelectorAll("[data-export]").forEach((button) => {
-  button.addEventListener("click", () => exportCsv([button.dataset.export]));
-});
-$("#export-all").addEventListener("click", () => exportCsv(Object.keys(EXPORT_DEFINITIONS)));
-
-// Vistoria: iniciar, salvar, concluir, descartar, pesquisar e digitar contagens.
-$("#inventory-start").addEventListener("click", startInventory);
-$("#inventory-save").addEventListener("click", saveInventory);
-$("#inventory-finish").addEventListener("click", finishInventory);
-$("#inventory-discard").addEventListener("click", discardInventory);
-$("#inventory-search").addEventListener("input", renderInventoryList);
-$("#inventory-only-uncounted").addEventListener("change", renderInventoryList);
-$("#refresh-inventory").addEventListener("click", loadData);
-$("#inventory-list").addEventListener("input", (event) => {
-  const input = event.target.closest("[data-count-input]");
-  if (!input) return;
-  const productId = input.dataset.countInput;
-  vistoriaDraft[productId] = input.value;
-  vistoriaDirty = true;
-  updateInventoryRow(productId);
-  updateInventorySummary();
-});
-
-const updateSuggestedPrice = () => {
-  const cost = Number($("#product-cost").value) || 0;
-  const gain = Number($("#product-gain").value) || 0;
-  const suggested = roundMoney(cost * (1 + gain / 100));
-  $("#suggested-price").textContent = money(suggested);
-  if (!salePriceManuallyEdited) $("#product-sale-price").value = suggested.toFixed(2);
-};
-$("#product-cost").addEventListener("input", updateSuggestedPrice);
-$("#product-gain").addEventListener("input", updateSuggestedPrice);
-$("#product-sale-price").addEventListener("input", () => { salePriceManuallyEdited = true; });
-
-$("#product-form").addEventListener("submit", async (event) => {
+async function saveProduct(event) {
   event.preventDefault();
-  const form = event.currentTarget;
-  const button = event.currentTarget.querySelector('button[type="submit"]');
-  button.disabled = true;
+  const submit = $("#product-form button[type=submit]");
+  const editing = editingProductId ? products.find((item) => item.id === editingProductId) : null;
+
+  const nome = cleanOption(fieldValue("#product-name"));
+  const descricao = String(fieldValue("#product-description")).trim();
+  const custo = roundMoney(parseDecimal(fieldValue("#product-cost")));
+  const percentualGanho = parseDecimal(fieldValue("#product-gain"));
+  const quantity = editing ? Number(editing.quantidade) || 0 : Number(fieldValue("#product-quantity") || 0);
+  const minRaw = fieldValue("#product-min-stock").trim();
+  const estoqueMinimo = minRaw === "" ? null : Number(minRaw);
+  const barcode = cleanOption(fieldValue("#product-barcode"));
+
+  let marca = fieldValue("#product-brand");
+  if (marca === NEW_BRAND_VALUE) marca = cleanOption(fieldValue("#product-brand-new"));
+  let categoria = fieldValue("#product-category");
+  if (categoria === NEW_CATEGORY_VALUE) categoria = cleanOption(fieldValue("#product-category-new"));
+  marca = cleanOption(marca);
+  categoria = cleanOption(categoria);
+  // Reaproveita a grafia já cadastrada (ex.: "samsung" vira "Samsung").
+  marca = brands.find((value) => normalizeText(value) === normalizeText(marca)) || marca;
+  categoria = [...SUGGESTED_CATEGORIES, ...categories].find((value) => normalizeText(value) === normalizeText(categoria)) || categoria;
+
+  const salePriceRaw = parseDecimal(fieldValue("#product-sale-price"));
+  const precoVenda = Number.isFinite(salePriceRaw) && salePriceRaw > 0
+    ? roundMoney(salePriceRaw)
+    : calcSuggestedPrice({ custo, percentualGanho });
+
+  if (!nome) return setFeedback("#product-feedback", "Informe o nome do produto.", true);
+  if (!Number.isFinite(custo) || custo < 0) return setFeedback("#product-feedback", "Informe um custo válido.", true);
+  if (!Number.isFinite(percentualGanho) || percentualGanho < 0) return setFeedback("#product-feedback", "Informe um percentual de ganho válido.", true);
+  if (!Number.isInteger(quantity) || quantity < 0) return setFeedback("#product-feedback", "A quantidade deve ser um número inteiro, 0 ou maior.", true);
+  if (estoqueMinimo !== null && (!Number.isInteger(estoqueMinimo) || estoqueMinimo < 0)) {
+    return setFeedback("#product-feedback", "O estoque mínimo deve ser um número inteiro, 0 ou maior.", true);
+  }
+  const sameName = products.find((product) => product.id !== editingProductId && !product.arquivado
+    && normalizeText(product.nome) === normalizeText(nome));
+  if (sameName) return setFeedback("#product-feedback", `Já existe um produto ativo chamado "${sameName.nome}".`, true);
+  if (barcode) {
+    const duplicate = products.find((product) => product.id !== editingProductId && !product.arquivado
+      && String(product.codigoBarras || "") === barcode);
+    if (duplicate) return setFeedback("#product-feedback", `Este código de barras já está associado ao produto "${duplicate.nome}".`, true);
+  }
+
+  submit.disabled = true;
   setFeedback("#product-feedback", "Salvando…");
-  const nome = cleanOption($("#product-name").value);
-  const marcaSelecionada = $("#product-brand").value;
-  const categoriaSelecionada = $("#product-category").value;
-  const marcaInformada = cleanOption(marcaSelecionada === NEW_BRAND_VALUE ? $("#product-brand-new").value : marcaSelecionada);
-  const categoriaInformada = cleanOption(categoriaSelecionada === NEW_CATEGORY_VALUE ? $("#product-category-new").value : categoriaSelecionada);
-  const marca = brands.find((item) => normalizeText(item) === normalizeText(marcaInformada)) || marcaInformada;
-  const categoria = categories.concat(SUGGESTED_CATEGORIES)
-    .find((item) => normalizeText(item) === normalizeText(categoriaInformada)) || categoriaInformada;
-  const barcode = storeSettings.codigoBarrasAtivo ? cleanOption($("#product-barcode").value) : "";
-  const descricao = $("#product-description").value.trim();
-  const custoBruto = Number($("#product-cost").value);
-  const percentualGanho = Number($("#product-gain").value);
-  const precoVendaBruto = Number($("#product-sale-price").value);
-  const quantidade = Number($("#product-quantity").value);
-  // Estoque mínimo: vazio = sem aviso (null); caso contrário, inteiro não negativo.
-  const minimoTexto = $("#product-min-stock").value.trim();
-  const estoqueMinimo = minimoTexto === "" ? null : Number(minimoTexto);
-  if (!nome || !Number.isFinite(custoBruto) || custoBruto < 0 || !Number.isFinite(percentualGanho) || percentualGanho < 0 || !Number.isFinite(precoVendaBruto) || precoVendaBruto < 0 || !Number.isInteger(quantidade) || quantidade < 0
-    || (estoqueMinimo !== null && (!Number.isInteger(estoqueMinimo) || estoqueMinimo < 0))) {
-    setFeedback("#product-feedback", "Confira os campos, o preço de venda, o estoque mínimo e informe quantidades inteiras não negativas.", true);
-    button.disabled = false;
-    return;
-  }
-  // Valores em reais sempre gravados em centavos exatos.
-  const custo = roundMoney(custoBruto);
-  const precoVenda = roundMoney(precoVendaBruto);
-
-  const duplicate = products.find((product) =>
-    !product.arquivado &&
-    product.id !== editingProductId &&
-    normalizeText(product.nome) === normalizeText(nome) &&
-    normalizeText(product.marca) === normalizeText(marca)
-  );
-  if (duplicate) {
-    setFeedback("#product-feedback", `Já existe um produto ativo chamado "${duplicate.nome}" com essa marca${marca ? ` (${marca})` : ""}. Confira a lista antes de salvar outro.`, true);
-    button.disabled = false;
-    return;
-  }
-
-  const wasEditing = Boolean(editingProductId);
-  let codigoGeradoNestaOperacao = "";
-  let custoAlterado = null;
   try {
-    if (barcode) {
-      const barcodeDuplicate = products.find((product) => product.id !== editingProductId && !product.arquivado && String(product.codigoBarras || "") === barcode);
-      if (barcodeDuplicate) throw new Error(`Este código de barras já está associado ao produto "${barcodeDuplicate.nome}".`);
-    }
-    if (editingProductId) {
-      const current = products.find((product) => product.id === editingProductId);
-      if (!current) throw new Error("Produto não encontrado. Atualize a lista e tente novamente.");
-
-      // Produtos antigos também recebem código ao serem salvos, se o recurso estiver ativo.
-      // Códigos existentes são preservados; editar nunca gera um código novo para eles.
-      const codigoInterno = storeSettings.codigoInternoAtivo && !current.codigoInterno
-        ? await generateInternalCode()
-        : current.codigoInterno || "";
-      if (!current.codigoInterno && codigoInterno) codigoGeradoNestaOperacao = codigoInterno;
-
-      const productRef = doc(db, "produtos", editingProductId);
-      const catalogRef = doc(db, "produtos", CATALOG_OPTIONS_ID);
-      const catalogUpdate = { atualizadoEm: serverTimestamp() };
-      if (marca) catalogUpdate.marcas = arrayUnion(marca);
-      if (categoria) catalogUpdate.categorias = arrayUnion(categoria);
-
-      // Tudo na mesma transação: leitura do custo atual no banco, atualização do produto,
-      // registro do histórico de custo (quando mudou) e catálogo de marcas/categorias.
-      await runTransaction(db, async (transaction) => {
-        const snapshot = await transaction.get(productRef);
-        if (!snapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
-        const saved = snapshot.data();
-        if (saved.arquivado) throw new Error("Este produto está arquivado e não pode ser editado.");
-        const custoAnterior = roundMoney(saved.custo);
-        const custoMudou = custoAnterior !== custo;
-        custoAlterado = custoMudou ? { de: custoAnterior, para: custo } : null;
-
-        transaction.update(productRef, {
-          nome, marca, categoria, descricao, custo, percentualGanho, precoVenda, estoqueMinimo,
-          ...(codigoInterno ? { codigoInterno } : {}),
-          ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
-          ...(custoMudou ? { custoAnterior, custoAlteradoEm: dateToday() } : {}),
-          atualizadoEm: serverTimestamp()
-        });
-        if (custoMudou) {
-          transaction.set(doc(collection(db, "historico_custos")), {
-            produtoId: editingProductId,
-            produtoNome: nome,
-            custoAnterior,
-            custoNovo: custo,
-            data: dateToday(),
-            usuario: auth.currentUser?.email || null,
-            criadoEm: serverTimestamp()
-          });
-        }
-        if (marca || categoria) {
-          transaction.set(catalogRef, catalogUpdate, { merge: true });
-        }
-      });
-    } else {
     const batch = writeBatch(db);
-    const productRef = doc(collection(db, "produtos"));
-    const user = auth.currentUser;
-    const codigoInterno = storeSettings.codigoInternoAtivo ? await generateInternalCode() : "";
-    codigoGeradoNestaOperacao = codigoInterno;
-    batch.set(productRef, {
-      nome, marca, categoria, descricao, custo, percentualGanho, precoVenda, quantidade, estoqueMinimo,
-      codigoInterno,
-      ...(storeSettings.codigoBarrasAtivo ? { codigoBarras: barcode } : {}),
-      criadoEm: serverTimestamp(),
-      criadoEmData: dateToday(),
-      criadoPor: user?.email || null,
-      atualizadoEm: serverTimestamp()
-    });
+    const catalogRef = doc(db, "produtos", CATALOG_OPTIONS_ID);
+    const catalogUpdate = {};
+    if (marca && !brands.some((value) => normalizeText(value) === normalizeText(marca))) catalogUpdate.marcas = arrayUnion(marca);
+    if (categoria && !categories.some((value) => normalizeText(value) === normalizeText(categoria))) catalogUpdate.categorias = arrayUnion(categoria);
+    if (Object.keys(catalogUpdate).length) batch.set(catalogRef, catalogUpdate, { merge: true });
 
-    const catalogUpdate = { atualizadoEm: serverTimestamp() };
-    if (marca) catalogUpdate.marcas = arrayUnion(marca);
-    if (categoria) catalogUpdate.categorias = arrayUnion(categoria);
-    if (marca || categoria) {
-      batch.set(doc(db, "produtos", CATALOG_OPTIONS_ID), catalogUpdate, { merge: true });
-    }
-
-    if (quantidade > 0) {
-      const entryRef = doc(collection(db, "entradas"));
-      batch.set(entryRef, {
-        produtoId: productRef.id,
-        produtoNome: nome,
-        quantidade,
-        custoUnitario: custo,
-        data: dateToday(),
-        fornecedor: "",
-        observacao: "Estoque inicial no cadastro do produto",
-        tipo: "estoque_inicial",
+    if (editing) {
+      let codigoInterno = editing.codigoInterno || "";
+      if (!codigoInterno && storeSettings.codigoInternoAtivo) codigoInterno = await generateInternalCode();
+      const changes = {
+        nome, descricao, marca, categoria, codigoInterno,
+        codigoBarras: barcode,
+        custo, percentualGanho, precoVenda, estoqueMinimo,
+        atualizadoEm: serverTimestamp()
+      };
+      // Guarda o custo anterior quando o custo muda.
+      if (roundMoney(editing.custo) !== custo) {
+        changes.custoAnterior = roundMoney(editing.custo);
+        changes.custoAlteradoEm = dateToday();
+      }
+      batch.update(doc(db, "produtos", editing.id), changes);
+      await batch.commit();
+      resetProductForm();
+      setFeedback("#product-feedback", "Produto atualizado.");
+      showToast("Produto atualizado.");
+    } else {
+      const codigoInterno = storeSettings.codigoInternoAtivo ? await generateInternalCode() : "";
+      const productRef = doc(collection(db, "produtos"));
+      batch.set(productRef, {
+        nome, descricao, marca, categoria, codigoInterno,
+        codigoBarras: storeSettings.codigoBarrasAtivo ? barcode : "",
+        custo, percentualGanho, precoVenda, quantidade: quantity, estoqueMinimo,
+        arquivado: false,
+        criadoEmData: dateToday(),
         criadoEm: serverTimestamp(),
-        criadoPor: user?.email || null
+        atualizadoEm: serverTimestamp()
       });
+      if (quantity > 0) {
+        batch.set(doc(collection(db, "entradas")), {
+          produtoId: productRef.id,
+          produtoNome: nome,
+          tipo: "estoque_inicial",
+          quantidade: quantity,
+          custoUnitario: custo,
+          data: dateToday(),
+          fornecedor: "",
+          observacao: "Estoque inicial no cadastro do produto",
+          usuario: currentEmail(),
+          criadoEm: serverTimestamp(),
+          criadoEmMs: Date.now()
+        });
+      }
+      await batch.commit();
+      resetProductForm();
+      setFeedback("#product-feedback", "Produto cadastrado.");
+      showToast("Produto cadastrado.");
     }
-    await batch.commit();
-    }
-    resetProductForm();
-    let successMessage = codigoGeradoNestaOperacao
-      ? `${wasEditing ? "Produto atualizado" : "Produto cadastrado"} com o código interno ${codigoGeradoNestaOperacao}.`
-      : (wasEditing ? "Produto atualizado." : "Produto cadastrado.");
-    if (custoAlterado) {
-      successMessage += ` Custo alterado de ${money(custoAlterado.de)} para ${money(custoAlterado.para)} e registrado no histórico.`;
-    }
-    setFeedback("#product-feedback", successMessage);
     await loadData();
-    showToast(successMessage);
   } catch (error) {
     console.error("Falha ao salvar produto:", error);
     setFeedback("#product-feedback", explainError(error), true);
   } finally {
-    button.disabled = false;
+    submit.disabled = false;
   }
-});
+}
 
-
-$("#sale-product-search").addEventListener("input", renderSaleProductResults);
-$("#sale-product-search").addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
-  event.preventDefault();
-  const queryText = normalizeText($("#sale-product-search").value);
-  if (!queryText) return;
-  const exactMatches = products.filter((product) => !product.arquivado && [
-    product.codigoBarras, product.codigoInterno, product.nome
-  ].some((value) => normalizeText(value) === queryText));
-  if (exactMatches.length === 1) addProductToSaleCart(exactMatches[0]);
-});
-$("#sale-product-results").addEventListener("click", (event) => {
-  const button = event.target.closest("[data-select-sale-product]");
-  if (!button) return;
-  const product = products.find((item) => item.id === button.dataset.selectSaleProduct && !item.arquivado);
+async function archiveProduct(productId) {
+  const product = products.find((item) => item.id === productId);
   if (!product) return;
-  addProductToSaleCart(product);
-});
-
-$("#sale-cart-list").addEventListener("click", (event) => {
-  const plusButton = event.target.closest("[data-cart-plus]");
-  const minusButton = event.target.closest("[data-cart-minus]");
-  const removeButton = event.target.closest("[data-cart-remove]");
-  if (plusButton) {
-    const item = saleCart[Number(plusButton.dataset.cartPlus)];
-    const product = products.find((entry) => entry.id === item?.produtoId);
-    if (!item || !product) return;
-    if (item.quantidade + 1 > (Number(product.quantidade) || 0)) {
-      setFeedback("#sale-feedback", `Saldo insuficiente. Disponível: ${Number(product.quantidade) || 0} unidade(s).`, true);
-      return;
-    }
-    item.quantidade += 1;
-  } else if (minusButton) {
-    const index = Number(minusButton.dataset.cartMinus);
-    if (!saleCart[index]) return;
-    saleCart[index].quantidade -= 1;
-    if (saleCart[index].quantidade <= 0) saleCart.splice(index, 1);
-  } else if (removeButton) {
-    saleCart.splice(Number(removeButton.dataset.cartRemove), 1);
-  } else return;
-  renderSaleCart();
-});
-
-// Edição do preço cobrado: atualiza subtotal, alerta e total enquanto o usuário digita.
-$("#sale-cart-list").addEventListener("input", (event) => {
-  const input = event.target.closest("[data-cart-price]");
-  if (!input) return;
-  const index = Number(input.dataset.cartPrice);
-  const item = saleCart[index];
-  if (!item) return;
-  const raw = input.value.trim();
-  const parsed = raw === "" ? NaN : Number(raw);
-  item.precoUnitario = Number.isFinite(parsed) ? roundMoney(parsed) : null;
-  updateCartRow(index);
-  updateCartSummary();
-});
-// Ao sair do campo, mostra o preço já arredondado em centavos.
-$("#sale-cart-list").addEventListener("change", (event) => {
-  const input = event.target.closest("[data-cart-price]");
-  if (!input) return;
-  const item = saleCart[Number(input.dataset.cartPrice)];
-  if (item && Number.isFinite(item.precoUnitario)) input.value = item.precoUnitario.toFixed(2);
-});
-// Enter no campo de preço só confirma o valor; não finaliza a venda sem querer.
-$("#sale-cart-list").addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && event.target.matches("[data-cart-price]")) {
-    event.preventDefault();
-    event.target.blur();
-  }
-});
-
-$("#sale-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const button = $("#sale-finish-button");
-  if (!storeSettings.caixaAtivo) {
-    setFeedback("#sale-feedback", "O módulo Caixa está desativado nas configurações.", true);
-    return;
-  }
-  if (!saleCart.length) {
-    setFeedback("#sale-feedback", "Adicione pelo menos um produto à compra.", true);
-    return;
-  }
-  if (cartHasInvalidPrice()) {
-    setFeedback("#sale-feedback", "Informe um preço maior que zero em todos os itens.", true);
-    return;
-  }
-  const date = $("#sale-date").value;
-  const paymentMethod = $("#sale-payment-method").value;
-  if (!date || !paymentMethod) {
-    setFeedback("#sale-feedback", "Selecione a data e a forma de pagamento.", true);
-    return;
-  }
-  // Preço abaixo do custo não bloqueia a venda, mas exige confirmação.
-  const belowCostNames = saleCart.filter((item) => getPriceAlert(item)?.level === "danger").map((item) => item.nome);
-  if (belowCostNames.length) {
-    const headline = belowCostNames.length === 1 ? "1 item está" : `${belowCostNames.length} itens estão`;
-    const confirmed = window.confirm(
-      `Atenção: ${headline} com preço abaixo do custo cadastrado:\n\n${belowCostNames.map((name) => `• ${name}`).join("\n")}\n\nDeseja finalizar a venda mesmo assim?`
-    );
-    if (!confirmed) return;
-  }
-  button.disabled = true;
-  setFeedback("#sale-feedback", "Registrando venda…");
+  const confirmed = window.confirm(`Excluir o produto "${product.nome}"?\n\nEle sai das listas e das vendas, mas o histórico de entradas, saídas e vendas é preservado (o produto fica arquivado).`);
+  if (!confirmed) return;
   try {
-    const saleRef = doc(collection(db, "vendas"));
-    const userEmail = auth.currentUser?.email || "Usuário não identificado";
-    const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
-    const cartItems = saleCart.map((item) => ({ ...item }));
-    const productRefs = cartItems.map((item) => ({ item, ref: doc(db, "produtos", item.produtoId) }));
+    await updateDoc(doc(db, "produtos", productId), {
+      arquivado: true,
+      arquivadoEm: serverTimestamp(),
+      arquivadoPor: currentEmail(),
+      atualizadoEm: serverTimestamp()
+    });
+    saleCart = saleCart.filter((item) => item.produtoId !== productId);
+    if (editingProductId === productId) resetProductForm();
+    await loadData();
+    showToast("Produto excluído (arquivado).");
+  } catch (error) {
+    console.error("Falha ao excluir produto:", error);
+    showToast(explainError(error));
+  }
+}
+
+onEvent("#product-form", "submit", saveProduct);
+onEvent("#product-cancel-edit", "click", () => {
+  resetProductForm();
+  setFeedback("#product-feedback", "");
+});
+$("#products-list").addEventListener("click", (event) => {
+  const edit = event.target.closest("[data-edit-product]");
+  if (edit) return startEditProduct(edit.dataset.editProduct);
+  const remove = event.target.closest("[data-delete-product]");
+  if (remove) archiveProduct(remove.dataset.deleteProduct);
+});
+
+// ---------- Entradas ----------
+
+async function saveEntry(event) {
+  event.preventDefault();
+  const product = products.find((item) => item.id === selectedEntryProductId && !item.arquivado);
+  const quantity = Number(fieldValue("#entry-quantity"));
+  const cost = roundMoney(parseDecimal(fieldValue("#entry-cost")));
+  const date = fieldValue("#entry-date") || dateToday();
+  if (!product) return setFeedback("#entry-feedback", "Selecione o produto da entrada.", true);
+  if (!Number.isInteger(quantity) || quantity < 1) return setFeedback("#entry-feedback", "A quantidade deve ser um número inteiro maior que zero.", true);
+  if (!Number.isFinite(cost) || cost < 0) return setFeedback("#entry-feedback", "Informe o custo unitário.", true);
+
+  const submit = $("#entry-form button[type=submit]");
+  submit.disabled = true;
+  setFeedback("#entry-feedback", "Registrando entrada…");
+  try {
+    const entryRef = doc(collection(db, "entradas"));
     await runTransaction(db, async (transaction) => {
-      const snapshots = [];
-      for (const productRef of productRefs) {
-        snapshots.push({ ...productRef, snapshot: await transaction.get(productRef.ref) });
+      const productRef = doc(db, "produtos", product.id);
+      const snapshot = await transaction.get(productRef);
+      if (!snapshot.exists() || snapshot.data().arquivado) throw new Error("Este produto não está mais disponível.");
+      const data = snapshot.data();
+      const changes = {
+        quantidade: (Number(data.quantidade) || 0) + quantity,
+        atualizadoEm: serverTimestamp()
+      };
+      // Custo da última compra passa a ser o custo cadastrado; o anterior fica guardado.
+      if (roundMoney(data.custo) !== cost) {
+        changes.custoAnterior = roundMoney(data.custo);
+        changes.custoAlteradoEm = dateToday();
+        changes.custo = cost;
       }
-      for (const entry of snapshots) {
-        if (!entry.snapshot.exists()) throw new Error(`O produto "${entry.item.nome}" não existe mais. Atualize a lista.`);
-        const product = entry.snapshot.data();
-        if (product.arquivado) throw new Error(`O produto "${entry.item.nome}" está arquivado.`);
-        const currentStock = Number(product.quantidade) || 0;
-        if (entry.item.quantidade > currentStock) {
-          throw new Error(`Saldo insuficiente para "${product.nome || entry.item.nome}". Disponível: ${currentStock}; solicitado: ${entry.item.quantidade}.`);
-        }
-      }
-
-      // Itens vendidos: guardam o preço praticado e, lidos do produto dentro da transação,
-      // o custo, o preço cadastrado e o sugerido NO MOMENTO da venda. Assim, mudanças futuras
-      // de custo ou de preço não alteram o cálculo histórico.
-      const soldItems = snapshots.map((entry) => {
-        const product = entry.snapshot.data();
-        const precoUnitario = roundMoney(entry.item.precoUnitario);
-        const custoUnitario = roundMoney(product.custo);
-        const precoSugerido = calcSuggestedPrice(product);
-        const precoCadastrado = getRegisteredSalePrice(product);
-        return {
-          produtoId: entry.item.produtoId,
-          produtoNome: entry.item.nome,
-          codigoInterno: entry.item.codigoInterno || "",
-          codigoBarras: entry.item.codigoBarras || "",
-          quantidade: entry.item.quantidade,
-          precoUnitario,
-          precoCadastrado,
-          precoSugerido,
-          custoUnitario,
-          precoAlterado: precoUnitario !== precoCadastrado,
-          abaixoDoCusto: precoUnitario < custoUnitario,
-          abaixoDoSugerido: precoUnitario < precoSugerido,
-          subtotal: roundMoney(entry.item.quantidade * precoUnitario)
-        };
-      });
-      const saleTotal = roundMoney(soldItems.reduce((sum, item) => sum + item.subtotal, 0));
-      const saleCostTotal = roundMoney(soldItems.reduce((sum, item) => sum + roundMoney(item.quantidade * item.custoUnitario), 0));
-
-      for (const entry of snapshots) {
-        const product = entry.snapshot.data();
-        const currentStock = Number(product.quantidade) || 0;
-        transaction.update(entry.ref, {
-          quantidade: currentStock - entry.item.quantidade,
-          atualizadoEm: serverTimestamp()
-        });
-      }
-      transaction.set(saleRef, {
-        itens: soldItems,
-        total: saleTotal,
-        custoTotal: saleCostTotal,
-        formaPagamento: paymentMethod,
+      transaction.update(productRef, changes);
+      transaction.set(entryRef, {
+        produtoId: product.id,
+        produtoNome: data.nome || product.nome,
+        tipo: "entrada",
+        quantidade: quantity,
+        custoUnitario: cost,
         data: date,
-        dataHora: dateTime,
-        usuario: userEmail,
-        criadoEm: serverTimestamp()
+        fornecedor: cleanOption(fieldValue("#entry-supplier")),
+        observacao: fieldValue("#entry-notes").trim(),
+        usuario: currentEmail(),
+        criadoEm: serverTimestamp(),
+        criadoEmMs: Date.now()
       });
     });
-    saleCart = [];
-    form.reset();
-    $("#sale-date").value = dateToday();
-    renderSaleProductResults();
-    renderSaleCart();
-    setFeedback("#sale-feedback", "Venda registrada e estoque atualizado.");
+    $("#entry-form").reset();
+    selectedEntryProductId = "";
+    const dateInput = document.querySelector("#entry-date");
+    if (dateInput) dateInput.value = dateToday();
     await loadData();
-    showToast("Venda registrada. Estoque atualizado.");
+    setFeedback("#entry-feedback", "Entrada registrada.");
+    showToast("Entrada registrada.");
   } catch (error) {
-    console.error("Falha ao registrar venda:", error);
-    setFeedback("#sale-feedback", explainError(error), true);
+    console.error("Falha ao registrar entrada:", error);
+    setFeedback("#entry-feedback", explainError(error), true);
   } finally {
-    updateCartSummary();
+    submit.disabled = false;
   }
-});
-$("#sale-date").value = dateToday();
-renderSaleCart();
+}
 
-// Histórico de vendas: abrir o painel de cancelamento ou de devolução.
-$("#sales-list").addEventListener("click", (event) => {
-  const cancelButton = event.target.closest("[data-sale-cancel]");
-  const returnButton = event.target.closest("[data-sale-return]");
-  if (cancelButton) openSaleAction("cancel", cancelButton.dataset.saleCancel);
-  else if (returnButton) openSaleAction("return", returnButton.dataset.saleReturn);
+onEvent("#entry-form", "submit", saveEntry);
+onEvent("#show-archived-entries", "change", (event) => {
+  showArchivedEntries = event.target.checked;
+  renderEntries();
 });
-$("#sale-action-close").addEventListener("click", closeSaleAction);
-$("#sale-action-overlay").addEventListener("click", (event) => {
-  if (event.target === $("#sale-action-overlay")) closeSaleAction();
-});
-$("#sale-action-items").addEventListener("input", (event) => {
-  if (event.target.closest("[data-return-index]")) updateReturnTotal();
-});
-$("#sale-action-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (!saleAction) return;
-  const sale = sales.find((item) => item.id === saleAction.saleId);
-  if (!sale) {
-    setFeedback("#sale-action-feedback", "Venda não encontrada. Atualize a lista.", true);
-    return;
-  }
-  const reason = cleanOption($("#sale-action-reason").value);
-  if (!reason) {
-    setFeedback("#sale-action-feedback", "Informe o motivo.", true);
-    return;
-  }
-  const button = $("#sale-action-confirm");
-  button.disabled = true;
-  try {
-    if (saleAction.mode === "cancel") {
-      const unitCount = saleItemsOf(sale).reduce((sum, item) => sum + (Number(item.quantidade) || 0), 0);
-      const confirmed = window.confirm(`Cancelar esta venda?\n\n• ${unitCount} unidade(s) voltam ao estoque\n• A venda sai dos indicadores\n\nIsso não pode ser desfeito.`);
-      if (!confirmed) return;
-      setFeedback("#sale-action-feedback", "Cancelando venda…");
-      await cancelSale(sale, reason);
-      closeSaleAction();
-      await loadData();
-      setFeedback("#sale-feedback", "Venda cancelada e estoque devolvido.");
-      showToast("Venda cancelada. Estoque devolvido.");
-    } else {
-      const requested = [];
-      let invalid = false;
-      document.querySelectorAll("#sale-action-items [data-return-index]").forEach((input) => {
-        const raw = input.value.trim();
-        if (raw === "") return;
-        const quantity = Number(raw);
-        const max = Number(input.dataset.returnMax);
-        if (!Number.isInteger(quantity) || quantity < 0 || quantity > max) {
-          invalid = true;
-          return;
-        }
-        if (quantity > 0) requested.push({ index: Number(input.dataset.returnIndex), quantidade: quantity });
-      });
-      if (invalid) throw new Error("Confira as quantidades: use números inteiros, sem passar do máximo permitido.");
-      if (!requested.length) throw new Error("Informe a quantidade de pelo menos um item.");
-      const unitCount = requested.reduce((sum, item) => sum + item.quantidade, 0);
-      const confirmed = window.confirm(`Registrar a devolução?\n\n• ${unitCount} unidade(s) voltam ao estoque\n• O valor devolvido será descontado dos indicadores\n\nIsso não pode ser desfeito.`);
-      if (!confirmed) return;
-      setFeedback("#sale-action-feedback", "Registrando devolução…");
-      const returnedTotal = await registerReturn(sale, requested, reason);
-      closeSaleAction();
-      await loadData();
-      setFeedback("#sale-feedback", `Devolução registrada (${money(returnedTotal)}) e estoque atualizado.`);
-      showToast("Devolução registrada. Estoque atualizado.");
-    }
-  } catch (error) {
-    console.error("Falha na ação da venda:", error);
-    setFeedback("#sale-action-feedback", explainError(error), true);
-  } finally {
-    button.disabled = false;
-  }
-});
+
+// ---------- Saídas ----------
 
 $("#exit-product-search").addEventListener("input", () => {
   selectedExitProductId = "";
@@ -2341,235 +2158,403 @@ $("#exit-product-results").addEventListener("click", (event) => {
   selectedExitProductId = product.id;
   $("#exit-product-search").value = product.nome;
   renderExitProductResults();
+  $("#exit-quantity").focus();
 });
-$("#exit-form").addEventListener("submit", async (event) => {
+
+async function saveExit(event) {
   event.preventDefault();
-  const form = event.currentTarget;
-  const button = form.querySelector('button[type="submit"]');
-  button.disabled = true;
+  const product = products.find((item) => item.id === selectedExitProductId && !item.arquivado);
+  const quantity = Number(fieldValue("#exit-quantity"));
+  const reason = fieldValue("#exit-reason");
+  if (!product) return setFeedback("#exit-feedback", "Selecione o produto da saída.", true);
+  if (!Number.isInteger(quantity) || quantity < 1) return setFeedback("#exit-feedback", "A quantidade deve ser um número inteiro maior que zero.", true);
+  if (!reason) return setFeedback("#exit-feedback", "Escolha o motivo da saída.", true);
+
+  const submit = $("#exit-form button[type=submit]");
+  submit.disabled = true;
   setFeedback("#exit-feedback", "Registrando saída…");
-  if (storeSettings.saidasAtivo === false) {
-    setFeedback("#exit-feedback", "O módulo Saídas está desativado nas configurações.", true);
-    button.disabled = false;
-    return;
-  }
-  const productId = selectedExitProductId;
-  const quantity = Number($("#exit-quantity").value);
-  const motive = $("#exit-reason").value;
-  const date = $("#exit-date").value;
-  const notes = $("#exit-notes").value.trim();
-  if (!productId || !Number.isInteger(quantity) || quantity < 1 || !motive || !date) {
-    setFeedback("#exit-feedback", "Pesquise e selecione um produto, informe a quantidade, o motivo e a data.", true);
-    button.disabled = false;
-    return;
-  }
   try {
-    const productRef = doc(db, "produtos", productId);
     const exitRef = doc(collection(db, "saidas"));
-    const userEmail = auth.currentUser?.email || "Usuário não identificado";
-    const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
     await runTransaction(db, async (transaction) => {
-      const productSnapshot = await transaction.get(productRef);
-      if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
-      const product = productSnapshot.data();
-      if (product.arquivado) throw new Error("Este produto está arquivado e não pode receber movimentações.");
-      const currentStock = Number(product.quantidade) || 0;
-      if (quantity > currentStock) throw new Error(`Saldo insuficiente. Disponível: ${currentStock} unidade(s); solicitado: ${quantity}.`);
-      transaction.update(productRef, { quantidade: currentStock - quantity, atualizadoEm: serverTimestamp() });
+      const productRef = doc(db, "produtos", product.id);
+      const snapshot = await transaction.get(productRef);
+      if (!snapshot.exists() || snapshot.data().arquivado) throw new Error("Este produto não está mais disponível.");
+      const data = snapshot.data();
+      const balance = Number(data.quantidade) || 0;
+      if (quantity > balance) throw new Error(`Saldo insuficiente. Disponível: ${balance} unidade(s).`);
+      transaction.update(productRef, { quantidade: balance - quantity, atualizadoEm: serverTimestamp() });
       transaction.set(exitRef, {
-        produtoId: productId, produtoNome: product.nome || "",
-        codigoInterno: product.codigoInterno || "", codigoBarras: product.codigoBarras || "",
-        quantidade: quantity, motivo: motive, data: date, dataHora: dateTime, observacao: notes,
-        usuario: userEmail, criadoEm: serverTimestamp()
+        produtoId: product.id,
+        produtoNome: data.nome || product.nome,
+        quantidade: quantity,
+        motivo: reason,
+        observacao: fieldValue("#exit-notes").trim(),
+        data: dateToday(),
+        dataHora: nowDateTime(),
+        usuario: currentEmail(),
+        criadoEm: serverTimestamp()
       });
     });
-    form.reset();
+    $("#exit-form").reset();
     selectedExitProductId = "";
-    $("#exit-date").value = dateToday();
-    renderExitProductResults();
-    setFeedback("#exit-feedback", "Saída registrada e saldo atualizado.");
     await loadData();
-    showToast("Saída registrada. Estoque atualizado.");
+    setFeedback("#exit-feedback", "Saída registrada.");
+    showToast("Saída registrada.");
   } catch (error) {
     console.error("Falha ao registrar saída:", error);
     setFeedback("#exit-feedback", explainError(error), true);
-  } finally { button.disabled = false; }
-});
-$("#exit-date").value = dateToday();
+  } finally {
+    submit.disabled = false;
+  }
+}
 
-$("#entry-date").value = dateToday();
-$("#entry-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const button = event.currentTarget.querySelector('button[type="submit"]');
-  button.disabled = true;
-  setFeedback("#entry-feedback", "Registrando entrada…");
-  const productId = $("#entry-product").value;
-  const quantidade = Number($("#entry-quantity").value);
-  const quantity = quantidade;
-  const unitCostRaw = Number($("#entry-cost").value);
-  const date = $("#entry-date").value;
-  const supplier = $("#entry-supplier").value.trim();
-  const notes = $("#entry-notes").value.trim();
-  if (!productId || !Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(unitCostRaw) || unitCostRaw < 0 || !date) {
-    setFeedback("#entry-feedback", "Confira o produto, a quantidade, o custo e a data.", true);
-    button.disabled = false;
+onEvent("#exit-form", "submit", saveExit);
+
+// ---------- Caixa (vendas) ----------
+
+$("#sale-product-search").addEventListener("input", () => {
+  setFeedback("#sale-feedback", "");
+  renderSaleProductResults();
+});
+$("#sale-product-results").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-select-sale-product]");
+  if (!button) return;
+  const product = products.find((item) => item.id === button.dataset.selectSaleProduct && !item.arquivado);
+  if (product) addProductToSaleCart(product);
+});
+
+$("#sale-cart-list").addEventListener("click", (event) => {
+  const minus = event.target.closest("[data-cart-minus]");
+  const plus = event.target.closest("[data-cart-plus]");
+  const remove = event.target.closest("[data-cart-remove]");
+  if (minus) {
+    const index = Number(minus.dataset.cartMinus);
+    if (saleCart[index]) {
+      saleCart[index].quantidade -= 1;
+      if (saleCart[index].quantidade < 1) saleCart.splice(index, 1);
+    }
+  } else if (plus) {
+    const index = Number(plus.dataset.cartPlus);
+    const item = saleCart[index];
+    const product = item && products.find((entry) => entry.id === item.produtoId);
+    if (item && product) {
+      if (item.quantidade + 1 > (Number(product.quantidade) || 0)) {
+        setFeedback("#sale-feedback", `Saldo insuficiente. Disponível: ${Number(product.quantidade) || 0} unidade(s).`, true);
+        return;
+      }
+      item.quantidade += 1;
+    }
+  } else if (remove) {
+    saleCart.splice(Number(remove.dataset.cartRemove), 1);
+  } else {
     return;
   }
-  const unitCost = roundMoney(unitCostRaw);
+  setFeedback("#sale-feedback", "");
+  renderSaleCart();
+});
+
+// Preço editável: atualiza só a linha, para não tirar o foco do campo.
+$("#sale-cart-list").addEventListener("input", (event) => {
+  const input = event.target.closest("[data-cart-price]");
+  if (!input) return;
+  const index = Number(input.dataset.cartPrice);
+  const item = saleCart[index];
+  if (!item) return;
+  const price = parseDecimal(input.value);
+  item.precoUnitario = Number.isFinite(price) ? roundMoney(price) : NaN;
+  updateCartRow(index);
+  updateCartSummary();
+});
+
+async function finishSale() {
+  if (!saleCart.length) return;
+  if (cartHasInvalidPrice()) return setFeedback("#sale-feedback", "Há item com preço vazio ou zerado. Corrija antes de finalizar.", true);
+  const payment = fieldValue("#sale-payment");
+  if (!payment) return setFeedback("#sale-feedback", "Escolha a forma de pagamento.", true);
+
+  const button = $("#sale-finish-button");
+  button.disabled = true;
+  setFeedback("#sale-feedback", "Registrando venda…");
   try {
-    const productRef = doc(db, "produtos", productId);
+    const saleRef = doc(collection(db, "vendas"));
+    const cartSnapshot = saleCart.map((item) => ({ ...item }));
     await runTransaction(db, async (transaction) => {
-      const productSnapshot = await transaction.get(productRef);
-      if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista e tente novamente.");
-      const product = productSnapshot.data();
-      if (product.arquivado) throw new Error("Este produto está arquivado e não pode receber movimentações.");
-      const entryRef = doc(collection(db, "entradas"));
-      transaction.update(productRef, {
-        quantidade: (Number(product.quantidade) || 0) + quantity,
-        atualizadoEm: serverTimestamp()
+      // Todas as leituras antes das escritas.
+      const snapshots = [];
+      for (const item of cartSnapshot) {
+        snapshots.push(await transaction.get(doc(db, "produtos", item.produtoId)));
+      }
+      const itens = [];
+      snapshots.forEach((snapshot, index) => {
+        const item = cartSnapshot[index];
+        if (!snapshot.exists() || snapshot.data().arquivado) throw new Error(`O produto "${item.nome}" não está mais disponível.`);
+        const data = snapshot.data();
+        const balance = Number(data.quantidade) || 0;
+        if (item.quantidade > balance) throw new Error(`Saldo insuficiente de "${data.nome}". Disponível: ${balance}.`);
+        const custo = roundMoney(data.custo);
+        itens.push({
+          produtoId: item.produtoId,
+          produtoNome: data.nome || item.nome,
+          codigoInterno: data.codigoInterno || "",
+          codigoBarras: data.codigoBarras || "",
+          quantidade: item.quantidade,
+          precoCadastrado: getRegisteredSalePrice(data),
+          precoUnitario: item.precoUnitario,
+          custoUnitario: custo,
+          subtotal: roundMoney(item.quantidade * item.precoUnitario),
+          abaixoDoCusto: item.precoUnitario < custo,
+          abaixoDoSugerido: item.precoUnitario < calcSuggestedPrice(data)
+        });
       });
-      transaction.set(entryRef, {
-        produtoId: productId,
-        produtoNome: product.nome,
-        quantidade,
-        custoUnitario: unitCost,
-        data: date,
-        fornecedor: supplier,
-        observacao: notes,
-        tipo: "entrada",
-        criadoEm: serverTimestamp(),
-        criadoPor: auth.currentUser?.email || null
+      snapshots.forEach((snapshot, index) => {
+        transaction.update(snapshot.ref, {
+          quantidade: (Number(snapshot.data().quantidade) || 0) - cartSnapshot[index].quantidade,
+          atualizadoEm: serverTimestamp()
+        });
+      });
+      transaction.set(saleRef, {
+        itens,
+        total: roundMoney(itens.reduce((sum, item) => sum + item.subtotal, 0)),
+        formaPagamento: payment,
+        status: "concluida",
+        // Vendas novas já nascem com os contadores de devolução.
+        devolvidoPorProduto: {},
+        valorDevolvido: 0,
+        data: dateToday(),
+        dataHora: nowDateTime(),
+        usuario: currentEmail(),
+        criadoEm: serverTimestamp()
       });
     });
-    form.reset();
-    $("#entry-date").value = dateToday();
-    setFeedback("#entry-feedback", "Entrada registrada e estoque atualizado.");
+    saleCart = [];
+    const paymentSelect = document.querySelector("#sale-payment");
+    if (paymentSelect) paymentSelect.value = "";
     await loadData();
-    showToast("Entrada registrada.");
+    setFeedback("#sale-feedback", "Venda registrada.");
+    showToast("Venda registrada.");
   } catch (error) {
-    console.error("Falha ao registrar entrada:", error);
-    setFeedback("#entry-feedback", explainError(error), true);
+    console.error("Falha ao registrar venda:", error);
+    setFeedback("#sale-feedback", explainError(error), true);
+    // Os saldos podem ter mudado em outro aparelho: atualiza a tela.
+    try { await loadData(); } catch (reloadError) { console.error(reloadError); }
+  } finally {
+    updateCartSummary();
+  }
+}
+
+onEvent("#sale-finish-button", "click", finishSale);
+onEvent("#sale-form", "submit", (event) => {
+  event.preventDefault();
+  finishSale();
+});
+
+// ---------- Histórico de vendas: cancelar e devolver ----------
+
+$("#sales-list").addEventListener("click", (event) => {
+  const cancel = event.target.closest("[data-sale-cancel]");
+  if (cancel) return openSaleAction("cancel", cancel.dataset.saleCancel);
+  const giveBack = event.target.closest("[data-sale-return]");
+  if (giveBack) openSaleAction("return", giveBack.dataset.saleReturn);
+});
+
+$("#sale-action-items").addEventListener("input", (event) => {
+  const input = event.target.closest("[data-return-index]");
+  if (!input) return;
+  const max = Number(input.dataset.returnMax) || 0;
+  if (Number(input.value) > max) input.value = String(max);
+  updateReturnTotal();
+});
+
+onEvent("#sale-action-close", "click", closeSaleAction);
+onEvent("#sale-action-back", "click", closeSaleAction);
+onEvent("#sale-action-overlay", "click", (event) => {
+  if (event.target.id === "sale-action-overlay") closeSaleAction();
+});
+
+$("#sale-action-confirm").addEventListener("click", async () => {
+  if (!saleAction) return;
+  const sale = sales.find((item) => item.id === saleAction.saleId);
+  if (!sale) return closeSaleAction();
+  const reason = $("#sale-action-reason").value.trim();
+  const button = $("#sale-action-confirm");
+
+  if (saleAction.mode === "cancel" && !reason) {
+    return setFeedback("#sale-action-feedback", "Informe o motivo do cancelamento.", true);
+  }
+
+  let requested = [];
+  if (saleAction.mode === "return") {
+    document.querySelectorAll("#sale-action-items [data-return-index]").forEach((input) => {
+      const quantity = Number(input.value);
+      if (Number.isInteger(quantity) && quantity > 0) requested.push({ index: Number(input.dataset.returnIndex), quantidade: quantity });
+    });
+    if (!requested.length) return setFeedback("#sale-action-feedback", "Informe a quantidade de pelo menos um item.", true);
+    if (!reason) return setFeedback("#sale-action-feedback", "Informe o motivo da devolução.", true);
+  }
+
+  button.disabled = true;
+  setFeedback("#sale-action-feedback", "Processando…");
+  try {
+    if (saleAction.mode === "cancel") {
+      await cancelSale(sale, reason);
+      showToast("Venda cancelada e estoque devolvido.");
+    } else {
+      const total = await registerReturn(sale, requested, reason);
+      showToast(`Devolução registrada: ${money(total)}.`);
+    }
+    closeSaleAction();
+    await loadData();
+  } catch (error) {
+    console.error("Falha na ação da venda:", error);
+    setFeedback("#sale-action-feedback", explainError(error), true);
   } finally {
     button.disabled = false;
   }
 });
 
-$("#products-list").addEventListener("click", async (event) => {
-  const editButton = event.target.closest("[data-edit-product]");
-  if (editButton) {
-    const product = products.find((item) => item.id === editButton.dataset.editProduct);
-    if (!product) return;
-    editingProductId = product.id;
-    $("#product-form h3").textContent = "Editar produto";
-    $("#product-form button[type=submit]").textContent = "Salvar alterações";
-    $("#product-name").value = product.nome || "";
-    renderCatalogOptions();
-    $("#product-brand").value = product.marca || "";
-    $("#product-category").value = product.categoria || "";
-    $("#product-description").value = product.descricao || "";
-    $("#product-cost").value = Number(product.custo) || 0;
-    $("#product-gain").value = Number(product.percentualGanho) || 0;
-    $("#product-sale-price").value = getRegisteredSalePrice(product).toFixed(2);
-    salePriceManuallyEdited = true;
-    $("#product-quantity").value = Number(product.quantidade) || 0;
-    $("#product-quantity").disabled = true;
-    $("#product-internal-code").value = product.codigoInterno || "";
-    $("#product-barcode").value = product.codigoBarras || "";
-    $("#product-barcode").disabled = !storeSettings.codigoBarrasAtivo;
-    updateSuggestedPrice();
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    setFeedback("#product-feedback", "Modo de edição: saldo e histórico de entradas não serão alterados. Se o custo mudar, o custo anterior ficará registrado no histórico.");
-    return;
-  }
-  const button = event.target.closest("[data-delete-product]");
-  if (!button) return;
+// ---------- Painel inicial ----------
 
-  const productId = button.dataset.deleteProduct;
-  const product = products.find((item) => item.id === productId);
-  if (!product || product.arquivado) return;
+onEvent("#dashboard-period", "change", renderDashboard);
+onEvent("#dashboard-daily-range", "change", renderDailyChart);
+onEvent("#dash-daily-chart", "click", (event) => {
+  const bar = event.target.closest("[data-chart-index]");
+  if (!bar) return;
+  const item = dailySeries[Number(bar.dataset.chartIndex)];
+  if (item) $("#dash-daily-detail").textContent = `${formatDate(item.date)}: ${money(item.value)}`;
+});
 
-  const confirmed = window.confirm(
-    `Deseja excluir o produto "${product.nome}"?\n\nSe houver estoque ou histórico de movimentações, ele será arquivado para preservar os registros. Caso contrário, será excluído permanentemente.`
-  );
-  if (!confirmed) return;
+// ---------- Vistoria: eventos ----------
 
-  button.disabled = true;
-  button.textContent = "Processando…";
-  try {
-    const hasHistory =
-      entries.some((entry) => entry.produtoId === productId) ||
-      exits.some((exit) => exit.produtoId === productId) ||
-      sales.some((sale) => Array.isArray(sale.itens) && sale.itens.some((item) => item.produtoId === productId)) ||
-      saleReturns.some((saleReturn) => Array.isArray(saleReturn.itens) && saleReturn.itens.some((item) => item.produtoId === productId));
-    const hasStock = (Number(product.quantidade) || 0) > 0;
-
-    if (hasHistory || hasStock) {
-      await updateDoc(doc(db, "produtos", productId), {
-        arquivado: true,
-        arquivadoEm: serverTimestamp(),
-        arquivadoPor: auth.currentUser?.email || null,
-        atualizadoEm: serverTimestamp()
-      });
-      showToast("Produto arquivado. O histórico foi preservado.");
-    } else {
-      await deleteDoc(doc(db, "produtos", productId));
-      showToast("Produto excluído.");
-    }
-    await loadData();
-  } catch (error) {
-    console.error("Falha ao excluir/arquivar produto:", error);
-    showToast(explainError(error));
-    button.disabled = false;
-    button.textContent = "Excluir produto";
+onEvent("#inventory-start", "click", startInventory);
+onEvent("#inventory-save", "click", saveInventory);
+onEvent("#inventory-discard", "click", discardInventory);
+onEvent("#inventory-finish", "click", finishInventory);
+$("#inventory-search").addEventListener("input", () => {
+  setFeedback("#inventory-scan-feedback", "");
+  renderInventoryList();
+});
+$("#inventory-only-uncounted").addEventListener("change", renderInventoryList);
+onEvent("#inventory-list", "input", (event) => {
+  const input = event.target.closest("[data-count-input]");
+  if (!input) return;
+  vistoriaDraft[input.dataset.countInput] = input.value;
+  vistoriaDirty = true;
+  updateInventoryRow(input.dataset.countInput);
+  updateInventorySummary();
+});
+// Avisa antes de sair da página com contagens ainda não salvas.
+window.addEventListener("beforeunload", (event) => {
+  if (vistoriaDirty) {
+    event.preventDefault();
+    event.returnValue = "";
   }
 });
 
-$("#store-settings-form").addEventListener("submit", async (event) => {
+// ---------- Configurações da loja ----------
+
+async function saveStoreSettings(event) {
   event.preventDefault();
-  const button = event.currentTarget.querySelector('button[type="submit"]');
-  button.disabled = true;
+  const submit = $("#store-settings-form button[type=submit]");
+  const settings = {
+    nome: cleanOption(fieldValue("#store-name")),
+    responsavel: cleanOption(fieldValue("#store-manager")),
+    telefone: cleanOption(fieldValue("#store-phone")),
+    endereco: cleanOption(fieldValue("#store-address")),
+    cnpj: cleanOption(fieldValue("#store-cnpj")),
+    codigoInternoAtivo: $("#setting-internal-code").checked,
+    codigoBarrasAtivo: $("#setting-barcode").checked,
+    caixaAtivo: $("#setting-caja-active").checked,
+    saidasAtivo: $("#setting-exits-active").checked
+  };
+  submit.disabled = true;
+  setFeedback("#settings-feedback", "Salvando…");
   try {
-    const updated = {
-      nome: cleanOption($("#store-name").value), responsavel: cleanOption($("#store-manager").value),
-      telefone: cleanOption($("#store-phone").value), endereco: cleanOption($("#store-address").value),
-      cnpj: cleanOption($("#store-cnpj").value),
-      codigoInternoAtivo: $("#setting-internal-code").checked,
-      codigoBarrasAtivo: $("#setting-barcode").checked,
-      caixaAtivo: $("#setting-caja-active").checked,
-      saidasAtivo: $("#setting-exits-active").checked,
-      atualizadoEm: serverTimestamp(), atualizadoPor: auth.currentUser?.email || null
-    };
-    const settingsRef = doc(db, "produtos", STORE_SETTINGS_ID);
-    await runTransaction(db, async (transaction) => {
-      transaction.set(settingsRef, updated, { merge: true });
-    });
-    storeSettings = { ...storeSettings, ...updated };
+    const batch = writeBatch(db);
+    batch.set(doc(db, "produtos", STORE_SETTINGS_ID), { ...settings, atualizadoEm: serverTimestamp() }, { merge: true });
+    await batch.commit();
+    storeSettings = { ...storeSettings, ...settings };
     renderStoreSettings();
+    renderProducts();
     setFeedback("#settings-feedback", "Configurações salvas.");
     showToast("Configurações salvas.");
   } catch (error) {
     console.error("Falha ao salvar configurações:", error);
     setFeedback("#settings-feedback", explainError(error), true);
-  } finally { button.disabled = false; }
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+onEvent("#store-settings-form", "submit", saveStoreSettings);
+// Ligar/desligar módulos já mostra o efeito na tela (só grava ao salvar).
+onEvent("#setting-caja-active", "change", (event) => {
+  storeSettings.caixaAtivo = event.target.checked;
+  renderModuleAvailability();
+});
+onEvent("#setting-exits-active", "change", (event) => {
+  storeSettings.saidasAtivo = event.target.checked;
+  renderModuleAvailability();
 });
 
-$("#refresh-products").addEventListener("click", loadData);
-$("#refresh-entries").addEventListener("click", loadData);
-$("#refresh-exits").addEventListener("click", loadData);
-$("#refresh-sales").addEventListener("click", loadData);
-$("#show-archived-entries").addEventListener("change", (event) => {
-  showArchivedEntries = event.currentTarget.checked;
-  renderEntries();
+// ---------- Abas e tutorial ----------
+
+document.querySelectorAll(".tab").forEach((button) => {
+  button.addEventListener("click", () => switchTab(button.dataset.tab));
 });
-$("#show-tutorial").addEventListener("click", () => { $("#tutorial-overlay").hidden = false; });
-$("#tutorial-close").addEventListener("click", closeTutorialForNow);
-$("#tutorial-understood").addEventListener("click", closeTutorialForNow);
-$("#tutorial-never").addEventListener("click", () => {
+onEvent("#tutorial-close", "click", closeTutorialForNow);
+onEvent("#tutorial-dismiss", "click", () => {
   localStorage.setItem("faydai-tutorial-dismissed", "yes");
   closeTutorialForNow();
-  showToast("O tutorial não será exibido automaticamente.");
 });
-$("#tutorial-overlay").addEventListener("click", (event) => {
-  if (event.target === $("#tutorial-overlay")) closeTutorialForNow();
+
+// ---------- Login, sessão e inicialização ----------
+
+onEvent("#login-form", "submit", async (event) => {
+  event.preventDefault();
+  const submit = $("#login-form button[type=submit]");
+  submit.disabled = true;
+  setFeedback("#login-feedback", "Entrando…");
+  try {
+    await signInWithEmailAndPassword(auth, fieldValue("#login-email").trim(), fieldValue("#login-password"));
+    setFeedback("#login-feedback", "");
+  } catch (error) {
+    console.error("Falha no login:", error);
+    setFeedback("#login-feedback", explainError(error), true);
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+onEvent("#logout-button", "click", async () => {
+  if (vistoriaDirty && !window.confirm("Há contagens da vistoria ainda não salvas. Sair mesmo assim?")) return;
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error("Falha ao sair:", error);
+    showToast(explainError(error));
+  }
+});
+
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
+    // Limpa tudo que estava em memória ao sair.
+    products = []; entries = []; exits = []; sales = []; saleReturns = [];
+    saleCart = []; activeVistoria = null; inventoryHistory = [];
+    vistoriaDraft = {}; vistoriaDraftOwner = null; vistoriaDirty = false;
+    showApp(false);
+    return;
+  }
+  showApp(true);
+  resetProductForm();
+  const dateInput = document.querySelector("#entry-date");
+  if (dateInput && !dateInput.value) dateInput.value = dateToday();
+  try {
+    await loadData();
+    showTutorialIfNeeded();
+  } catch (error) {
+    console.error("Falha ao carregar dados:", error);
+    showToast(explainError(error));
+  }
+  const activeTab = document.querySelector(".tab.active") || document.querySelector(".tab");
+  if (activeTab) switchTab(activeTab.dataset.tab);
 });
