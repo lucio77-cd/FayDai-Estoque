@@ -84,7 +84,7 @@
 .dash-heading-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:22px}
 .dash-heading-row .dash-heading{margin:0}
 .dash-period{border:1px solid #d8deea;background:#fff;border-radius:10px;padding:9px 10px;min-height:40px;color:var(--ink);font-size:13px;max-width:55%}
-.dash-heading-row+.dashboard-grid{margin-top:10px}
+.dash-heading-row+.dashboard-grid,.dash-heading-row+.chart-card{margin-top:10px}
 .dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .stat-card{display:flex;flex-direction:column;gap:6px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:15px;box-shadow:0 5px 18px #18254b08;min-width:0}
 .stat-label{font-size:11px;font-weight:750;color:var(--muted)}
@@ -137,3 +137,43 @@
 .return-row-main small{font-size:12px;color:var(--muted);line-height:1.5}
 .form-stack .return-qty-input{width:84px;min-height:44px;flex:0 0 auto;text-align:center;font-size:16px;padding:10px}
 #sale-action-overlay .tutorial-card h2{padding-right:40px}
+
+/* Estoque mínimo e aviso de estoque baixo */
+.stock-badge.low{background:#fff0ef;color:var(--red)}
+.low-list{display:grid;gap:8px}
+.low-row{display:flex;justify-content:space-between;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}
+.low-main{display:grid;gap:3px;min-width:0}
+.low-main strong{font-size:14px;overflow-wrap:anywhere}
+.low-main small{font-size:12px;color:var(--muted)}
+.low-badge{white-space:nowrap;font-size:12px;font-weight:800;border-radius:8px;padding:6px 8px;background:#fff8e6;color:#785414}
+.low-badge.zero{background:#fff0ef;color:var(--red)}
+.low-more{margin:8px 0 0;font-size:12px;color:var(--muted)}
+.dash-ok{background:#edf8f2;color:#067647;border-radius:12px;padding:14px;font-size:13px;font-weight:650}
+
+/* Painel: mais vendidos, formas de pagamento e vendas por dia */
+.rank-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.rank-row{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}
+.rank-pos{display:grid;place-items:center;flex:0 0 28px;height:28px;border-radius:9px;background:#e9edff;color:var(--blue);font-size:13px;font-weight:800}
+.rank-main{display:grid;gap:3px;min-width:0;flex:1}
+.rank-main strong{font-size:14px;overflow-wrap:anywhere}
+.rank-main small{font-size:12px;color:var(--muted)}
+.rank-units{white-space:nowrap;font-size:13px;font-weight:800;color:var(--navy)}
+.bar-list{display:grid;gap:14px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:15px}
+.bar-head{display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:6px}
+.bar-head span{overflow-wrap:anywhere}
+.bar-track{height:8px;border-radius:99px;background:#edf0f5;overflow:hidden}
+.bar-fill{height:100%;border-radius:99px;background:var(--blue)}
+.chart-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:15px}
+.chart-plot{display:flex;align-items:flex-end;gap:4px;height:140px;border-bottom:1px solid var(--line)}
+.chart-bar-wrap{flex:1 1 0;min-width:0;height:100%;display:flex;align-items:flex-end;justify-content:center;border:0;background:transparent;padding:0}
+.chart-bar{display:block;width:100%;background:#9aadef;border-radius:5px 5px 0 0}
+.chart-bar-wrap:hover .chart-bar,.chart-bar-wrap.is-selected .chart-bar{background:var(--blue)}
+.chart-axis{display:flex;gap:4px;margin-top:6px}
+.chart-axis span{flex:1 1 0;min-width:0;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap}
+.chart-detail{margin:12px 0 0;font-size:12px;line-height:1.6;color:var(--ink)}
+.chart-detail:empty{display:none}
+
+/* Exportação CSV */
+.export-panel{margin-top:16px}
+.export-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.export-grid .button{width:100%}
