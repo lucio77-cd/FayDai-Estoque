@@ -106,7 +106,7 @@ Cada alteração do custo cadastrado gera um registro imutável na coleção `hi
 - Produtos arquivados ou excluídos bloqueiam a devolução ao estoque, com aviso claro.
 - Cancelamentos e devoluções não aparecem nos históricos de Entradas e Saídas: o registro do movimento é a própria venda (cancelamento) ou a devolução.
 - Vendas antigas, de um formato anterior sem identificação dos produtos, não podem ser canceladas nem devolvidas pelo sistema.
-- O limite "não devolver mais do que foi vendido" é garantido pelo aplicativo (as regras do Firestore não somam documentos).
+- O limite "não devolver mais do que foi vendido" é conferido **dentro da transação**, com contadores gravados na própria venda (`devolvidoPorProduto` e `valorDevolvido`), e as regras do Firestore reforçam o teto do valor devolvido (soma ≤ total da venda). Assim, cancelar e devolver ao mesmo tempo em dois aparelhos não passa pelo limite: a venda muda, a transação reexecuta e a segunda operação é bloqueada. Vendas antigas, sem contador, ganham o contador na primeira devolução.
 
 ### 7. Painel inicial (dashboard)
 O painel deverá apresentar, conforme existirem dados suficientes:
@@ -307,6 +307,7 @@ As regras de segurança são publicadas no **Firebase Console → Firestore Data
 - permitir excluir produto apenas com saldo zero;
 - em `vistorias`, permitir salvar, concluir ou descartar apenas vistorias em andamento; uma vistoria concluída nunca mais pode ser alterada ou apagada.
 
-O campo `estoqueMinimo` dos produtos não exige nenhuma regra nova.
+- validar `estoqueMinimo` (vazio/nulo ou inteiro maior ou igual a zero), como o aplicativo já faz;
+- em `vendas`, permitir também a atualização dos contadores de devolução (`devolvidoPorProduto`, `valorDevolvido`, `ultimaDevolucaoId`, `ultimaDevolucaoEm`), sempre junto com a criação da devolução correspondente, sem passar do total da venda e nunca em venda cancelada; cancelar só se não houve devolução.
 
 Não publique o e-mail real da conta autorizada neste repositório.
