@@ -76,6 +76,9 @@ let selectedExitProductId = "";
 let selectedEntryProductId = "";
 let selectedSaleProductId = "";
 let saleCart = [];
+// Idempotência da venda: ID gerado no cliente e reaproveitado enquanto o carrinho não mudar.
+let saleAttempt = null; // { id, fingerprint }
+let saleInFlight = false;
 let brands = [];
 let categories = [];
 let showArchivedEntries = false;
@@ -291,18 +294,22 @@ function resetProductForm() {
   updateSuggestedPrice();
 }
 
-async function generateInternalCode() {
+// Reserva o próximo código interno DENTRO da transação que salva o produto.
+// A leitura do contador acontece junto com as demais leituras; a gravação do novo
+// valor só é feita por reservation.commit(), na mesma transação que grava o produto.
+// Assim o número só é consumido se o produto for realmente salvo (sem lacunas na sequência).
+async function reserveInternalCode(transaction) {
   const counterRef = doc(db, "produtos", INTERNAL_COUNTER_ID);
-  return runTransaction(db, async (transaction) => {
-    const snap = await transaction.get(counterRef);
-    const existingMax = products.reduce((max, product) => {
-      const match = String(product.codigoInterno || "").match(/^FON(\d+)$/i);
-      return match ? Math.max(max, Number(match[1]) || 0) : max;
-    }, 0);
-    const next = Math.max(Number(snap.data()?.ultimoNumero) || 0, existingMax) + 1;
-    transaction.set(counterRef, { ultimoNumero: next, atualizadoEm: serverTimestamp() }, { merge: true });
-    return "FON" + String(next).padStart(3, "0");
-  });
+  const snap = await transaction.get(counterRef);
+  const existingMax = products.reduce((max, product) => {
+    const match = String(product.codigoInterno || "").match(/^FON(\d+)$/i);
+    return match ? Math.max(max, Number(match[1]) || 0) : max;
+  }, 0);
+  const next = Math.max(Number(snap.data()?.ultimoNumero) || 0, existingMax) + 1;
+  return {
+    code: "FON" + String(next).padStart(3, "0"),
+    commit: () => transaction.set(counterRef, { ultimoNumero: next, atualizadoEm: serverTimestamp() }, { merge: true })
+  };
 }
 
 // ---------- Painel inicial (dashboard) ----------
@@ -1017,6 +1024,8 @@ function renderSales() {
 }
 
 // Soma unidades de volta ao estoque dentro de uma transação (todas as leituras antes das escritas).
+// Produtos ARQUIVADOS continuam aceitando a devolução ao estoque: arquivar só impede novas vendas,
+// não deve impedir o estorno de vendas antigas. Apenas um produto que não existe mais bloqueia.
 async function restockInTransaction(transaction, lines) {
   const totals = new Map();
   lines.forEach((line) => {
@@ -1032,7 +1041,6 @@ async function restockInTransaction(transaction, lines) {
   snapshots.forEach((snapshot, index) => {
     const info = entriesList[index][1];
     if (!snapshot.exists()) throw new Error(`O produto "${info.nome}" não existe mais; não é possível devolver ao estoque.`);
-    if (snapshot.data().arquivado) throw new Error(`O produto "${info.nome}" está arquivado; não é possível devolver ao estoque.`);
   });
   snapshots.forEach((snapshot, index) => {
     transaction.update(snapshot.ref, {
@@ -1679,12 +1687,6 @@ async function finishInventory() {
     button.disabled = false;
   }
 }
-// =====================================================================
-// PARTE 3 CORRIGIDA — substitui tudo do bloco
-// "// ---------- Auxiliares gerais (leitura de campos e eventos) ----------"
-// até o FIM do app.js.
-// Não esqueça o ajuste do setFeedback na parte 1 (veja a explicação).
-// =====================================================================
 
 // ---------- Auxiliares gerais (leitura de campos e eventos) ----------
 
@@ -2039,7 +2041,9 @@ async function saveProduct(event) {
 
   const nome = cleanOption(fieldValue("#product-name"));
   const descricao = fieldValue("#product-description").trim();
-  const custo = roundMoney(parseDecimal(fieldValue("#product-cost")));
+  // O custo digitado é validado ANTES de arredondar: roundMoney(NaN) viraria 0 e esconderia o campo vazio.
+  const custoDigitado = parseDecimal(fieldValue("#product-cost"));
+  const custo = roundMoney(custoDigitado);
   const percentualGanho = parseDecimal(fieldValue("#product-gain"));
   const quantity = editing ? Number(editing.quantidade) || 0 : Number(fieldValue("#product-quantity") || 0);
   const minRaw = fieldValue("#product-min-stock").trim();
@@ -2061,7 +2065,7 @@ async function saveProduct(event) {
     : calcSuggestedPrice({ custo, percentualGanho });
 
   if (!nome) return setFeedback("#product-feedback", "Informe o nome do produto.", true);
-  if (!Number.isFinite(custo) || custo < 0) return setFeedback("#product-feedback", "Informe um custo válido.", true);
+  if (!Number.isFinite(custoDigitado) || custo <= 0) return setFeedback("#product-feedback", "Informe um custo válido, maior que zero.", true);
   if (!Number.isFinite(percentualGanho) || percentualGanho < 0) return setFeedback("#product-feedback", "Informe um percentual de ganho válido.", true);
   if (!Number.isInteger(quantity) || quantity < 0) return setFeedback("#product-feedback", "A quantidade deve ser um número inteiro, 0 ou maior.", true);
   if (estoqueMinimo !== null && (!Number.isInteger(estoqueMinimo) || estoqueMinimo < 0)) {
@@ -2079,69 +2083,88 @@ async function saveProduct(event) {
   submit.disabled = true;
   setFeedback("#product-feedback", "Salvando…");
   try {
-    const batch = writeBatch(db);
+    // Marca e categoria novas entram no catálogo na mesma transação que grava o produto.
     const catalogRef = doc(db, "produtos", CATALOG_OPTIONS_ID);
     const catalogUpdate = {};
     if (marca && !brands.some((value) => normalizeText(value) === normalizeText(marca))) catalogUpdate.marcas = arrayUnion(marca);
     if (categoria && !categories.some((value) => normalizeText(value) === normalizeText(categoria))) catalogUpdate.categorias = arrayUnion(categoria);
-    if (Object.keys(catalogUpdate).length) batch.set(catalogRef, catalogUpdate, { merge: true });
+    const hasCatalogUpdate = Object.keys(catalogUpdate).length > 0;
 
     if (editing) {
-      let codigoInterno = editing.codigoInterno || "";
-      if (!codigoInterno && storeSettings.codigoInternoAtivo) codigoInterno = await generateInternalCode();
-      const changes = {
-        nome, descricao, marca, categoria, codigoInterno,
-        codigoBarras: barcode,
-        custo, percentualGanho, precoVenda, estoqueMinimo,
-        atualizadoEm: serverTimestamp()
-      };
-      if (roundMoney(editing.custo) !== custo) {
-        changes.custoAnterior = roundMoney(editing.custo);
-        changes.custoAlteradoEm = dateToday();
-        // Registro imutável do histórico de custos.
-        batch.set(doc(collection(db, "historico_custos")), {
-          produtoId: editing.id,
-          produtoNome: nome,
-          custoAnterior: roundMoney(editing.custo),
-          custoNovo: custo,
-          origem: "edicao_produto",
-          data: dateToday(),
-                    usuario: currentEmail(),
-          criadoEm: serverTimestamp()
-        });
-      }
-      batch.update(doc(db, "produtos", editing.id), changes);
+      const productRef = doc(db, "produtos", editing.id);
+      await runTransaction(db, async (transaction) => {
+        // Leituras primeiro: produto atual (dados frescos) e, se faltar código, o contador.
+        const snapshot = await transaction.get(productRef);
+        if (!snapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista.");
+        const current = snapshot.data();
+        const reservation = (!current.codigoInterno && storeSettings.codigoInternoAtivo)
+          ? await reserveInternalCode(transaction)
+          : null;
+
+        const changes = {
+          nome, descricao, marca, categoria,
+          codigoInterno: reservation ? reservation.code : (current.codigoInterno || ""),
+          codigoBarras: barcode,
+          custo, percentualGanho, precoVenda, estoqueMinimo,
+          atualizadoEm: serverTimestamp()
+        };
+        if (roundMoney(current.custo) !== custo) {
+          changes.custoAnterior = roundMoney(current.custo);
+          changes.custoAlteradoEm = dateToday();
+          // Registro imutável do histórico de custos.
+          transaction.set(doc(collection(db, "historico_custos")), {
+            produtoId: editing.id,
+            produtoNome: nome,
+            custoAnterior: roundMoney(current.custo),
+            custoNovo: custo,
+            origem: "edicao_produto",
+            data: dateToday(),
+            usuario: currentEmail(),
+            criadoEm: serverTimestamp()
+          });
+        }
+        if (hasCatalogUpdate) transaction.set(catalogRef, catalogUpdate, { merge: true });
+        if (reservation) reservation.commit();
+        transaction.update(productRef, changes);
+      });
     } else {
       const productRef = doc(collection(db, "produtos"));
-      let codigoInterno = "";
-      if (storeSettings.codigoInternoAtivo) codigoInterno = await generateInternalCode();
-      batch.set(productRef, {
-        nome, descricao, marca, categoria, codigoInterno,
-        codigoBarras: barcode,
-        custo, percentualGanho, precoVenda, estoqueMinimo,
-        quantidade: quantity,
-        arquivado: false,
-        criadoEmData: dateToday(),
-        criadoEm: serverTimestamp(),
-        atualizadoEm: serverTimestamp()
-      });
-      if (quantity > 0) {
-        batch.set(doc(collection(db, "entradas")), {
-          produtoId: productRef.id,
-          produtoNome: nome,
+      const entryRef = doc(collection(db, "entradas"));
+      await runTransaction(db, async (transaction) => {
+        // O contador é lido e gravado na mesma transação do produto:
+        // se o salvamento falhar, o número não é consumido.
+        const reservation = storeSettings.codigoInternoAtivo ? await reserveInternalCode(transaction) : null;
+
+        if (hasCatalogUpdate) transaction.set(catalogRef, catalogUpdate, { merge: true });
+        transaction.set(productRef, {
+          nome, descricao, marca, categoria,
+          codigoInterno: reservation ? reservation.code : "",
+          codigoBarras: barcode,
+          custo, percentualGanho, precoVenda, estoqueMinimo,
           quantidade: quantity,
-          custoUnitario: custo,
-          data: dateToday(),
-          tipo: "estoque_inicial",
-          fornecedor: "",
-          observacao: "Estoque inicial no cadastro do produto",
-          usuario: currentEmail(),
+          arquivado: false,
+          criadoEmData: dateToday(),
           criadoEm: serverTimestamp(),
-          criadoEmMs: Date.now()
+          atualizadoEm: serverTimestamp()
         });
-      }
+        if (quantity > 0) {
+          transaction.set(entryRef, {
+            produtoId: productRef.id,
+            produtoNome: nome,
+            quantidade: quantity,
+            custoUnitario: custo,
+            data: dateToday(),
+            tipo: "estoque_inicial",
+            fornecedor: "",
+            observacao: "Estoque inicial no cadastro do produto",
+            usuario: currentEmail(),
+            criadoEm: serverTimestamp(),
+            criadoEmMs: Date.now()
+          });
+        }
+        if (reservation) reservation.commit();
+      });
     }
-    await batch.commit();
     const wasEditing = Boolean(editing);
     resetProductForm();
     setCancelEditVisible(false);
@@ -2315,6 +2338,8 @@ onEvent("#sale-cart-list", "input", (event) => {
 
 async function finishSale(event) {
   event.preventDefault();
+  // Trava de clique duplo: enquanto uma gravação está em andamento, novos envios são ignorados.
+  if (saleInFlight) return;
   if (!storeSettings.caixaAtivo) return setFeedback("#sale-feedback", "O módulo Caixa está desativado.", true);
   if (!saleCart.length) return setFeedback("#sale-feedback", "Adicione pelo menos um produto.", true);
   if (cartHasInvalidPrice()) return setFeedback("#sale-feedback", "Há item com preço vazio ou zero.", true);
@@ -2330,12 +2355,35 @@ async function finishSale(event) {
     `Atenção: ${belowCost.length} item(ns) com preço ABAIXO do custo:\n\n${belowCost.map((item) => `• ${item.nome}`).join("\n")}\n\nFinalizar mesmo assim?`
   )) return;
 
+  const cartSnapshot = saleCart.map((item) => ({ ...item }));
+
+  // Idempotência: o ID da venda é gerado no cliente ANTES da transação e só muda quando o conteúdo
+  // da venda muda. Se a resposta da rede se perder e o usuário tentar de novo, o mesmo ID é reutilizado
+  // e a transação detecta que a venda já foi gravada, em vez de criar outra.
+  const fingerprint = JSON.stringify({
+    formaPagamento,
+    date,
+    itens: cartSnapshot.map((item) => [item.produtoId, item.quantidade, item.precoUnitario])
+  });
+  if (!saleAttempt || saleAttempt.fingerprint !== fingerprint) {
+    saleAttempt = { id: doc(collection(db, "vendas")).id, fingerprint };
+  }
+  const saleRef = doc(db, "vendas", saleAttempt.id);
+
+  saleInFlight = true;
   const button = $("#sale-finish-button");
   button.disabled = true;
   setFeedback("#sale-feedback", "Registrando venda…");
   try {
-    const cartSnapshot = saleCart.map((item) => ({ ...item }));
+    let alreadySaved = false;
     await runTransaction(db, async (transaction) => {
+      alreadySaved = false;
+      // Leituras primeiro: a própria venda (idempotência) e depois os produtos.
+      const existingSale = await transaction.get(saleRef);
+      if (existingSale.exists()) {
+        alreadySaved = true;
+        return;
+      }
       const snapshots = [];
       for (const item of cartSnapshot) snapshots.push(await transaction.get(doc(db, "produtos", item.produtoId)));
       const itens = [];
@@ -2364,7 +2412,7 @@ async function finishSale(event) {
         });
         transaction.update(snapshot.ref, { quantidade: balance - item.quantidade, atualizadoEm: serverTimestamp() });
       });
-      transaction.set(doc(collection(db, "vendas")), {
+      transaction.set(saleRef, {
         itens,
         total: roundMoney(itens.reduce((sum, item) => sum + item.subtotal, 0)),
         formaPagamento,
@@ -2376,17 +2424,22 @@ async function finishSale(event) {
         criadoEm: serverTimestamp()
       });
     });
+    saleAttempt = null;
     saleCart = [];
     $("#sale-payment-method").value = "";
     initDateFields(true);
     renderSaleCart();
     await loadData();
-    setFeedback("#sale-feedback", "Venda registrada.");
-    showToast("Venda registrada.");
+    const message = alreadySaved
+      ? "Esta venda já estava registrada (o envio anterior foi confirmado). Nada foi duplicado."
+      : "Venda registrada.";
+    setFeedback("#sale-feedback", message);
+    showToast(alreadySaved ? "Venda já registrada." : "Venda registrada.");
   } catch (error) {
     console.error("Falha ao registrar venda:", error);
     setFeedback("#sale-feedback", explainError(error), true);
   } finally {
+    saleInFlight = false;
     updateCartSummary();
   }
 }
@@ -2634,6 +2687,8 @@ onEvent("#logout-button", "click", async () => {
 function clearSessionState() {
   products = []; entries = []; exits = []; sales = []; saleReturns = [];
   saleCart = [];
+  saleAttempt = null;
+  saleInFlight = false;
   activeVistoria = null; inventoryHistory = [];
   vistoriaDraft = {}; vistoriaDraftOwner = null; vistoriaDirty = false;
   selectedEntryProductId = ""; selectedExitProductId = "";
@@ -2657,4 +2712,3 @@ onAuthStateChanged(auth, async (user) => {
   switchTab("dashboard");
   showTutorialIfNeeded();
 });
-
