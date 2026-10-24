@@ -2106,3 +2106,555 @@ async function saveProduct(event) {
           custoNovo: custo,
           origem: "edicao_produto",
           data: dateToday(),
+                    usuario: currentEmail(),
+          criadoEm: serverTimestamp()
+        });
+      }
+      batch.update(doc(db, "produtos", editing.id), changes);
+    } else {
+      const productRef = doc(collection(db, "produtos"));
+      let codigoInterno = "";
+      if (storeSettings.codigoInternoAtivo) codigoInterno = await generateInternalCode();
+      batch.set(productRef, {
+        nome, descricao, marca, categoria, codigoInterno,
+        codigoBarras: barcode,
+        custo, percentualGanho, precoVenda, estoqueMinimo,
+        quantidade: quantity,
+        arquivado: false,
+        criadoEmData: dateToday(),
+        criadoEm: serverTimestamp(),
+        atualizadoEm: serverTimestamp()
+      });
+      if (quantity > 0) {
+        batch.set(doc(collection(db, "entradas")), {
+          produtoId: productRef.id,
+          produtoNome: nome,
+          quantidade: quantity,
+          custoUnitario: custo,
+          data: dateToday(),
+          tipo: "estoque_inicial",
+          fornecedor: "",
+          observacao: "Estoque inicial no cadastro do produto",
+          usuario: currentEmail(),
+          criadoEm: serverTimestamp(),
+          criadoEmMs: Date.now()
+        });
+      }
+    }
+    await batch.commit();
+    const wasEditing = Boolean(editing);
+    resetProductForm();
+    setCancelEditVisible(false);
+    await loadData();
+    setFeedback("#product-feedback", wasEditing ? "Produto atualizado." : "Produto salvo.");
+    showToast(wasEditing ? "Produto atualizado." : "Produto salvo.");
+  } catch (error) {
+    console.error("Falha ao salvar produto:", error);
+    setFeedback("#product-feedback", explainError(error), true);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+onEvent("#product-form", "submit", saveProduct);
+
+// ---------- Produtos: editar, excluir ou arquivar ----------
+
+async function deleteProduct(productId) {
+  const product = products.find((item) => item.id === productId);
+  if (!product) return;
+  if ((Number(product.quantidade) || 0) > 0) {
+    showToast("Só é possível excluir produto com saldo zero. Use Saídas ou Vistoria para zerar o saldo.");
+    return;
+  }
+  const hasHistory = entries.some((item) => item.produtoId === productId)
+    || exits.some((item) => item.produtoId === productId)
+    || sales.some((sale) => saleItemsOf(sale).some((item) => item.produtoId === productId))
+    || saleReturns.some((item) => (item.itens || []).some((line) => line.produtoId === productId));
+  const message = hasHistory
+    ? `O produto "${product.nome}" tem histórico de movimentações.\n\nEle será ARQUIVADO (sai das listas e do Painel, mas o histórico é preservado). Continuar?`
+    : `Excluir o produto "${product.nome}"?\n\nEsta ação não pode ser desfeita.`;
+  if (!window.confirm(message)) return;
+  try {
+    if (hasHistory) {
+      await updateDoc(doc(db, "produtos", productId), {
+        arquivado: true,
+        arquivadoEm: serverTimestamp(),
+        atualizadoEm: serverTimestamp()
+      });
+    } else {
+      await deleteDoc(doc(db, "produtos", productId));
+    }
+    if (editingProductId === productId) {
+      resetProductForm();
+      setCancelEditVisible(false);
+    }
+    await loadData();
+    showToast(hasHistory ? "Produto arquivado." : "Produto excluído.");
+  } catch (error) {
+    console.error("Falha ao excluir produto:", error);
+    showToast(explainError(error));
+  }
+}
+
+onEvent("#products-list", "click", (event) => {
+  const edit = event.target.closest("[data-edit-product]");
+  if (edit) return startEditProduct(edit.dataset.editProduct);
+  const remove = event.target.closest("[data-delete-product]");
+  if (remove) deleteProduct(remove.dataset.deleteProduct);
+});
+
+// ---------- Entradas ----------
+
+onEvent("#show-archived-entries", "change", (event) => {
+  showArchivedEntries = event.target.checked;
+  renderEntries();
+});
+
+async function saveEntry(event) {
+  event.preventDefault();
+  const submit = $("#entry-form button[type=submit]");
+  const product = products.find((item) => item.id === selectedEntryProductId && !item.arquivado);
+  if (!product) return setFeedback("#entry-feedback", "Selecione um produto da lista.", true);
+  const quantidade = Number(fieldValue("#entry-quantity"));
+  const custoUnitario = roundMoney(parseDecimal(fieldValue("#entry-cost")));
+  const data = fieldValue("#entry-date") || dateToday();
+  if (!Number.isInteger(quantidade) || quantidade < 1) return setFeedback("#entry-feedback", "A quantidade deve ser um número inteiro maior que zero.", true);
+  if (!Number.isFinite(custoUnitario) || custoUnitario < 0) return setFeedback("#entry-feedback", "Informe um custo unitário válido.", true);
+
+  submit.disabled = true;
+  setFeedback("#entry-feedback", "Registrando…");
+  try {
+    const productRef = doc(db, "produtos", product.id);
+    await runTransaction(db, async (transaction) => {
+      const snapshot = await transaction.get(productRef);
+      if (!snapshot.exists() || snapshot.data().arquivado) throw new Error("Este produto não está mais disponível.");
+      transaction.update(productRef, {
+        quantidade: (Number(snapshot.data().quantidade) || 0) + quantidade,
+        atualizadoEm: serverTimestamp()
+      });
+      transaction.set(doc(collection(db, "entradas")), {
+        produtoId: product.id,
+        produtoNome: snapshot.data().nome || product.nome || "",
+        quantidade,
+        custoUnitario,
+        data,
+        tipo: "entrada",
+        fornecedor: cleanOption(fieldValue("#entry-supplier")),
+        observacao: fieldValue("#entry-notes").trim(),
+        usuario: currentEmail(),
+        criadoEm: serverTimestamp(),
+        criadoEmMs: Date.now()
+      });
+    });
+    $("#entry-form").reset();
+    selectedEntryProductId = "";
+    initDateFields(true);
+    await loadData();
+    setFeedback("#entry-feedback", "Entrada registrada.");
+    showToast("Entrada registrada.");
+  } catch (error) {
+    console.error("Falha ao registrar entrada:", error);
+    setFeedback("#entry-feedback", explainError(error), true);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+onEvent("#entry-form", "submit", saveEntry);
+
+// ---------- Caixa: busca, carrinho e finalização ----------
+
+onEvent("#sale-product-search", "input", renderSaleProductResults);
+
+onEvent("#sale-product-results", "click", (event) => {
+  const button = event.target.closest("[data-select-sale-product]");
+  if (!button) return;
+  const product = products.find((item) => item.id === button.dataset.selectSaleProduct && !item.arquivado);
+  if (product) addProductToSaleCart(product);
+});
+
+onEvent("#sale-cart-list", "click", (event) => {
+  const plus = event.target.closest("[data-cart-plus]");
+  const minus = event.target.closest("[data-cart-minus]");
+  const remove = event.target.closest("[data-cart-remove]");
+  if (plus) {
+    const item = saleCart[Number(plus.dataset.cartPlus)];
+    const product = item && products.find((entry) => entry.id === item.produtoId);
+    if (!item || !product) return;
+    if (item.quantidade + 1 > (Number(product.quantidade) || 0)) {
+      return setFeedback("#sale-feedback", `Saldo insuficiente. Disponível: ${Number(product.quantidade) || 0} unidade(s).`, true);
+    }
+    item.quantidade += 1;
+  } else if (minus) {
+    const item = saleCart[Number(minus.dataset.cartMinus)];
+    if (!item) return;
+    item.quantidade -= 1;
+    if (item.quantidade < 1) saleCart.splice(Number(minus.dataset.cartMinus), 1);
+  } else if (remove) {
+    saleCart.splice(Number(remove.dataset.cartRemove), 1);
+  } else {
+    return;
+  }
+  setFeedback("#sale-feedback", "");
+  renderSaleCart();
+});
+
+// Digitar o preço atualiza só a linha (sem redesenhar, para não perder o foco).
+onEvent("#sale-cart-list", "input", (event) => {
+  const input = event.target.closest("[data-cart-price]");
+  if (!input) return;
+  const index = Number(input.dataset.cartPrice);
+  const item = saleCart[index];
+  if (!item) return;
+  const parsed = parseDecimal(input.value);
+  item.precoUnitario = Number.isFinite(parsed) ? roundMoney(parsed) : NaN;
+  updateCartRow(index);
+  updateCartSummary();
+});
+
+async function finishSale(event) {
+  event.preventDefault();
+  if (!storeSettings.caixaAtivo) return setFeedback("#sale-feedback", "O módulo Caixa está desativado.", true);
+  if (!saleCart.length) return setFeedback("#sale-feedback", "Adicione pelo menos um produto.", true);
+  if (cartHasInvalidPrice()) return setFeedback("#sale-feedback", "Há item com preço vazio ou zero.", true);
+  const formaPagamento = fieldValue("#sale-payment-method");
+  if (!formaPagamento) return setFeedback("#sale-feedback", "Selecione a forma de pagamento.", true);
+  const date = fieldValue("#sale-date") || dateToday();
+
+  const belowCost = saleCart.filter((item) => {
+    const product = products.find((entry) => entry.id === item.produtoId);
+    return product && item.precoUnitario < roundMoney(product.custo);
+  });
+  if (belowCost.length && !window.confirm(
+    `Atenção: ${belowCost.length} item(ns) com preço ABAIXO do custo:\n\n${belowCost.map((item) => `• ${item.nome}`).join("\n")}\n\nFinalizar mesmo assim?`
+  )) return;
+
+  const button = $("#sale-finish-button");
+  button.disabled = true;
+  setFeedback("#sale-feedback", "Registrando venda…");
+  try {
+    const cartSnapshot = saleCart.map((item) => ({ ...item }));
+    await runTransaction(db, async (transaction) => {
+      const snapshots = [];
+      for (const item of cartSnapshot) snapshots.push(await transaction.get(doc(db, "produtos", item.produtoId)));
+      const itens = [];
+      snapshots.forEach((snapshot, index) => {
+        const item = cartSnapshot[index];
+        if (!snapshot.exists() || snapshot.data().arquivado) throw new Error(`O produto "${item.nome}" não está mais disponível.`);
+        const product = { id: snapshot.id, ...snapshot.data() };
+        const balance = Number(product.quantidade) || 0;
+        if (item.quantidade > balance) throw new Error(`Saldo insuficiente de "${product.nome}". Disponível: ${balance}.`);
+        const custoUnitario = roundMoney(product.custo);
+        const precoCadastrado = getRegisteredSalePrice(product);
+        const precoSugerido = calcSuggestedPrice(product);
+        itens.push({
+          produtoId: product.id,
+          produtoNome: product.nome || item.nome,
+          codigoInterno: product.codigoInterno || "",
+          quantidade: item.quantidade,
+          precoUnitario: item.precoUnitario,
+          precoCadastrado,
+          precoSugerido,
+          custoUnitario,
+          subtotal: roundMoney(item.quantidade * item.precoUnitario),
+          precoAlterado: item.precoUnitario !== precoCadastrado,
+          abaixoDoSugerido: item.precoUnitario < precoSugerido,
+          abaixoDoCusto: item.precoUnitario < custoUnitario
+        });
+        transaction.update(snapshot.ref, { quantidade: balance - item.quantidade, atualizadoEm: serverTimestamp() });
+      });
+      transaction.set(doc(collection(db, "vendas")), {
+        itens,
+        total: roundMoney(itens.reduce((sum, item) => sum + item.subtotal, 0)),
+        formaPagamento,
+        data: date,
+        dataHora: dateTimeFor(date),
+        usuario: currentEmail(),
+        devolvidoPorProduto: {},
+        valorDevolvido: 0,
+        criadoEm: serverTimestamp()
+      });
+    });
+    saleCart = [];
+    $("#sale-payment-method").value = "";
+    initDateFields(true);
+    renderSaleCart();
+    await loadData();
+    setFeedback("#sale-feedback", "Venda registrada.");
+    showToast("Venda registrada.");
+  } catch (error) {
+    console.error("Falha ao registrar venda:", error);
+    setFeedback("#sale-feedback", explainError(error), true);
+  } finally {
+    updateCartSummary();
+  }
+}
+
+onEvent("#sale-form", "submit", finishSale);
+
+// ---------- Histórico de vendas: cancelar e devolver ----------
+
+onEvent("#sales-list", "click", (event) => {
+  const returnButton = event.target.closest("[data-sale-return]");
+  if (returnButton) return openSaleAction("return", returnButton.dataset.saleReturn);
+  const cancelButton = event.target.closest("[data-sale-cancel]");
+  if (cancelButton) openSaleAction("cancel", cancelButton.dataset.saleCancel);
+});
+
+onEvent("#sale-action-close", "click", closeSaleAction);
+onEvent("#sale-action-items", "input", updateReturnTotal);
+
+onEvent("#sale-action-form", "submit", async (event) => {
+  event.preventDefault();
+  if (!saleAction) return;
+  const sale = sales.find((item) => item.id === saleAction.saleId);
+  if (!sale) return setFeedback("#sale-action-feedback", "Venda não encontrada. Atualize a lista.", true);
+  const reason = fieldValue("#sale-action-reason").trim();
+  if (!reason) return setFeedback("#sale-action-feedback", "Informe o motivo.", true);
+
+  const button = $("#sale-action-confirm");
+  button.disabled = true;
+  setFeedback("#sale-action-feedback", "Salvando…");
+  try {
+    if (saleAction.mode === "cancel") {
+      await cancelSale(sale, reason);
+      showToast("Venda cancelada.");
+    } else {
+      const requested = [];
+      let invalid = false;
+      document.querySelectorAll("#sale-action-items [data-return-index]").forEach((input) => {
+        if (String(input.value).trim() === "") return;
+        const quantity = Number(input.value);
+        if (!Number.isInteger(quantity) || quantity < 0 || quantity > Number(input.dataset.returnMax)) invalid = true;
+        else if (quantity > 0) requested.push({ index: Number(input.dataset.returnIndex), quantidade: quantity });
+      });
+      if (invalid) throw new Error("Quantidade inválida. Use números inteiros até o máximo permitido.");
+      if (!requested.length) throw new Error("Informe a quantidade de pelo menos um item.");
+      const total = await registerReturn(sale, requested, reason);
+      showToast(`Devolução registrada: ${money(total)}.`);
+    }
+    closeSaleAction();
+    await loadData();
+  } catch (error) {
+    console.error("Falha na operação da venda:", error);
+    setFeedback("#sale-action-feedback", explainError(error), true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+// ---------- Saídas ----------
+
+onEvent("#exit-product-search", "input", () => {
+  selectedExitProductId = "";
+  renderExitProductResults();
+});
+
+onEvent("#exit-product-results", "click", (event) => {
+  const button = event.target.closest("[data-select-exit-product]");
+  if (!button) return;
+  const product = products.find((item) => item.id === button.dataset.selectExitProduct && !item.arquivado);
+  if (!product) return;
+  selectedExitProductId = product.id;
+  $("#exit-product-search").value = product.nome;
+  renderExitProductResults();
+  $("#exit-quantity").focus();
+});
+
+async function saveExit(event) {
+  event.preventDefault();
+  if (storeSettings.saidasAtivo === false) return setFeedback("#exit-feedback", "O módulo Saídas está desativado.", true);
+  const submit = $("#exit-form button[type=submit]");
+  const product = products.find((item) => item.id === selectedExitProductId && !item.arquivado);
+  if (!product) return setFeedback("#exit-feedback", "Selecione um produto da lista.", true);
+  const quantidade = Number(fieldValue("#exit-quantity"));
+  const motivo = fieldValue("#exit-reason");
+  const data = fieldValue("#exit-date") || dateToday();
+  if (!Number.isInteger(quantidade) || quantidade < 1) return setFeedback("#exit-feedback", "A quantidade deve ser um número inteiro maior que zero.", true);
+  if (!motivo) return setFeedback("#exit-feedback", "Selecione o motivo da saída.", true);
+
+  submit.disabled = true;
+  setFeedback("#exit-feedback", "Registrando…");
+  try {
+    const productRef = doc(db, "produtos", product.id);
+    await runTransaction(db, async (transaction) => {
+      const snapshot = await transaction.get(productRef);
+      if (!snapshot.exists() || snapshot.data().arquivado) throw new Error("Este produto não está mais disponível.");
+      const balance = Number(snapshot.data().quantidade) || 0;
+      if (quantidade > balance) throw new Error(`Saldo insuficiente. Disponível: ${balance} unidade(s).`);
+      transaction.update(productRef, { quantidade: balance - quantidade, atualizadoEm: serverTimestamp() });
+      transaction.set(doc(collection(db, "saidas")), {
+        produtoId: product.id,
+        produtoNome: snapshot.data().nome || product.nome || "",
+        quantidade,
+        motivo,
+        observacao: fieldValue("#exit-notes").trim(),
+        data,
+        dataHora: dateTimeFor(data),
+        usuario: currentEmail(),
+        criadoEm: serverTimestamp()
+      });
+    });
+    $("#exit-form").reset();
+    selectedExitProductId = "";
+    initDateFields(true);
+    await loadData();
+    setFeedback("#exit-feedback", "Saída registrada.");
+    showToast("Saída registrada.");
+  } catch (error) {
+    console.error("Falha ao registrar saída:", error);
+    setFeedback("#exit-feedback", explainError(error), true);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+onEvent("#exit-form", "submit", saveExit);
+
+// ---------- Vistoria: botões e campos ----------
+
+onEvent("#inventory-start", "click", startInventory);
+onEvent("#inventory-save", "click", saveInventory);
+onEvent("#inventory-finish", "click", finishInventory);
+onEvent("#inventory-discard", "click", discardInventory);
+onEvent("#inventory-search", "input", renderInventoryList);
+onEvent("#inventory-only-uncounted", "change", renderInventoryList);
+
+onEvent("#inventory-list", "input", (event) => {
+  const input = event.target.closest("[data-count-input]");
+  if (!input) return;
+  const productId = input.dataset.countInput;
+  vistoriaDraft[productId] = input.value;
+  vistoriaDirty = true;
+  updateInventoryRow(productId);
+  updateInventorySummary();
+});
+
+// ---------- Configurações ----------
+
+onEvent("#store-settings-form", "submit", async (event) => {
+  event.preventDefault();
+  const submit = $("#store-settings-form button[type=submit]");
+  const settings = {
+    nome: cleanOption(fieldValue("#store-name")),
+    responsavel: cleanOption(fieldValue("#store-manager")),
+    telefone: cleanOption(fieldValue("#store-phone")),
+    endereco: fieldValue("#store-address").trim(),
+    cnpj: cleanOption(fieldValue("#store-cnpj")),
+    codigoInternoAtivo: $("#setting-internal-code").checked,
+    codigoBarrasAtivo: $("#setting-barcode").checked,
+    caixaAtivo: $("#setting-caja-active").checked,
+    saidasAtivo: $("#setting-exits-active").checked
+  };
+  submit.disabled = true;
+  setFeedback("#settings-feedback", "Salvando…");
+  try {
+    const batch = writeBatch(db);
+    batch.set(doc(db, "produtos", STORE_SETTINGS_ID), { ...settings, atualizadoEm: serverTimestamp() }, { merge: true });
+    await batch.commit();
+    storeSettings = { ...storeSettings, ...settings };
+    renderStoreSettings();
+    renderProducts();
+    setFeedback("#settings-feedback", "Configurações salvas.");
+    showToast("Configurações salvas.");
+  } catch (error) {
+    console.error("Falha ao salvar configurações:", error);
+    setFeedback("#settings-feedback", explainError(error), true);
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+// ---------- Painel: período, gráfico e atalhos ----------
+
+onEvent("#dashboard-period", "change", renderDashboard);
+onEvent("#dashboard-daily-range", "change", renderDailyChart);
+
+onEvent("#dash-daily-chart", "click", (event) => {
+  const bar = event.target.closest("[data-chart-index]");
+  if (!bar) return;
+  const item = dailySeries[Number(bar.dataset.chartIndex)];
+  if (!item) return;
+  document.querySelectorAll("#dash-daily-chart .chart-bar-wrap").forEach((element) => {
+    element.classList.toggle("is-selected", element === bar);
+  });
+  $("#dash-daily-detail").textContent = `${formatDate(item.date)}: ${money(item.value)}`;
+});
+
+document.querySelectorAll("[data-shortcut]").forEach((button) => {
+  button.addEventListener("click", () => switchTab(button.dataset.shortcut));
+});
+
+// ---------- Abas e tutorial ----------
+
+document.querySelectorAll(".tab").forEach((button) => {
+  button.addEventListener("click", () => switchTab(button.dataset.tab));
+});
+
+onEvent("#tutorial-close", "click", closeTutorialForNow);
+onEvent("#tutorial-understood", "click", closeTutorialForNow);
+onEvent("#tutorial-never", "click", () => {
+  try {
+    localStorage.setItem("faydai-tutorial-dismissed", "yes");
+  } catch (error) {
+    console.warn("Não foi possível salvar a preferência do tutorial:", error);
+  }
+  closeTutorialForNow();
+});
+onEvent("#show-tutorial", "click", () => { $("#tutorial-overlay").hidden = false; });
+
+// ---------- Login, saída e sessão ----------
+
+onEvent("#login-form", "submit", async (event) => {
+  event.preventDefault();
+  const submit = $("#login-form button[type=submit]");
+  submit.disabled = true;
+  setFeedback("#login-error", "");
+  try {
+    await signInWithEmailAndPassword(auth, fieldValue("#login-email").trim(), fieldValue("#login-password"));
+    $("#login-password").value = "";
+  } catch (error) {
+    console.error("Falha no login:", error);
+    setFeedback("#login-error", explainError(error), true);
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+onEvent("#logout-button", "click", async () => {
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error("Falha ao sair:", error);
+    showToast(explainError(error));
+  }
+});
+
+function clearSessionState() {
+  products = []; entries = []; exits = []; sales = []; saleReturns = [];
+  saleCart = [];
+  activeVistoria = null; inventoryHistory = [];
+  vistoriaDraft = {}; vistoriaDraftOwner = null; vistoriaDirty = false;
+  selectedEntryProductId = ""; selectedExitProductId = "";
+}
+
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
+    clearSessionState();
+    showApp(false);
+    return;
+  }
+  showApp(true);
+  initDateFields(true);
+  resetProductForm();
+  try {
+    await loadData();
+  } catch (error) {
+    console.error("Falha ao carregar dados:", error);
+    showToast(explainError(error));
+  }
+  switchTab("dashboard");
+  showTutorialIfNeeded();
+});
+
