@@ -144,7 +144,21 @@
         <form id="product-form" class="panel form-stack">
           <h3>Novo produto</h3>
           <label for="product-name">Nome do produto *</label>
-          <input id="product-name" maxlength="100" placeholder="Ex.: Carregador USB-C" autocomplete="off" required>
+          <input id="product-name" maxlength="100" placeholder="Ex.: Carregador USB-C ou Coca-Cola" autocomplete="off" required>
+          <div class="form-grid">
+            <div>
+              <label for="product-volume">Volume (opcional)</label>
+              <input id="product-volume" type="number" min="0" step="any" inputmode="decimal" placeholder="Ex.: 350">
+            </div>
+            <div>
+              <label for="product-volume-unit">Unidade do volume</label>
+              <select id="product-volume-unit">
+                <option value="ml" selected>ml</option>
+                <option value="l">L</option>
+              </select>
+            </div>
+          </div>
+          <p id="product-name-preview" class="small muted">O volume entra no nome do produto. Ex.: Coca-Cola 350 ml.</p>
           <div class="form-grid">
             <div>
               <label for="product-brand">Marca (opcional)</label>
@@ -170,15 +184,29 @@
           <input id="product-barcode" inputmode="numeric" maxlength="80" placeholder="Digite ou use um scanner conectado">
           <label for="product-description">Descrição (opcional)</label>
           <textarea id="product-description" rows="2" maxlength="500" placeholder="Marca, modelo ou detalhes"></textarea>
+          <label for="product-pack-size">Unidades por fardo (opcional)</label>
+          <input id="product-pack-size" type="number" min="2" step="1" inputmode="numeric" placeholder="Ex.: 12 (deixe vazio se não vem em fardo)">
+          <div id="product-pack-cost-wrap" hidden>
+            <label for="product-pack-cost">Custo do fardo (R$) *</label>
+            <input id="product-pack-cost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00">
+            <p class="small muted">O sistema divide o custo do fardo pelas unidades para chegar ao custo de cada unidade. A venda continua sendo por unidade.</p>
+          </div>
           <div class="form-grid">
-            <div><label for="product-cost">Custo cadastrado (R$) *</label><input id="product-cost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00" required></div>
+            <div><label id="product-cost-label" for="product-cost">Custo cadastrado (R$) *</label><input id="product-cost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00" required></div>
             <div><label for="product-gain">Ganho sobre custo (%) *</label><input id="product-gain" type="number" min="0" step="0.01" inputmode="decimal" value="20" required></div>
           </div>
           <div class="suggested-price"><span>Preço sugerido</span><strong id="suggested-price">R$ 0,00</strong><small>Calculado sobre o custo cadastrado e o percentual de ganho.</small></div>
           <label for="product-sale-price">Preço de venda cadastrado (R$) *</label>
           <input id="product-sale-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Calculado pelo preço sugerido; pode ajustar" required>
+          <p id="product-unit-gain" class="small muted"></p>
           <p class="small muted">Este será o preço inicial no Caixa, que ainda pode ser ajustado em cada venda. Você pode definir um preço comercial diferente do sugerido.</p>
-          <label for="product-quantity">Quantidade inicial *</label>
+          <div id="product-pack-stock" hidden>
+            <div class="form-grid">
+              <div><label for="product-initial-packs">Fardos fechados</label><input id="product-initial-packs" type="number" min="0" step="1" inputmode="numeric" value="0"></div>
+              <div><label for="product-initial-loose">Unidades soltas</label><input id="product-initial-loose" type="number" min="0" step="1" inputmode="numeric" value="0"></div>
+            </div>
+          </div>
+          <label id="product-quantity-label" for="product-quantity">Quantidade inicial *</label>
           <input id="product-quantity" type="number" min="0" step="1" inputmode="numeric" value="0" required>
           <label for="product-min-stock">Estoque mínimo (opcional)</label>
           <input id="product-min-stock" type="number" min="0" step="1" inputmode="numeric" placeholder="Ex.: 3">
@@ -197,10 +225,19 @@
           <input id="entry-product-search" type="search" autocomplete="off" placeholder="Nome, código interno ou leia o código de barras" required>
           <div id="entry-product-results" class="search-results" aria-live="polite"><div class="small muted">Digite o nome ou o código, ou leia o código de barras.</div></div>
           <div id="entry-selected-product" class="selected-product" hidden></div>
-          <label for="entry-quantity">Quantidade recebida *</label>
+          <div id="entry-pack-box" hidden>
+            <label for="entry-unit-mode">Receber em *</label>
+            <select id="entry-unit-mode">
+              <option value="pack" selected>Fardos</option>
+              <option value="unit">Unidades avulsas</option>
+            </select>
+          </div>
+          <label id="entry-quantity-label" for="entry-quantity">Quantidade recebida *</label>
           <input id="entry-quantity" type="number" min="1" step="1" inputmode="numeric" required placeholder="Ex.: 10">
-          <label for="entry-cost">Custo unitário desta compra (R$) *</label>
+          <label id="entry-cost-label" for="entry-cost">Custo unitário desta compra (R$) *</label>
           <input id="entry-cost" type="number" min="0" step="0.01" inputmode="decimal" required placeholder="0,00">
+          <p id="entry-pack-summary" class="notice" hidden></p>
+          <p id="entry-cost-compare" class="notice" hidden></p>
           <label for="entry-date">Data da entrada *</label>
           <input id="entry-date" type="date" required>
           <label for="entry-supplier">Fornecedor (opcional)</label>
@@ -258,6 +295,15 @@
             <button id="sale-finish-button" class="button primary" type="submit" disabled>Finalizar venda</button>
             <p id="sale-feedback" class="feedback" role="status"></p>
           </form>
+
+          <div id="lost-demand-panel" class="panel form-stack">
+            <h3>Cliente pediu e não tinha</h3>
+            <p class="small muted">Registre o que o cliente procurou e não encontrou. Isso ajuda a saber o que comprar. Nenhum dado do cliente é guardado.</p>
+            <input id="lost-demand-text" maxlength="120" placeholder="Ex.: Coca-Cola 2 L gelada" autocomplete="off">
+            <button id="lost-demand-button" class="button secondary" type="button">Registrar procura sem estoque</button>
+            <p id="lost-demand-feedback" class="feedback" role="status"></p>
+          </div>
+
           <div class="list-heading"><h3>Histórico de vendas</h3><button id="refresh-sales" class="button quiet" type="button">Atualizar</button></div>
           <div id="sales-list" class="item-list"><div class="empty-state">Nenhuma venda registrada ainda.</div></div>
         </div>
@@ -383,7 +429,7 @@
         <div class="section-heading"><div><p class="eyebrow">PRIMEIROS PASSOS</p><h2>Ajuda</h2></div></div>
         <div class="panel help-card">
           <h3>Como usar o FayDai</h3>
-          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial. Se quiser receber aviso de reposição, informe o estoque mínimo. Se o custo mudar depois, o custo anterior fica registrado no histórico.</li><li>Quando chegar uma compra, registre a entrada com a quantidade e o custo unitário daquela compra.</li><li>Ative o módulo Caixa em Configurações para registrar vendas. O preço de cada item pode ser ajustado no carrinho, com alertas de preço abaixo do sugerido ou do custo; o estoque é baixado automaticamente.</li><li>Para desfazer uma venda, abra o histórico do Caixa: use <strong>Devolver itens</strong> para devolver só alguns itens ou <strong>Cancelar venda</strong> para cancelar a venda inteira (só se ela não teve devolução). Em ambos os casos o estoque volta automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>Use a Vistoria para contar o estoque físico: campo vazio mantém o saldo; digite 0 quando contar e não houver unidade. Você pode salvar o andamento e concluir depois.</li><li>No Painel, acompanhe o valor do estoque, os produtos abaixo do mínimo, o faturamento, o ticket médio, os mais vendidos, as formas de pagamento e as vendas por dia.</li><li>Em Configurações → Exportar dados, baixe planilhas CSV de produtos, vendas, devoluções, entradas e saídas. Faça isso de tempos em tempos como cópia de segurança.</li></ol>
+          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial. Se quiser receber aviso de reposição, informe o estoque mínimo. Se o custo mudar depois, o custo anterior fica registrado no histórico.</li><li>Para bebidas e outros itens de conveniência, informe o volume (ex.: 350 ml) e, se o produto vem em fardo, as unidades por fardo e o custo do fardo: o sistema calcula o custo de cada unidade. Produtos de tamanhos diferentes são cadastrados separadamente.</li><li>Quando chegar uma compra, registre a entrada. Se o produto vem em fardo, informe quantos fardos chegaram e o custo do fardo; o saldo é somado em unidades.</li><li>Ative o módulo Caixa em Configurações para registrar vendas. O preço de cada item pode ser ajustado no carrinho, com alertas de preço abaixo do sugerido ou do custo; o estoque é baixado automaticamente. Se o cliente pedir algo que não tem, use "Cliente pediu e não tinha".</li><li>Para desfazer uma venda, abra o histórico do Caixa: use <strong>Devolver itens</strong> para devolver só alguns itens ou <strong>Cancelar venda</strong> para cancelar a venda inteira (só se ela não teve devolução). Em ambos os casos o estoque volta automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>Use a Vistoria para contar o estoque físico: campo vazio mantém o saldo; digite 0 quando contar e não houver unidade. Você pode salvar o andamento e concluir depois.</li><li>No Painel, acompanhe o valor do estoque, os produtos abaixo do mínimo, o faturamento, o ticket médio, os mais vendidos, as formas de pagamento e as vendas por dia.</li><li>Em Configurações → Exportar dados, baixe planilhas CSV de produtos, vendas, devoluções, entradas e saídas. Faça isso de tempos em tempos como cópia de segurança.</li></ol>
           <p class="muted small">Cancelamentos e devoluções não podem ser desfeitos e ficam registrados no histórico.</p>
           <button id="show-tutorial" class="button secondary" type="button">Ver tutorial inicial</button>
         </div>
@@ -399,8 +445,8 @@
       <p class="eyebrow">BEM-VINDO AO SISTEMA</p>
       <h2 id="tutorial-title">Vamos organizar seu estoque?</h2>
       <p class="muted">Você pode consultar este tutorial sempre que precisar.</p>
-      <div class="tutorial-step"><span>1</span><div><strong>Cadastre os produtos</strong><p>Informe nome, marca, categoria, custo, ganho desejado, quantidade inicial e, se quiser, o estoque mínimo.</p></div></div>
-      <div class="tutorial-step"><span>2</span><div><strong>Registre as entradas</strong><p>Quando receber mercadoria, registre quantidade, custo da compra e fornecedor.</p></div></div>
+      <div class="tutorial-step"><span>1</span><div><strong>Cadastre os produtos</strong><p>Informe nome, volume, marca, categoria, custo (ou custo do fardo), ganho desejado, quantidade inicial e, se quiser, o estoque mínimo.</p></div></div>
+      <div class="tutorial-step"><span>2</span><div><strong>Registre as entradas</strong><p>Quando receber mercadoria, registre quantidade (ou fardos), custo da compra e fornecedor.</p></div></div>
       <div class="tutorial-step"><span>3</span><div><strong>Venda e dê baixa</strong><p>No Caixa, registre vendas e ajuste o preço se precisar; em Saídas, perdas e uso interno. O saldo é atualizado sozinho.</p></div></div>
       <div class="tutorial-step"><span>4</span><div><strong>Acompanhe e confira</strong><p>O Painel mostra estoque baixo, vendas e rankings. Na Vistoria, conte o estoque físico e ajuste os saldos. Em Configurações, exporte seus dados em planilha.</p></div></div>
       <button id="tutorial-understood" class="button primary full" type="button">Entendi, começar</button>
@@ -443,6 +489,6 @@
       }, 10000);
     })();
   </script>
-  <script type="module" src="./app.js?v=20261023-fix1"></script>
+  <script type="module" src="./app.js?v=20261028-conv1"></script>
 </body>
-</html>
+            </html>
