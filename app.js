@@ -3108,4 +3108,4 @@ onAuthStateChanged(auth, async (user) => {
   }
   switchTab("dashboard");
   showTutorialIfNeeded();
-});}
+});
