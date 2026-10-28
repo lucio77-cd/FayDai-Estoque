@@ -1834,7 +1834,9 @@ async function finishInventory() {
   } finally {
     button.disabled = false;
   }
-   // ---------- Auxiliares gerais (leitura de campos e eventos) ----------
+}
+
+// ---------- Auxiliares gerais (leitura de campos e eventos) ----------
 
 const fieldValue = (selector) => {
   const element = document.querySelector(selector);
