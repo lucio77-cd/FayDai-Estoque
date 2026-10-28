@@ -66,6 +66,14 @@ const SUGGESTED_CATEGORIES = [
   "Carregadores e cabos",
   "Áudio",
   "Peças e componentes",
+  "Refrigerantes",
+  "Sucos e chás",
+  "Águas",
+  "Energéticos",
+  "Salgados e lanches",
+  "Doces e chocolates",
+  "Higiene",
+  "Mercearia",
   "Outros"
 ];
 let products = [];
@@ -76,6 +84,8 @@ let selectedExitProductId = "";
 let selectedEntryProductId = "";
 let selectedSaleProductId = "";
 let saleCart = [];
+// Instante em que o primeiro item entrou no carrinho (para registrar a duração do atendimento).
+let saleCartStartedAt = null;
 // Idempotência da venda: ID gerado no cliente e reaproveitado enquanto o carrinho não mudar.
 let saleAttempt = null; // { id, fingerprint }
 let saleInFlight = false;
@@ -132,6 +142,38 @@ const isLowStock = (product) => {
   const minimum = minStockOf(product);
   return minimum !== null && (Number(product.quantidade) || 0) <= minimum;
 };
+
+// ---------- Fardo e volume (itens de conveniência) ----------
+
+const escapeRegExp = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Volume em ml para texto curto: 350 -> "350 ml"; 2000 -> "2 L"; 1500 -> "1,5 L".
+function volumeLabel(volumeMl) {
+  const ml = Number(volumeMl);
+  if (!Number.isFinite(ml) || ml <= 0) return "";
+  if (ml >= 1000) {
+    const liters = Math.round(ml) / 1000;
+    return `${liters.toLocaleString("pt-BR")} L`;
+  }
+  return `${String(Math.round(ml * 100) / 100).replace(".", ",")} ml`;
+}
+
+// Nome gravado no produto = nome-base + volume (sem repetir o volume se ele já foi digitado no nome).
+function composeProductName(baseName, volumeMl) {
+  const base = cleanOption(baseName);
+  const label = volumeLabel(volumeMl);
+  if (!label) return base;
+  const compact = (text) => normalizeText(text).replace(/\s+/g, "");
+  const pattern = new RegExp(`(^|[^0-9])${escapeRegExp(compact(label))}`);
+  return pattern.test(compact(base)) ? base : `${base} ${label}`;
+}
+
+// Nome digitado pelo usuário (sem o volume). Produtos antigos não têm nomeBase: usa o nome inteiro.
+const baseNameOf = (product) => product.nomeBase || product.nome || "";
+// Unidades por fardo (0 = o produto não vem em fardo).
+const packSizeOf = (product) => (Number.isInteger(product.unidadesPorFardo) && product.unidadesPorFardo >= 2 ? product.unidadesPorFardo : 0);
+// Custo de cada unidade a partir do custo do fardo (em centavos, como todo custo do sistema).
+const unitCostFromPack = (packCost, packSize) => (packSize >= 2 ? roundMoney((Number(packCost) || 0) / packSize) : 0);
 
 const saleItemsOf = (sale) => (Array.isArray(sale.itens) && sale.itens.length
   ? sale.itens
@@ -290,8 +332,15 @@ function resetProductForm() {
   $("#product-gain").value = "20";
   $("#product-quantity").value = "0";
   $("#product-min-stock").value = "";
+  $("#product-volume").value = "";
+  $("#product-volume-unit").value = "ml";
+  $("#product-pack-size").value = "";
+  $("#product-pack-cost").value = "";
+  $("#product-initial-packs").value = "0";
+  $("#product-initial-loose").value = "0";
   salePriceManuallyEdited = false;
-  updateSuggestedPrice();
+  // Atualiza fardo, preço sugerido, ganho por unidade e a pré-visualização do nome (função da parte 3).
+  refreshProductFormUI();
 }
 
 // Reserva o próximo código interno DENTRO da transação que salva o produto.
@@ -571,6 +620,11 @@ function renderProducts() {
         const suggested = calcSuggestedPrice(product);
         const minimum = minStockOf(product);
         const low = isLowStock(product);
+        const pack = packSizeOf(product);
+        const unitGain = roundMoney(getRegisteredSalePrice(product) - roundMoney(product.custo));
+        const packCell = pack
+          ? `<div><span>Fardo</span><strong>${pack} un.${Number(product.custoFardo) > 0 ? ` · ${money(product.custoFardo)}` : ""}</strong></div>`
+          : "";
         const previousCostCell = product.custoAnterior !== undefined && product.custoAnterior !== null && product.custoAlteradoEm
           ? `<div><span>Custo anterior (alterado em ${escapeHtml(formatDate(product.custoAlteradoEm))})</span><strong>${money(product.custoAnterior)}</strong></div>`
           : "";
@@ -583,10 +637,12 @@ function renderProducts() {
           ${product.descricao ? `<p class="item-description">${escapeHtml(product.descricao)}</p>` : ""}
           ${product.codigoInterno || (storeSettings.codigoBarrasAtivo && product.codigoBarras) ? `<p class="item-description">${product.codigoInterno ? `Código interno: ${escapeHtml(product.codigoInterno)}` : ""}${product.codigoInterno && storeSettings.codigoBarrasAtivo && product.codigoBarras ? " · " : ""}${storeSettings.codigoBarrasAtivo && product.codigoBarras ? `Código de barras: ${escapeHtml(product.codigoBarras)}` : ""}</p>` : ""}
           <div class="item-meta">
-            <div><span>Custo cadastrado</span><strong>${money(product.custo)}</strong></div>
+            <div><span>${pack ? "Custo por unidade" : "Custo cadastrado"}</span><strong>${money(product.custo)}</strong></div>
             <div><span>Preço de venda cadastrado</span><strong>${money(getRegisteredSalePrice(product))}</strong></div>
             <div><span>Preço sugerido</span><strong>${money(suggested)}</strong></div>
             <div><span>Ganho sobre custo</span><strong>${(Number(product.percentualGanho) || 0).toLocaleString("pt-BR")}%</strong></div>
+            <div><span>Ganho por unidade</span><strong>${money(unitGain)}</strong></div>
+            ${packCell}
             ${minimum !== null ? `<div><span>Estoque mínimo</span><strong>${minimum} un.</strong></div>` : ""}
             <div><span>Cadastro</span><strong>${product.criadoEmData ? new Date(product.criadoEmData + "T12:00:00").toLocaleDateString("pt-BR") : "—"}</strong></div>
             ${previousCostCell}
@@ -680,7 +736,10 @@ function bindScanner(selector, handleCode) {
 bindScanner("#sale-product-search", (rawCode) => {
   const product = resolveScannedProduct(rawCode, "#sale-product-search", "#sale-feedback");
   if (!product) return;
-  const added = addProductToSaleCart(product);
+  // Origem do item (dado para análise): "leitor" quando o código lido é o código de barras do produto.
+  const barcode = normalizeText(product.codigoBarras);
+  const origin = barcode && barcode === normalizeText(rawCode) ? "leitor" : "busca";
+  const added = addProductToSaleCart(product, origin);
   scanBeep(added);
   if (!added) {
     $("#sale-product-search").value = "";
@@ -740,14 +799,84 @@ $("#product-barcode").addEventListener("keydown", (event) => {
 
 // ---------- Entradas: busca de produto (nome, código ou leitor) ----------
 
+function selectedEntryProduct() {
+  return products.find((product) => product.id === selectedEntryProductId && !product.arquivado) || null;
+}
+
+// Lê os campos da entrada. Em fardo: "quantidade" = fardos e "custo" = custo do fardo; sem fardo: unidades e custo unitário.
+// Devolve também o total em unidades e o custo de cada unidade (null quando o campo ainda não está válido).
+function readEntryAmounts() {
+  const product = selectedEntryProduct();
+  const size = product ? packSizeOf(product) : 0;
+  const mode = size && $("#entry-unit-mode").value === "pack" ? "pack" : "unit";
+  const quantity = Number(fieldValue("#entry-quantity"));
+  const costInput = parseDecimal(fieldValue("#entry-cost"));
+  const quantityOk = Number.isInteger(quantity) && quantity >= 1;
+  const costOk = Number.isFinite(costInput) && costInput >= 0;
+  if (mode === "pack") {
+    const packCost = costOk ? roundMoney(costInput) : null;
+    return {
+      mode, size, quantityOk, costOk,
+      packs: quantityOk ? quantity : null,
+      packCost,
+      units: quantityOk ? quantity * size : null,
+      unitCost: costOk ? unitCostFromPack(packCost, size) : null
+    };
+  }
+  return {
+    mode, size, quantityOk, costOk,
+    packs: null,
+    packCost: null,
+    units: quantityOk ? quantity : null,
+    unitCost: costOk ? roundMoney(costInput) : null
+  };
+}
+
+// Ajusta rótulos e avisos da entrada conforme o produto escolhido (fardo ou não) e compara o custo com o cadastrado.
+function updateEntryPackUI() {
+  const product = selectedEntryProduct();
+  const size = product ? packSizeOf(product) : 0;
+  const mode = size && $("#entry-unit-mode").value === "pack" ? "pack" : "unit";
+  $("#entry-pack-box").hidden = !size;
+  $("#entry-quantity-label").textContent = size
+    ? (mode === "pack" ? "Quantidade de fardos recebidos *" : "Unidades avulsas recebidas *")
+    : "Quantidade recebida *";
+  $("#entry-cost-label").textContent = mode === "pack"
+    ? "Custo do fardo nesta compra (R$) *"
+    : "Custo unitário desta compra (R$) *";
+
+  const amounts = readEntryAmounts();
+  const summary = $("#entry-pack-summary");
+  if (mode === "pack") {
+    summary.textContent = amounts.units !== null
+      ? `${amounts.packs} fardo(s) de ${size} un. = ${amounts.units} unidades${amounts.unitCost !== null ? ` · custo de cada unidade: ${money(amounts.unitCost)}` : ""}`
+      : `Este produto vem em fardo de ${size} unidades. Informe quantos fardos chegaram e o custo do fardo.`;
+    summary.hidden = false;
+  } else {
+    summary.textContent = "";
+    summary.hidden = true;
+  }
+
+  const compare = $("#entry-cost-compare");
+  if (product && amounts.unitCost !== null && Math.abs(amounts.unitCost - roundMoney(product.custo)) >= 0.005) {
+    compare.textContent = `Custo por unidade nesta compra: ${money(amounts.unitCost)}. Custo cadastrado: ${money(roundMoney(product.custo))}. O cadastro não muda sozinho; se quiser atualizar, use Editar em Produtos.`;
+    compare.hidden = false;
+  } else {
+    compare.textContent = "";
+    compare.hidden = true;
+  }
+}
+
 function renderEntryProductResults() {
   const query = normalizeText($("#entry-product-search").value);
   const results = $("#entry-product-results");
   const selectedBox = $("#entry-selected-product");
   const selected = products.find((product) => product.id === selectedEntryProductId && !product.arquivado);
   if (!selected) selectedEntryProductId = "";
+  updateEntryPackUI();
   if (selected) {
-    selectedBox.innerHTML = `<strong>${escapeHtml(selected.nome)}</strong><span>Saldo atual: ${Number(selected.quantidade) || 0} un.</span>`;
+    const size = packSizeOf(selected);
+    selectedBox.innerHTML = `<strong>${escapeHtml(selected.nome)}</strong><span>Saldo atual: ${Number(selected.quantidade) || 0} un.${size ? ` · fardo de ${size} un.` : ""}</span>`;
     selectedBox.hidden = false;
     results.innerHTML = "";
     return;
@@ -775,6 +904,9 @@ $("#entry-product-search").addEventListener("input", () => {
   selectedEntryProductId = "";
   renderEntryProductResults();
 });
+$("#entry-quantity").addEventListener("input", updateEntryPackUI);
+$("#entry-cost").addEventListener("input", updateEntryPackUI);
+$("#entry-unit-mode").addEventListener("change", updateEntryPackUI);
 $("#entry-product-results").addEventListener("click", (event) => {
   const button = event.target.closest("[data-select-entry-product]");
   if (!button) return;
@@ -867,6 +999,8 @@ function updateCartRow(index) {
 
 function renderSaleCart() {
   const list = $("#sale-cart-list");
+  // Carrinho vazio = atendimento zerado (a duração só conta a partir do primeiro item).
+  if (!saleCart.length) saleCartStartedAt = null;
   if (!saleCart.length) {
     list.innerHTML = '<div class="empty-state">A compra está vazia. Pesquise e selecione os produtos acima.</div>';
   } else {
@@ -899,7 +1033,8 @@ function renderSaleCart() {
   updateCartSummary();
 }
 
-function addProductToSaleCart(product) {
+// origin: "leitor" (código de barras lido) ou "busca" (nome digitado / item tocado na lista).
+function addProductToSaleCart(product, origin = "busca") {
   if ((Number(product.quantidade) || 0) < 1) {
     setFeedback("#sale-feedback", "Este produto está sem saldo disponível.", true);
     return false;
@@ -912,6 +1047,7 @@ function addProductToSaleCart(product) {
     }
     existing.quantidade += 1;
   } else {
+    if (!saleCart.length) saleCartStartedAt = Date.now();
     const registeredPrice = getRegisteredSalePrice(product);
     saleCart.push({
       produtoId: product.id,
@@ -920,7 +1056,8 @@ function addProductToSaleCart(product) {
       codigoBarras: product.codigoBarras || "",
       quantidade: 1,
       precoCadastrado: registeredPrice,
-      precoUnitario: registeredPrice
+      precoUnitario: registeredPrice,
+      origem: origin
     });
   }
   $("#sale-product-search").value = "";
@@ -930,7 +1067,6 @@ function addProductToSaleCart(product) {
   $("#sale-product-search").focus();
   return true;
 }
-
 // ---------- Histórico de vendas, cancelamentos e devoluções ----------
 
 // Só vendas no formato atual (com produtoId em todos os itens) aceitam cancelamento e devolução.
@@ -1314,12 +1450,24 @@ function renderEntries() {
       const linkedProduct = products.find((product) => product.id === entry.produtoId);
       const archived = Boolean(linkedProduct?.arquivado);
       const typeLabel = entry.tipo === "estoque_inicial" ? "Estoque inicial" : "Entrada de mercadoria";
+      // Entradas em fardo (campos opcionais: entradas antigas não têm e continuam como antes).
+      const packs = Number(entry.fardos) || 0;
+      const packSize = Number(entry.unidadesPorFardo) || 0;
+      const hasPack = packs > 0 && packSize > 0;
+      const hasPackCost = typeof entry.custoFardo === "number" && Number.isFinite(entry.custoFardo);
+      const purchaseTotal = hasPack && hasPackCost
+        ? roundMoney(packs * entry.custoFardo)
+        : roundMoney((Number(entry.quantidade) || 0) * (Number(entry.custoUnitario) || 0));
+      const packLine = hasPack
+        ? `<p>${packs} fardo(s) de ${packSize} un.${hasPackCost ? ` · ${money(entry.custoFardo)} por fardo` : ""}</p>`
+        : "";
       return `<article class="entry-card">
       <div class="item-title-row"><div class="item-title">${escapeHtml(entry.produtoNome || linkedProduct?.nome || "Produto")}${archived ? '<span class="archived-label">Produto arquivado</span>' : ""}</div><span class="stock-badge">+${Number(entry.quantidade) || 0} un.</span></div>
       <p>${escapeHtml(typeLabel)} · ${escapeHtml(formatDate(entry.data) || "Data não informada")} · Custo unitário: ${money(entry.custoUnitario)}</p>
+      ${packLine}
       ${entry.fornecedor ? `<p>Fornecedor: ${escapeHtml(entry.fornecedor)}</p>` : ""}
       ${entry.observacao ? `<p>${escapeHtml(entry.observacao)}</p>` : ""}
-      <div class="item-meta"><div><span>Total informado da compra</span><strong>${money(roundMoney((Number(entry.quantidade) || 0) * (Number(entry.custoUnitario) || 0)))}</strong></div><div><span>Registro</span><strong>${entry.data ? escapeHtml(entry.data.split("-").reverse().join("/")) : "—"}</strong></div></div>
+      <div class="item-meta"><div><span>Total informado da compra</span><strong>${money(purchaseTotal)}</strong></div><div><span>Registro</span><strong>${entry.data ? escapeHtml(entry.data.split("-").reverse().join("/")) : "—"}</strong></div></div>
     </article>`;
     }).join("");
 }
@@ -1686,9 +1834,7 @@ async function finishInventory() {
   } finally {
     button.disabled = false;
   }
-}
-
-// ---------- Auxiliares gerais (leitura de campos e eventos) ----------
+   // ---------- Auxiliares gerais (leitura de campos e eventos) ----------
 
 const fieldValue = (selector) => {
   const element = document.querySelector(selector);
@@ -1750,6 +1896,7 @@ function downloadCsv(filename, header, rows) {
   return true;
 }
 
+// As colunas novas ficam sempre no FINAL, para não deslocar as colunas das planilhas que você já usa.
 function exportProductsCsv() {
   const rows = [...products]
     .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"))
@@ -1758,10 +1905,13 @@ function exportProductsCsv() {
       Number(product.quantidade) || 0, csvNumber(product.custo), csvNumber(getRegisteredSalePrice(product)),
       csvNumber(calcSuggestedPrice(product)), minStockOf(product) ?? "", isLowStock(product) ? "Sim" : "Não",
       csvNumber(roundMoney((Number(product.quantidade) || 0) * roundMoney(product.custo))),
-      product.arquivado ? "Arquivado" : "Ativo"
+      product.arquivado ? "Arquivado" : "Ativo",
+      product.volumeMl ?? "", packSizeOf(product) || "",
+      typeof product.custoFardo === "number" ? csvNumber(product.custoFardo) : "",
+      baseNameOf(product)
     ]);
   return downloadCsv("produtos",
-    ["Produto", "Marca", "Categoria", "Código interno", "Código de barras", "Quantidade", "Custo", "Preço de venda", "Preço sugerido", "Estoque mínimo", "Abaixo do mínimo", "Valor em estoque", "Situação"],
+    ["Produto", "Marca", "Categoria", "Código interno", "Código de barras", "Quantidade", "Custo", "Preço de venda", "Preço sugerido", "Estoque mínimo", "Abaixo do mínimo", "Valor em estoque", "Situação", "Volume (ml)", "Unidades por fardo", "Custo do fardo", "Nome sem volume"],
     rows);
 }
 
@@ -1771,9 +1921,11 @@ function exportEntriesCsv() {
     .map((entry) => [
       formatDate(entry.data), entry.produtoNome, entry.tipo === "estoque_inicial" ? "Estoque inicial" : "Entrada",
       Number(entry.quantidade) || 0, csvNumber(entry.custoUnitario),
-      csvNumber((Number(entry.quantidade) || 0) * (Number(entry.custoUnitario) || 0)), entry.fornecedor, entry.observacao
+      csvNumber((Number(entry.quantidade) || 0) * (Number(entry.custoUnitario) || 0)), entry.fornecedor, entry.observacao,
+      entry.fardos ?? "", entry.unidadesPorFardo ?? "",
+      typeof entry.custoFardo === "number" ? csvNumber(entry.custoFardo) : ""
     ]);
-  return downloadCsv("entradas", ["Data", "Produto", "Tipo", "Quantidade", "Custo unitário", "Total", "Fornecedor", "Observação"], rows);
+  return downloadCsv("entradas", ["Data", "Produto", "Tipo", "Quantidade", "Custo unitário", "Total", "Fornecedor", "Observação", "Fardos", "Unidades por fardo", "Custo do fardo"], rows);
 }
 
 function exportExitsCsv() {
@@ -1805,12 +1957,15 @@ function exportSalesCsv() {
           csvNumber(item.subtotal ?? (Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0)),
           csvNumber(saleTotalOf(sale)), sale.formaPagamento, returned[item.produtoId] || 0,
           sale.usuario, yesNo(item.abaixoDoCusto),
-          cancelled ? formatTimestamp(sale.canceladaEm) : "", cancelled ? sale.motivoCancelamento : ""
+          cancelled ? formatTimestamp(sale.canceladaEm) : "", cancelled ? sale.motivoCancelamento : "",
+          // Dados novos de cada venda (vazios nas vendas antigas).
+          sale.hora ?? "", sale.diaSemana ?? "", item.saldoAntes ?? "", item.categoria || "",
+          item.volumeMl ?? "", item.origem || "", sale.duracaoSegundos ?? "", yesNo(sale.lancamentoRetroativo)
         ]);
       });
     });
   return downloadCsv("vendas",
-    ["Data", "Situação", "Produto", "Quantidade", "Preço unitário", "Custo unitário", "Subtotal", "Total da venda", "Pagamento", "Quantidade devolvida (produto)", "Responsável", "Abaixo do custo", "Cancelada em", "Motivo do cancelamento"],
+    ["Data", "Situação", "Produto", "Quantidade", "Preço unitário", "Custo unitário", "Subtotal", "Total da venda", "Pagamento", "Quantidade devolvida (produto)", "Responsável", "Abaixo do custo", "Cancelada em", "Motivo do cancelamento", "Hora da venda", "Dia da semana (0=domingo)", "Saldo antes do item", "Categoria", "Volume (ml)", "Origem do item", "Duração do atendimento (s)", "Lançamento retroativo"],
     rows);
 }
 
@@ -1977,9 +2132,91 @@ function updateSuggestedPrice() {
   if (saleInput && !salePriceManuallyEdited) saleInput.value = suggested > 0 ? suggested.toFixed(2) : "";
 }
 
-onEvent("#product-cost", "input", updateSuggestedPrice);
-onEvent("#product-gain", "input", updateSuggestedPrice);
-onEvent("#product-sale-price", "input", () => { salePriceManuallyEdited = true; });
+// Unidades por fardo digitadas (0 quando vazio ou inválido).
+function packSizeFromForm() {
+  const value = Number(fieldValue("#product-pack-size").trim());
+  return Number.isInteger(value) && value >= 2 ? value : 0;
+}
+
+// Volume digitado, convertido para ml (null quando vazio ou inválido).
+function volumeMlFromForm() {
+  const raw = parseDecimal(fieldValue("#product-volume"));
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  const factor = fieldValue("#product-volume-unit") === "l" ? 1000 : 1;
+  return Math.round(raw * factor * 100) / 100;
+}
+
+// Atualiza o que depende de fardo, volume e preço: custo calculado, estoque inicial, nome final e ganho por unidade.
+function refreshProductFormUI() {
+  const size = packSizeFromForm();
+  const editing = Boolean(editingProductId);
+
+  // Custo: com fardo, o custo de cada unidade é calculado a partir do custo do fardo.
+  const costInput = $("#product-cost");
+  $("#product-pack-cost-wrap").hidden = !size;
+  if (size) {
+    const packCost = parseDecimal(fieldValue("#product-pack-cost"));
+    costInput.readOnly = true;
+    costInput.value = Number.isFinite(packCost) && packCost > 0 ? unitCostFromPack(packCost, size).toFixed(2) : "";
+    $("#product-cost-label").textContent = "Custo por unidade (calculado) (R$) *";
+  } else {
+    costInput.readOnly = false;
+    $("#product-cost-label").textContent = "Custo cadastrado (R$) *";
+  }
+
+  // Estoque inicial: com fardo, vira fardos fechados + unidades soltas (total calculado em unidades).
+  const quantityInput = $("#product-quantity");
+  const stockBox = $("#product-pack-stock");
+  if (editing) {
+    stockBox.hidden = true;
+    quantityInput.readOnly = false;
+    $("#product-quantity-label").textContent = "Saldo atual (para alterar, use Entradas, Saídas ou Vistoria)";
+  } else if (size) {
+    stockBox.hidden = false;
+    const packs = Math.max(0, Math.floor(Number(fieldValue("#product-initial-packs")) || 0));
+    const loose = Math.max(0, Math.floor(Number(fieldValue("#product-initial-loose")) || 0));
+    quantityInput.readOnly = true;
+    quantityInput.value = String(packs * size + loose);
+    $("#product-quantity-label").textContent = "Total inicial em unidades (calculado) *";
+  } else {
+    stockBox.hidden = true;
+    quantityInput.readOnly = false;
+    $("#product-quantity-label").textContent = "Quantidade inicial *";
+  }
+
+  // Nome final = nome + volume.
+  const base = cleanOption(fieldValue("#product-name"));
+  $("#product-name-preview").textContent = base
+    ? `Nome que será salvo: ${composeProductName(base, volumeMlFromForm())}`
+    : "O volume entra no nome do produto. Ex.: Coca-Cola 350 ml.";
+
+  // Preço sugerido e ganho por unidade.
+  updateSuggestedPrice();
+  const cost = parseDecimal(fieldValue("#product-cost"));
+  const price = parseDecimal(fieldValue("#product-sale-price"));
+  const gainLine = $("#product-unit-gain");
+  if (Number.isFinite(cost) && cost > 0 && Number.isFinite(price) && price > 0) {
+    const unitCost = roundMoney(cost);
+    const gain = roundMoney(price - unitCost);
+    const onCost = unitCost > 0 ? (gain / unitCost) * 100 : 0;
+    const onPrice = (gain / price) * 100;
+    const pct = (value) => (Math.round(value * 10) / 10).toLocaleString("pt-BR");
+    gainLine.textContent = `Ganho por unidade: ${money(gain)} (${pct(onCost)}% sobre o custo · ${pct(onPrice)}% do preço de venda)`
+      + (size ? ` · Por fardo fechado: ${money(roundMoney(gain * size))}` : "");
+  } else {
+    gainLine.textContent = "";
+  }
+}
+
+["#product-name", "#product-volume", "#product-volume-unit", "#product-pack-size", "#product-pack-cost",
+  "#product-initial-packs", "#product-initial-loose", "#product-cost", "#product-gain"].forEach((selector) => {
+  onEvent(selector, "input", refreshProductFormUI);
+});
+onEvent("#product-volume-unit", "change", refreshProductFormUI);
+onEvent("#product-sale-price", "input", () => {
+  salePriceManuallyEdited = true;
+  refreshProductFormUI();
+});
 
 // Botão "Cancelar edição" criado pelo JS (não existe no HTML).
 function setCancelEditVisible(visible) {
@@ -2011,7 +2248,25 @@ function startEditProduct(productId) {
     const element = document.querySelector(selector);
     if (element) element.value = value ?? "";
   };
-  set("#product-name", product.nome);
+  // Produtos antigos não têm nomeBase/volume/fardo: aparecem com o nome inteiro e sem fardo.
+  set("#product-name", baseNameOf(product));
+  const volume = Number(product.volumeMl);
+  if (Number.isFinite(volume) && volume > 0) {
+    if (volume >= 1000) {
+      set("#product-volume", String(volume / 1000));
+      set("#product-volume-unit", "l");
+    } else {
+      set("#product-volume", String(volume));
+      set("#product-volume-unit", "ml");
+    }
+  }
+  const size = packSizeOf(product);
+  set("#product-pack-size", size || "");
+  if (size) {
+    set("#product-pack-cost", (typeof product.custoFardo === "number"
+      ? roundMoney(product.custoFardo)
+      : roundMoney(roundMoney(product.custo) * size)).toFixed(2));
+  }
   set("#product-description", product.descricao);
   set("#product-cost", Number.isFinite(Number(product.custo)) ? roundMoney(product.custo).toFixed(2) : "");
   set("#product-gain", product.percentualGanho ?? 0);
@@ -2022,13 +2277,13 @@ function startEditProduct(productId) {
   renderCatalogOptions();
   set("#product-brand", product.marca || "");
   set("#product-category", product.categoria || "");
-  salePriceManuallyEdited = true;
-  updateSuggestedPrice();
   set("#product-sale-price", getRegisteredSalePrice(product).toFixed(2));
+  salePriceManuallyEdited = true;
   $("#product-quantity").disabled = true;
   $("#product-barcode").disabled = false;
   $("#product-form h3").textContent = "Editar produto";
   $("#product-form button[type=submit]").textContent = "Salvar alterações";
+  refreshProductFormUI();
   setCancelEditVisible(true);
   setFeedback("#product-feedback", "Para mudar o saldo use Entradas, Saídas ou a Vistoria.");
   $("#product-form").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2039,13 +2294,44 @@ async function saveProduct(event) {
   const submit = $("#product-form button[type=submit]");
   const editing = editingProductId ? products.find((item) => item.id === editingProductId) : null;
 
-  const nome = cleanOption(fieldValue("#product-name"));
+  // Nome digitado (sem volume) e nome final gravado no produto (nome + volume).
+  const nomeBase = cleanOption(fieldValue("#product-name"));
+  const volumeRaw = fieldValue("#product-volume").trim();
+  const volumeMl = volumeMlFromForm();
+  const nome = composeProductName(nomeBase, volumeMl);
   const descricao = fieldValue("#product-description").trim();
-  // O custo digitado é validado ANTES de arredondar: roundMoney(NaN) viraria 0 e esconderia o campo vazio.
-  const custoDigitado = parseDecimal(fieldValue("#product-cost"));
-  const custo = roundMoney(custoDigitado);
+
+  // Fardo: com fardo, o custo digitado é o do fardo e o custo de cada unidade é calculado.
+  const packRaw = fieldValue("#product-pack-size").trim();
+  const packSize = packRaw === "" ? 0 : Number(packRaw);
+  let custoDigitado;
+  let custo;
+  let custoFardo = null;
+  if (packSize >= 2) {
+    const packCostTyped = parseDecimal(fieldValue("#product-pack-cost"));
+    custoFardo = Number.isFinite(packCostTyped) && packCostTyped > 0 ? roundMoney(packCostTyped) : null;
+    custo = custoFardo === null ? 0 : unitCostFromPack(custoFardo, packSize);
+    custoDigitado = custoFardo === null ? NaN : custo;
+  } else {
+    // O custo digitado é validado ANTES de arredondar: roundMoney(NaN) viraria 0 e esconderia o campo vazio.
+    custoDigitado = parseDecimal(fieldValue("#product-cost"));
+    custo = roundMoney(custoDigitado);
+  }
   const percentualGanho = parseDecimal(fieldValue("#product-gain"));
-  const quantity = editing ? Number(editing.quantidade) || 0 : Number(fieldValue("#product-quantity") || 0);
+
+  // Quantidade inicial: com fardo = fardos fechados × unidades por fardo + unidades soltas.
+  let quantity;
+  let packsClosed = 0;
+  let looseUnits = 0;
+  if (editing) {
+    quantity = Number(editing.quantidade) || 0;
+  } else if (packSize >= 2) {
+    packsClosed = Number(fieldValue("#product-initial-packs") || 0);
+    looseUnits = Number(fieldValue("#product-initial-loose") || 0);
+    quantity = packsClosed * packSize + looseUnits;
+  } else {
+    quantity = Number(fieldValue("#product-quantity") || 0);
+  }
   const minRaw = fieldValue("#product-min-stock").trim();
   const estoqueMinimo = minRaw === "" ? null : Number(minRaw);
   const barcode = cleanOption(fieldValue("#product-barcode"));
@@ -2064,9 +2350,17 @@ async function saveProduct(event) {
     ? roundMoney(salePriceRaw)
     : calcSuggestedPrice({ custo, percentualGanho });
 
-  if (!nome) return setFeedback("#product-feedback", "Informe o nome do produto.", true);
+  if (!nomeBase) return setFeedback("#product-feedback", "Informe o nome do produto.", true);
+  if (volumeRaw !== "" && volumeMl === null) return setFeedback("#product-feedback", "Informe um volume maior que zero ou deixe o campo vazio.", true);
+  if (packRaw !== "" && (!Number.isInteger(packSize) || packSize < 2)) {
+    return setFeedback("#product-feedback", "As unidades por fardo devem ser um número inteiro de 2 ou mais (ou deixe vazio se o produto não vem em fardo).", true);
+  }
+  if (packSize >= 2 && custoFardo === null) return setFeedback("#product-feedback", "Informe o custo do fardo, maior que zero.", true);
   if (!Number.isFinite(custoDigitado) || custo <= 0) return setFeedback("#product-feedback", "Informe um custo válido, maior que zero.", true);
   if (!Number.isFinite(percentualGanho) || percentualGanho < 0) return setFeedback("#product-feedback", "Informe um percentual de ganho válido.", true);
+  if (!editing && packSize >= 2 && (!Number.isInteger(packsClosed) || packsClosed < 0 || !Number.isInteger(looseUnits) || looseUnits < 0)) {
+    return setFeedback("#product-feedback", "Fardos fechados e unidades soltas devem ser números inteiros, 0 ou maiores.", true);
+  }
   if (!Number.isInteger(quantity) || quantity < 0) return setFeedback("#product-feedback", "A quantidade deve ser um número inteiro, 0 ou maior.", true);
   if (estoqueMinimo !== null && (!Number.isInteger(estoqueMinimo) || estoqueMinimo < 0)) {
     return setFeedback("#product-feedback", "O estoque mínimo deve ser um número inteiro, 0 ou maior.", true);
@@ -2079,6 +2373,14 @@ async function saveProduct(event) {
       && String(product.codigoBarras || "") === barcode);
     if (duplicate) return setFeedback("#product-feedback", `Este código de barras já está associado ao produto "${duplicate.nome}".`, true);
   }
+
+  // Campos novos (todos opcionais; produtos antigos continuam sem eles).
+  const packFields = {
+    nomeBase,
+    volumeMl: volumeMl === null ? null : volumeMl,
+    unidadesPorFardo: packSize >= 2 ? packSize : null,
+    custoFardo: packSize >= 2 ? custoFardo : null
+  };
 
   submit.disabled = true;
   setFeedback("#product-feedback", "Salvando…");
@@ -2103,6 +2405,7 @@ async function saveProduct(event) {
 
         const changes = {
           nome, descricao, marca, categoria,
+          ...packFields,
           codigoInterno: reservation ? reservation.code : (current.codigoInterno || ""),
           codigoBarras: barcode,
           custo, percentualGanho, precoVenda, estoqueMinimo,
@@ -2129,7 +2432,6 @@ async function saveProduct(event) {
       });
     } else {
       const productRef = doc(collection(db, "produtos"));
-      const entryRef = doc(collection(db, "entradas"));
       await runTransaction(db, async (transaction) => {
         // O contador é lido e gravado na mesma transação do produto:
         // se o salvamento falhar, o número não é consumido.
@@ -2138,6 +2440,7 @@ async function saveProduct(event) {
         if (hasCatalogUpdate) transaction.set(catalogRef, catalogUpdate, { merge: true });
         transaction.set(productRef, {
           nome, descricao, marca, categoria,
+          ...packFields,
           codigoInterno: reservation ? reservation.code : "",
           codigoBarras: barcode,
           custo, percentualGanho, precoVenda, estoqueMinimo,
@@ -2147,19 +2450,41 @@ async function saveProduct(event) {
           criadoEm: serverTimestamp(),
           atualizadoEm: serverTimestamp()
         });
-        if (quantity > 0) {
-          transaction.set(entryRef, {
-            produtoId: productRef.id,
-            produtoNome: nome,
+        const baseEntry = {
+          produtoId: productRef.id,
+          produtoNome: nome,
+          custoUnitario: custo,
+          data: dateToday(),
+          tipo: "estoque_inicial",
+          fornecedor: "",
+          usuario: currentEmail(),
+          criadoEm: serverTimestamp(),
+          criadoEmMs: Date.now()
+        };
+        if (packSize >= 2) {
+          // Fardos fechados e unidades soltas viram lançamentos separados de estoque inicial.
+          if (packsClosed > 0) {
+            transaction.set(doc(collection(db, "entradas")), {
+              ...baseEntry,
+              quantidade: packsClosed * packSize,
+              fardos: packsClosed,
+              unidadesPorFardo: packSize,
+              custoFardo,
+              observacao: "Estoque inicial no cadastro do produto (fardos fechados)"
+            });
+          }
+          if (looseUnits > 0) {
+            transaction.set(doc(collection(db, "entradas")), {
+              ...baseEntry,
+              quantidade: looseUnits,
+              observacao: "Estoque inicial no cadastro do produto (unidades soltas)"
+            });
+          }
+        } else if (quantity > 0) {
+          transaction.set(doc(collection(db, "entradas")), {
+            ...baseEntry,
             quantidade: quantity,
-            custoUnitario: custo,
-            data: dateToday(),
-            tipo: "estoque_inicial",
-            fornecedor: "",
-            observacao: "Estoque inicial no cadastro do produto",
-            usuario: currentEmail(),
-            criadoEm: serverTimestamp(),
-            criadoEmMs: Date.now()
+            observacao: "Estoque inicial no cadastro do produto"
           });
         }
         if (reservation) reservation.commit();
@@ -2237,13 +2562,21 @@ onEvent("#show-archived-entries", "change", (event) => {
 async function saveEntry(event) {
   event.preventDefault();
   const submit = $("#entry-form button[type=submit]");
-  const product = products.find((item) => item.id === selectedEntryProductId && !item.arquivado);
+  const product = selectedEntryProduct();
   if (!product) return setFeedback("#entry-feedback", "Selecione um produto da lista.", true);
-  const quantidade = Number(fieldValue("#entry-quantity"));
-  const custoUnitario = roundMoney(parseDecimal(fieldValue("#entry-cost")));
+  // Com fardo: quantidade = fardos e custo = custo do fardo; o saldo e o custo unitário são calculados.
+  const amounts = readEntryAmounts();
   const data = fieldValue("#entry-date") || dateToday();
-  if (!Number.isInteger(quantidade) || quantidade < 1) return setFeedback("#entry-feedback", "A quantidade deve ser um número inteiro maior que zero.", true);
-  if (!Number.isFinite(custoUnitario) || custoUnitario < 0) return setFeedback("#entry-feedback", "Informe um custo unitário válido.", true);
+  if (!amounts.quantityOk) {
+    return setFeedback("#entry-feedback", amounts.mode === "pack"
+      ? "A quantidade de fardos deve ser um número inteiro maior que zero."
+      : "A quantidade deve ser um número inteiro maior que zero.", true);
+  }
+  if (!amounts.costOk) {
+    return setFeedback("#entry-feedback", amounts.mode === "pack" ? "Informe um custo do fardo válido." : "Informe um custo unitário válido.", true);
+  }
+  const quantidade = amounts.units;
+  const custoUnitario = amounts.unitCost;
 
   submit.disabled = true;
   setFeedback("#entry-feedback", "Registrando…");
@@ -2252,11 +2585,14 @@ async function saveEntry(event) {
     await runTransaction(db, async (transaction) => {
       const snapshot = await transaction.get(productRef);
       if (!snapshot.exists() || snapshot.data().arquivado) throw new Error("Este produto não está mais disponível.");
+      if (amounts.mode === "pack" && packSizeOf(snapshot.data()) !== amounts.size) {
+        throw new Error("O tamanho do fardo deste produto mudou. Selecione o produto novamente.");
+      }
       transaction.update(productRef, {
         quantidade: (Number(snapshot.data().quantidade) || 0) + quantidade,
         atualizadoEm: serverTimestamp()
       });
-      transaction.set(doc(collection(db, "entradas")), {
+      const entryData = {
         produtoId: product.id,
         produtoNome: snapshot.data().nome || product.nome || "",
         quantidade,
@@ -2268,7 +2604,13 @@ async function saveEntry(event) {
         usuario: currentEmail(),
         criadoEm: serverTimestamp(),
         criadoEmMs: Date.now()
-      });
+      };
+      if (amounts.mode === "pack") {
+        entryData.fardos = amounts.packs;
+        entryData.unidadesPorFardo = amounts.size;
+        entryData.custoFardo = amounts.packCost;
+      }
+      transaction.set(doc(collection(db, "entradas")), entryData);
     });
     $("#entry-form").reset();
     selectedEntryProductId = "";
@@ -2294,7 +2636,7 @@ onEvent("#sale-product-results", "click", (event) => {
   const button = event.target.closest("[data-select-sale-product]");
   if (!button) return;
   const product = products.find((item) => item.id === button.dataset.selectSaleProduct && !item.arquivado);
-  if (product) addProductToSaleCart(product);
+  if (product) addProductToSaleCart(product, "busca");
 });
 
 onEvent("#sale-cart-list", "click", (event) => {
@@ -2357,6 +2699,13 @@ async function finishSale(event) {
 
   const cartSnapshot = saleCart.map((item) => ({ ...item }));
 
+  // Dados de contexto da venda (sem identificar o cliente): hora, dia da semana, duração do atendimento.
+  const clock = new Date();
+  const saleHour = clock.getHours();
+  const saleWeekday = new Date(`${date}T12:00:00`).getDay();
+  const durationSeconds = saleCartStartedAt ? Math.max(0, Math.round((Date.now() - saleCartStartedAt) / 1000)) : null;
+  const retroactive = date !== dateToday();
+
   // Idempotência: o ID da venda é gerado no cliente ANTES da transação e só muda quando o conteúdo
   // da venda muda. Se a resposta da rede se perder e o usuário tentar de novo, o mesmo ID é reutilizado
   // e a transação detecta que a venda já foi gravada, em vez de criar outra.
@@ -2408,7 +2757,13 @@ async function finishSale(event) {
           subtotal: roundMoney(item.quantidade * item.precoUnitario),
           precoAlterado: item.precoUnitario !== precoCadastrado,
           abaixoDoSugerido: item.precoUnitario < precoSugerido,
-          abaixoDoCusto: item.precoUnitario < custoUnitario
+          abaixoDoCusto: item.precoUnitario < custoUnitario,
+          // Dados novos para análise (previsão e combos):
+          saldoAntes: balance,
+          categoria: product.categoria || "",
+          marca: product.marca || "",
+          volumeMl: typeof product.volumeMl === "number" ? product.volumeMl : null,
+          origem: item.origem || "busca"
         });
         transaction.update(snapshot.ref, { quantidade: balance - item.quantidade, atualizadoEm: serverTimestamp() });
       });
@@ -2421,11 +2776,18 @@ async function finishSale(event) {
         usuario: currentEmail(),
         devolvidoPorProduto: {},
         valorDevolvido: 0,
+        hora: saleHour,
+        diaSemana: saleWeekday,
+        duracaoSegundos: durationSeconds,
+        numeroItens: itens.length,
+        totalUnidades: itens.reduce((sum, item) => sum + item.quantidade, 0),
+        lancamentoRetroativo: retroactive,
         criadoEm: serverTimestamp()
       });
     });
     saleAttempt = null;
     saleCart = [];
+    saleCartStartedAt = null;
     $("#sale-payment-method").value = "";
     initDateFields(true);
     renderSaleCart();
@@ -2445,6 +2807,40 @@ async function finishSale(event) {
 }
 
 onEvent("#sale-form", "submit", finishSale);
+
+// ---------- Caixa: "Cliente pediu e não tinha" ----------
+// Guarda só o texto do pedido e o momento (sem nenhum dado do cliente).
+
+onEvent("#lost-demand-button", "click", async () => {
+  const text = cleanOption(fieldValue("#lost-demand-text"));
+  if (!text) return setFeedback("#lost-demand-feedback", "Digite o que o cliente pediu.", true);
+  const button = $("#lost-demand-button");
+  button.disabled = true;
+  setFeedback("#lost-demand-feedback", "Registrando…");
+  try {
+    const now = new Date();
+    await addDoc(collection(db, "procura_perdida"), {
+      descricao: text,
+      data: dateToday(),
+      dataHora: nowDateTime(),
+      hora: now.getHours(),
+      diaSemana: now.getDay(),
+      usuario: currentEmail(),
+      criadoEm: serverTimestamp()
+    });
+    $("#lost-demand-text").value = "";
+    setFeedback("#lost-demand-feedback", "Procura registrada.");
+    showToast("Procura registrada.");
+  } catch (error) {
+    console.error("Falha ao registrar procura sem estoque:", error);
+    const denied = String(error?.code || "").includes("permission-denied");
+    setFeedback("#lost-demand-feedback", denied
+      ? "Não foi possível registrar: publique a regra da coleção procura_perdida no Firestore."
+      : explainError(error), true);
+  } finally {
+    button.disabled = false;
+  }
+});
 
 // ---------- Histórico de vendas: cancelar e devolver ----------
 
@@ -2687,6 +3083,7 @@ onEvent("#logout-button", "click", async () => {
 function clearSessionState() {
   products = []; entries = []; exits = []; sales = []; saleReturns = [];
   saleCart = [];
+  saleCartStartedAt = null;
   saleAttempt = null;
   saleInFlight = false;
   activeVistoria = null; inventoryHistory = [];
@@ -2711,4 +3108,4 @@ onAuthStateChanged(auth, async (user) => {
   }
   switchTab("dashboard");
   showTutorialIfNeeded();
-});
+});                                                                                      }
