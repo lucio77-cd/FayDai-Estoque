@@ -7,6 +7,7 @@ import {
   runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion,
   query, where, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
 
 // Configuração do aplicativo web FayDai-Estoque.
 const firebaseConfig = {
@@ -360,7 +361,6 @@ async function reserveInternalCode(transaction) {
     commit: () => transaction.set(counterRef, { ultimoNumero: next, atualizadoEm: serverTimestamp() }, { merge: true })
   };
 }
-
 // ---------- Painel inicial (dashboard) ----------
 
 // Data inicial do período de vendas (formato AAAA-MM-DD) ou null para "todo o período".
@@ -657,8 +657,6 @@ function renderProducts() {
 
   renderEntryProductResults();
 }
-
-
 // ---------- Leitor de código de barras ----------
 // O leitor "digita" o código e termina com Enter (alguns terminam com Tab).
 // Funciona no Caixa, em Entradas, em Saídas, na Vistoria e no cadastro de produto.
@@ -982,6 +980,7 @@ function updateCartSummary() {
   $("#sale-cart-total").textContent = money(cartTotal());
   $("#sale-cart-count").textContent = `${units} ${units === 1 ? "item" : "itens"}`;
   $("#sale-finish-button").disabled = saleCart.length === 0 || cartHasInvalidPrice();
+  document.dispatchEvent(new CustomEvent("cart:changed", { detail: { total: cartTotal(), units } }));
 }
 
 // Atualiza só o subtotal e o alerta de uma linha (sem redesenhar, para não perder o foco do campo de preço).
@@ -1154,7 +1153,7 @@ function renderSales() {
         <p>Responsável: ${escapeHtml(sale.usuario || "Não identificado")}</p>
         ${cancelInfo}
         ${returnsBlock}
-        ${actions}
+        ${actions}${cancelled ? "" : `<p class="sale-print-row"><button class="button quiet" type="button" data-sale-print="${escapeHtml(sale.id)}">Reimprimir cupom</button></p>`}
       </article>`;
     }).join("");
 }
@@ -1470,9 +1469,7 @@ function renderEntries() {
       <div class="item-meta"><div><span>Total informado da compra</span><strong>${money(purchaseTotal)}</strong></div><div><span>Registro</span><strong>${entry.data ? escapeHtml(entry.data.split("-").reverse().join("/")) : "—"}</strong></div></div>
     </article>`;
     }).join("");
-}
-
-// ---------- Vistoria física ----------
+        // ---------- Vistoria física ----------
 
 // Campo vazio = não contado (saldo mantido). "0" = contado, sem nenhuma unidade.
 function parseCountValue(raw) {
@@ -2026,8 +2023,7 @@ document.querySelectorAll("[data-export]").forEach((button) => {
   button.addEventListener("click", () => runExport([button.dataset.export]));
 });
 onEvent("#export-all", "click", () => runExport(Object.keys(EXPORTERS)));
-
-// ---------- Carregamento de dados do Firestore ----------
+  // ---------- Carregamento de dados do Firestore ----------
 
 function renderAll() {
   renderCatalogOptions();
@@ -2629,7 +2625,7 @@ async function saveEntry(event) {
 }
 
 onEvent("#entry-form", "submit", saveEntry);
-
+  
 // ---------- Caixa: busca, carrinho e finalização ----------
 
 onEvent("#sale-product-search", "input", renderSaleProductResults);
@@ -2721,6 +2717,14 @@ async function finishSale(event) {
   }
   const saleRef = doc(db, "vendas", saleAttempt.id);
 
+  // Dinheiro: valor recebido e troco (opcionais).
+  const cashRaw = parseDecimal(fieldValue("#sale-cash-received"));
+  const valorRecebido = formaPagamento === "Dinheiro" && Number.isFinite(cashRaw) && cashRaw > 0 ? roundMoney(cashRaw) : null;
+  if (valorRecebido !== null && valorRecebido < cartTotal()) {
+    return setFeedback("#sale-feedback", "O valor recebido é menor que o total da compra.", true);
+  }
+  const troco = valorRecebido !== null ? roundMoney(valorRecebido - cartTotal()) : null;
+
   saleInFlight = true;
   const button = $("#sale-finish-button");
   button.disabled = true;
@@ -2784,16 +2788,29 @@ async function finishSale(event) {
         numeroItens: itens.length,
         totalUnidades: itens.reduce((sum, item) => sum + item.quantidade, 0),
         lancamentoRetroativo: retroactive,
+        ...(valorRecebido !== null ? { valorRecebido, troco } : {}),
         criadoEm: serverTimestamp()
       });
     });
+    const savedItems = cartSnapshot.map((item) => ({
+      produtoNome: item.nome, quantidade: item.quantidade, precoUnitario: item.precoUnitario,
+      subtotal: roundMoney(item.quantidade * item.precoUnitario)
+    }));
+    const savedSale = {
+      id: saleAttempt.id, itens: savedItems,
+      total: roundMoney(savedItems.reduce((sum, item) => sum + item.subtotal, 0)),
+      formaPagamento, data: date, dataHora: dateTimeFor(date), usuario: currentEmail(),
+      ...(valorRecebido !== null ? { valorRecebido, troco } : {})
+    };
     saleAttempt = null;
     saleCart = [];
     saleCartStartedAt = null;
     $("#sale-payment-method").value = "";
+    resetCaixaUI();
     initDateFields(true);
     renderSaleCart();
     await loadData();
+    if (!alreadySaved) showSaleDone(savedSale, storeSettings);
     const message = alreadySaved
       ? "Esta venda já estava registrada (o envio anterior foi confirmado). Nada foi duplicado."
       : "Venda registrada.";
@@ -2809,6 +2826,15 @@ async function finishSale(event) {
 }
 
 onEvent("#sale-form", "submit", finishSale);
+
+onEvent("#sale-clear-button", "click", () => {
+  if (!saleCart.length) return;
+  if (!window.confirm("Limpar todos os itens da compra?")) return;
+  saleCart = [];
+  setFeedback("#sale-feedback", "");
+  renderSaleCart();
+});
+initCaixaUI(() => storeSettings);
 
 // ---------- Caixa: "Cliente pediu e não tinha" ----------
 // Guarda só o texto do pedido e o momento (sem nenhum dado do cliente).
@@ -2844,9 +2870,15 @@ onEvent("#lost-demand-button", "click", async () => {
   }
 });
 
-// ---------- Histórico de vendas: cancelar e devolver ----------
+// ---------- Histórico de vendas: cancelar, devolver e reimprimir ----------
 
 onEvent("#sales-list", "click", (event) => {
+  const printButton = event.target.closest("[data-sale-print]");
+  if (printButton) {
+    const toPrint = sales.find((item) => item.id === printButton.dataset.salePrint);
+    if (toPrint) printSale(toPrint, storeSettings);
+    return;
+  }
   const returnButton = event.target.closest("[data-sale-return]");
   if (returnButton) return openSaleAction("return", returnButton.dataset.saleReturn);
   const cancelButton = event.target.closest("[data-sale-cancel]");
