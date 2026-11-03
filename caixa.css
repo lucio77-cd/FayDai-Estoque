@@ -1,0 +1,32 @@
+/* caixa.css — visual de caixa (PDV). Carregado depois do styles.css. */
+#caja-panel .panel{max-width:none}
+.pos-keys{font-size:var(--fs-xs);font-weight:600;color:var(--muted)}
+.pos-grid{display:grid;gap:var(--s4)}
+.pos-search input#sale-product-search{min-height:60px;font-size:1.25rem;font-weight:600;border:2px solid var(--navy)}
+.pos-results{max-height:360px}
+.pos-cart-list{max-height:42vh;overflow:auto}
+.pos-cart .cart-heading h3{margin:0}
+.pos-cart .sale-total-panel strong{font-size:clamp(2.25rem,1.6rem + 2vw,3rem)}
+.pay-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s2)}
+.pay-btn{min-height:56px;padding:8px;border:2px solid var(--line-strong);border-radius:var(--r-md);background:#fff;color:var(--ink);font-weight:700;font-size:var(--fs-base);transition:background-color var(--t),color var(--t),border-color var(--t)}
+.pay-btn.active{background:var(--navy);border-color:var(--navy);color:#fff}
+@media(hover:hover){.pay-btn:not(.active):hover{border-color:var(--blue);background:var(--blue-50)}}
+.cash-box{display:grid;gap:var(--s2);padding:var(--s3);border:1px solid var(--line);border-radius:var(--r-md);background:var(--blue-50)}
+.cash-quick{display:flex;flex-wrap:wrap;gap:var(--s2)}
+.cash-quick button{min-height:44px;padding:8px 14px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:#fff;color:var(--navy);font-weight:700}
+.sale-change{margin:0;font-size:1.5rem;font-weight:800;font-variant-numeric:tabular-nums}
+.sale-change:empty{display:none}
+.sale-change.ok{color:var(--green)}
+.sale-change.short{color:var(--red)}
+.sale-done{margin-bottom:var(--s4);padding:var(--s5);border:1px solid var(--green-line);border-radius:var(--r-lg);background:var(--green-bg);color:var(--green)}
+.sale-done p{margin:0 0 var(--s3);font-size:var(--fs-lg)}
+.sale-done strong{font-size:1.5rem}
+.sale-done-actions{display:flex;flex-wrap:wrap;gap:var(--s2)}
+.pos-more summary,.pos-printer summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:650;color:var(--navy)}
+.pos-printer{margin-top:var(--s4)}
+.sale-print-row{margin:var(--s3) 0 0}
+@media(min-width:1024px){
+  .pos-grid{grid-template-columns:minmax(0,1fr) minmax(380px,.9fr);align-items:start}
+  .pos-cart{position:sticky;top:var(--s4)}
+  .pos-cart-list{max-height:calc(100dvh - 560px);min-height:120px}
+}
