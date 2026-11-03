@@ -1469,7 +1469,9 @@ function renderEntries() {
       <div class="item-meta"><div><span>Total informado da compra</span><strong>${money(purchaseTotal)}</strong></div><div><span>Registro</span><strong>${entry.data ? escapeHtml(entry.data.split("-").reverse().join("/")) : "—"}</strong></div></div>
     </article>`;
     }).join("");
-        // ---------- Vistoria física ----------
+}
+
+// ---------- Vistoria física ----------
 
 // Campo vazio = não contado (saldo mantido). "0" = contado, sem nenhuma unidade.
 function parseCountValue(raw) {
