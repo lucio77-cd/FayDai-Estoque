@@ -1,56 +1,9 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
-import {
-  getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
-} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-import {
-  getFirestore, collection, getDocs, doc, writeBatch, addDoc,
-  runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion,
-  query, where, orderBy, limit
-} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import { auth, db, signInWithEmailAndPassword, onAuthStateChanged, signOut, collection, getDocs, doc, writeBatch, addDoc, runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion, query, where } from "./js/firebase.js?v=20261104-1";
+import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, toDateString, dateToday, formatDate, formatTimestamp, escapeHtml, normalizeText, cleanOption, uniqueOptions, minStockOf, isLowStock, composeProductName, baseNameOf, packSizeOf, unitCostFromPack, saleItemsOf, saleTotalOf, returnTotalOf, saleDateOf, returnDateOf, inPeriod, yesNo, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime, wait } from "./js/utils.js?v=20261104-1";
+import { excelText, csvNumber, downloadCsv } from "./js/export.js?v=20261104-1";
 import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
 
-// Configuração do aplicativo web FayDai-Estoque.
-const firebaseConfig = {
-  apiKey: "AIzaSyDQw-x8-GUxkS41pAiOYwJjawgnMvxyuYk",
-  authDomain: "faydai-estoque.firebaseapp.com",
-  projectId: "faydai-estoque",
-  storageBucket: "faydai-estoque.firebasestorage.app",
-  messagingSenderId: "703117192541",
-  appId: "1:703117192541:web:3eeeba198d137eee440cb4",
-  measurementId: "G-W6ET4LEQHM"
-};
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-
-const $ = (selector) => document.querySelector(selector);
-const money = (value) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value) || 0);
-// Arredonda valores em reais para 2 casas (centavos), evitando erros de ponto flutuante.
-const roundMoney = (value) => Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
-// Preço sugerido = custo cadastrado × (1 + percentual de ganho / 100).
-const calcSuggestedPrice = (product) => roundMoney((Number(product.custo) || 0) * (1 + (Number(product.percentualGanho) || 0) / 100));
-// Preço de venda cadastrado no produto; se não existir, usa o sugerido.
-const getRegisteredSalePrice = (product) => {
-  const registered = Number(product.precoVenda);
-  return product.precoVenda !== null && product.precoVenda !== undefined && product.precoVenda !== "" && Number.isFinite(registered)
-    ? roundMoney(registered)
-    : calcSuggestedPrice(product);
-};
-const toDateString = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-const dateToday = () => toDateString(new Date());
-// Converte "2026-10-21" ou "2026-10-21 14:30" para "21/10/2026" ou "21/10/2026 14:30".
-const formatDate = (value) => {
-  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
-  return match ? `${match[3]}/${match[2]}/${match[1]}${match[4]}` : (value || "");
-};
-// Converte um Timestamp do Firestore em texto local (ou vazio).
-const formatTimestamp = (value) => (value?.toDate
-  ? value.toDate().toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
-  : "");
-const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, (char) => ({
-  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-}[char]));
 
 const CATALOG_OPTIONS_ID = "catalogo_opcoes_faydai";
 const STORE_SETTINGS_ID = "configuracoes_faydai";
@@ -113,89 +66,6 @@ let saleAction = null; // { mode: "cancel" | "return", saleId }
 // Painel: série diária usada pelo gráfico de vendas por dia
 let dailySeries = [];
 
-const normalizeText = (value = "") => String(value || "")
-  .normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "")
-  .trim()
-  .replace(/\s+/g, " ")
-  .toLocaleLowerCase("pt-BR");
-
-const cleanOption = (value = "") => String(value || "").trim().replace(/\s+/g, " ");
-
-function uniqueOptions(values = []) {
-  const seen = new Set();
-  return values
-    .map(cleanOption)
-    .filter((value) => {
-      const key = normalizeText(value);
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .sort((a, b) => a.localeCompare(b, "pt-BR"));
-}
-
-// ---------- Auxiliares de produtos, vendas e devoluções ----------
-
-// Estoque mínimo definido pelo usuário (null = sem aviso para o produto).
-const minStockOf = (product) => (Number.isInteger(product.estoqueMinimo) && product.estoqueMinimo >= 0 ? product.estoqueMinimo : null);
-const isLowStock = (product) => {
-  const minimum = minStockOf(product);
-  return minimum !== null && (Number(product.quantidade) || 0) <= minimum;
-};
-
-// ---------- Fardo e volume (itens de conveniência) ----------
-
-const escapeRegExp = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-// Volume em ml para texto curto: 350 -> "350 ml"; 2000 -> "2 L"; 1500 -> "1,5 L".
-function volumeLabel(volumeMl) {
-  const ml = Number(volumeMl);
-  if (!Number.isFinite(ml) || ml <= 0) return "";
-  if (ml >= 1000) {
-    const liters = Math.round(ml) / 1000;
-    return `${liters.toLocaleString("pt-BR")} L`;
-  }
-  return `${String(Math.round(ml * 100) / 100).replace(".", ",")} ml`;
-}
-
-// Nome gravado no produto = nome-base + volume (sem repetir o volume se ele já foi digitado no nome).
-function composeProductName(baseName, volumeMl) {
-  const base = cleanOption(baseName);
-  const label = volumeLabel(volumeMl);
-  if (!label) return base;
-  const compact = (text) => normalizeText(text).replace(/\s+/g, "");
-  const pattern = new RegExp(`(^|[^0-9])${escapeRegExp(compact(label))}`);
-  return pattern.test(compact(base)) ? base : `${base} ${label}`;
-}
-
-// Nome digitado pelo usuário (sem o volume). Produtos antigos não têm nomeBase: usa o nome inteiro.
-const baseNameOf = (product) => product.nomeBase || product.nome || "";
-// Unidades por fardo (0 = o produto não vem em fardo).
-const packSizeOf = (product) => (Number.isInteger(product.unidadesPorFardo) && product.unidadesPorFardo >= 2 ? product.unidadesPorFardo : 0);
-// Custo de cada unidade a partir do custo do fardo (em centavos, como todo custo do sistema).
-const unitCostFromPack = (packCost, packSize) => (packSize >= 2 ? roundMoney((Number(packCost) || 0) / packSize) : 0);
-
-const saleItemsOf = (sale) => (Array.isArray(sale.itens) && sale.itens.length
-  ? sale.itens
-  : [{ produtoNome: sale.produtoNome || "Produto", quantidade: sale.quantidade || 0, precoUnitario: sale.precoUnitario || 0 }]);
-
-const saleTotalOf = (sale) => Number(sale.total) || roundMoney(saleItemsOf(sale).reduce((sum, item) => (
-  sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0))
-), 0));
-
-const returnTotalOf = (saleReturn) => {
-  const items = Array.isArray(saleReturn.itens) ? saleReturn.itens : [];
-  return Number(saleReturn.totalDevolvido) || roundMoney(items.reduce((sum, item) => (
-    sum + roundMoney((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0))
-  ), 0));
-};
-
-const saleDateOf = (sale) => sale.data || String(sale.dataHora || "").slice(0, 10);
-const returnDateOf = (saleReturn) => saleReturn.data || String(saleReturn.dataHora || "").slice(0, 10);
-// Datas no formato AAAA-MM-DD; sem data inicial significa "todo o período".
-const inPeriod = (dateText, start, today) => !start || (dateText >= start && dateText <= today);
-const yesNo = (value) => (value === true ? "Sim" : (value === false ? "Não" : ""));
 
 const NEW_BRAND_VALUE = "__nova_marca__";
 const NEW_CATEGORY_VALUE = "__nova_categoria__";
@@ -1835,26 +1705,7 @@ async function finishInventory() {
   }
 }
 
-// ---------- Auxiliares gerais (leitura de campos e eventos) ----------
-
-const fieldValue = (selector) => {
-  const element = document.querySelector(selector);
-  return element ? String(element.value ?? "") : "";
-};
-const onEvent = (selector, eventName, handler) => {
-  const element = document.querySelector(selector);
-  if (element) element.addEventListener(eventName, handler);
-  else console.warn(`Elemento não encontrado: ${selector}`);
-};
-const parseDecimal = (value) => {
-  const text = String(value ?? "").trim().replace(",", ".");
-  if (text === "") return NaN;
-  return Number(text);
-};
-const dateTimeFor = (date) => `${date || dateToday()} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
-const nowDateTime = () => dateTimeFor(dateToday());
 const currentEmail = () => auth.currentUser?.email || "Usuário não identificado";
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Preenche os campos de data (entrada, venda, saída) com a data de hoje quando estiverem vazios.
 function initDateFields(force = false) {
@@ -1866,36 +1717,6 @@ function initDateFields(force = false) {
 
 // ---------- Exportação CSV ----------
 
-// Texto que o Excel deve tratar como texto puro (ex.: código de barras só com dígitos).
-const excelText = (value) => {
-  const text = String(value ?? "");
-  return text ? { raw: `="${text.replace(/"/g, '""')}"` } : "";
-};
-
-function csvCell(value) {
-  if (value && typeof value === "object" && "raw" in value) return value.raw;
-  let text = value === null || value === undefined ? "" : String(value);
-  // Impede que a planilha trate o texto como fórmula.
-  if (/^[=+\-@]/.test(text) && !/^-?\d+([.,]\d+)?$/.test(text)) text = `'${text}`;
-  return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-const csvNumber = (value) => (Number.isFinite(Number(value)) ? Number(value).toFixed(2).replace(".", ",") : "");
-
-// Devolve false (e não baixa nada) quando não há linhas.
-function downloadCsv(filename, header, rows) {
-  if (!rows.length) return false;
-  const lines = [header, ...rows].map((row) => row.map(csvCell).join(";"));
-  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${filename}-${dateToday()}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  return true;
-}
 
 // As colunas novas ficam sempre no FINAL, para não deslocar as colunas das planilhas que você já usa.
 function exportProductsCsv() {
