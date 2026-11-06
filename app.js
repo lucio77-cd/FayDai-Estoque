@@ -2477,11 +2477,11 @@ onEvent("#logout-button", "click", async () => {
 
 function clearSessionState() {
   replaceArray(products); replaceArray(entries); replaceArray(exits); replaceArray(sales); replaceArray(saleReturns);
-  saleCart = [];
+  replaceArray(saleCart);
   saleCartStartedAt = null;
   saleAttempt = null;
   saleInFlight = false;
-  activeVistoria = null; inventoryHistory = [];
+  activeVistoria = null; replaceArray(inventoryHistory);
   vistoriaDraft = {}; vistoriaDraftOwner = null; vistoriaDirty = false;
   selectedEntryProductId = ""; selectedExitProductId = "";
 }
