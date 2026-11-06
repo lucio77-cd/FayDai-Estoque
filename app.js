@@ -5,6 +5,7 @@ import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261105-1";
 import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
 import { saveEntryTransaction, saveExitTransaction } from "./js/servicos/movimentacoes.js?v=20261106-1";
 import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261106-2";
+import { saveProductTransaction, deleteProductTransaction, saveStoreSettingsTransaction } from "./js/servicos/produtos.js?v=20261106-3";
 
 
 
@@ -219,19 +220,7 @@ function resetProductForm() {
 // A leitura do contador acontece junto com as demais leituras; a gravação do novo
 // valor só é feita por reservation.commit(), na mesma transação que grava o produto.
 // Assim o número só é consumido se o produto for realmente salvo (sem lacunas na sequência).
-async function reserveInternalCode(transaction) {
-  const counterRef = doc(db, "produtos", INTERNAL_COUNTER_ID);
-  const snap = await transaction.get(counterRef);
-  const existingMax = products.reduce((max, product) => {
-    const match = String(product.codigoInterno || "").match(/^FON(\d+)$/i);
-    return match ? Math.max(max, Number(match[1]) || 0) : max;
-  }, 0);
-  const next = Math.max(Number(snap.data()?.ultimoNumero) || 0, existingMax) + 1;
-  return {
-    code: "FON" + String(next).padStart(3, "0"),
-    commit: () => transaction.set(counterRef, { ultimoNumero: next, atualizadoEm: serverTimestamp() }, { merge: true })
-  };
-}
+
 // ---------- Painel inicial (dashboard) ----------
 
 // Data inicial do período de vendas (formato AAAA-MM-DD) ou null para "todo o período".
@@ -1952,111 +1941,33 @@ async function saveProduct(event) {
   submit.disabled = true;
   setFeedback("#product-feedback", "Salvando…");
   try {
-    // Marca e categoria novas entram no catálogo na mesma transação que grava o produto.
-    const catalogRef = doc(db, "produtos", CATALOG_OPTIONS_ID);
-    const catalogUpdate = {};
-    if (marca && !brands.some((value) => normalizeText(value) === normalizeText(marca))) catalogUpdate.marcas = arrayUnion(marca);
-    if (categoria && !categories.some((value) => normalizeText(value) === normalizeText(categoria))) catalogUpdate.categorias = arrayUnion(categoria);
-    const hasCatalogUpdate = Object.keys(catalogUpdate).length > 0;
-
-    if (editing) {
-      const productRef = doc(db, "produtos", editing.id);
-      await runTransaction(db, async (transaction) => {
-        // Leituras primeiro: produto atual (dados frescos) e, se faltar código, o contador.
-        const snapshot = await transaction.get(productRef);
-        if (!snapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista.");
-        const current = snapshot.data();
-        const reservation = (!current.codigoInterno && storeSettings.codigoInternoAtivo)
-          ? await reserveInternalCode(transaction)
-          : null;
-
-        const changes = {
-          nome, descricao, marca, categoria,
-          ...packFields,
-          codigoInterno: reservation ? reservation.code : (current.codigoInterno || ""),
-          codigoBarras: barcode,
-          custo, percentualGanho, precoVenda, estoqueMinimo,
-          atualizadoEm: serverTimestamp()
-        };
-        if (roundMoney(current.custo) !== custo) {
-          changes.custoAnterior = roundMoney(current.custo);
-          changes.custoAlteradoEm = dateToday();
-          // Registro imutável do histórico de custos.
-          transaction.set(doc(collection(db, "historico_custos")), {
-            produtoId: editing.id,
-            produtoNome: nome,
-            custoAnterior: roundMoney(current.custo),
-            custoNovo: custo,
-            origem: "edicao_produto",
-            data: dateToday(),
-            usuario: currentEmail(),
-            criadoEm: serverTimestamp()
-          });
-        }
-        if (hasCatalogUpdate) transaction.set(catalogRef, catalogUpdate, { merge: true });
-        if (reservation) reservation.commit();
-        transaction.update(productRef, changes);
-      });
-    } else {
-      const productRef = doc(collection(db, "produtos"));
-      await runTransaction(db, async (transaction) => {
-        // O contador é lido e gravado na mesma transação do produto:
-        // se o salvamento falhar, o número não é consumido.
-        const reservation = storeSettings.codigoInternoAtivo ? await reserveInternalCode(transaction) : null;
-
-        if (hasCatalogUpdate) transaction.set(catalogRef, catalogUpdate, { merge: true });
-        transaction.set(productRef, {
-          nome, descricao, marca, categoria,
-          ...packFields,
-          codigoInterno: reservation ? reservation.code : "",
-          codigoBarras: barcode,
-          custo, percentualGanho, precoVenda, estoqueMinimo,
-          quantidade: quantity,
-          arquivado: false,
-          criadoEmData: dateToday(),
-          criadoEm: serverTimestamp(),
-          atualizadoEm: serverTimestamp()
-        });
-        const baseEntry = {
-          produtoId: productRef.id,
-          produtoNome: nome,
-          custoUnitario: custo,
-          data: dateToday(),
-          tipo: "estoque_inicial",
-          fornecedor: "",
-          usuario: currentEmail(),
-          criadoEm: serverTimestamp(),
-          criadoEmMs: Date.now()
-        };
-        if (packSize >= 2) {
-          // Fardos fechados e unidades soltas viram lançamentos separados de estoque inicial.
-          if (packsClosed > 0) {
-            transaction.set(doc(collection(db, "entradas")), {
-              ...baseEntry,
-              quantidade: packsClosed * packSize,
-              fardos: packsClosed,
-              unidadesPorFardo: packSize,
-              custoFardo,
-              observacao: "Estoque inicial no cadastro do produto (fardos fechados)"
-            });
-          }
-          if (looseUnits > 0) {
-            transaction.set(doc(collection(db, "entradas")), {
-              ...baseEntry,
-              quantidade: looseUnits,
-              observacao: "Estoque inicial no cadastro do produto (unidades soltas)"
-            });
-          }
-        } else if (quantity > 0) {
-          transaction.set(doc(collection(db, "entradas")), {
-            ...baseEntry,
-            quantidade: quantity,
-            observacao: "Estoque inicial no cadastro do produto"
-          });
-        }
-        if (reservation) reservation.commit();
-      });
-    }
+    await saveProductTransaction({
+      productId: editing ? editing.id : null,
+      data: {
+        nome,
+        descricao,
+        marca,
+        categoria,
+        packFields,
+        barcode,
+        custo,
+        percentualGanho,
+        precoVenda,
+        estoqueMinimo,
+        quantity,
+        packSize,
+        packsClosed,
+        looseUnits,
+        custoFardo
+      },
+      products,
+      brands,
+      categories,
+      suggestedCategories: SUGGESTED_CATEGORIES,
+      internalCodeEnabled: storeSettings.codigoInternoAtivo,
+      today: dateToday(),
+      userEmail: currentEmail()
+    });
     const wasEditing = Boolean(editing);
     resetProductForm();
     setCancelEditVisible(false);
@@ -2091,15 +2002,7 @@ async function deleteProduct(productId) {
     : `Excluir o produto "${product.nome}"?\n\nEsta ação não pode ser desfeita.`;
   if (!window.confirm(message)) return;
   try {
-    if (hasHistory) {
-      await updateDoc(doc(db, "produtos", productId), {
-        arquivado: true,
-        arquivadoEm: serverTimestamp(),
-        atualizadoEm: serverTimestamp()
-      });
-    } else {
-      await deleteDoc(doc(db, "produtos", productId));
-    }
+    await deleteProductTransaction({ productId, archive: hasHistory });
     if (editingProductId === productId) {
       resetProductForm();
       setCancelEditVisible(false);
@@ -2574,9 +2477,7 @@ onEvent("#store-settings-form", "submit", async (event) => {
   submit.disabled = true;
   setFeedback("#settings-feedback", "Salvando…");
   try {
-    const batch = writeBatch(db);
-    batch.set(doc(db, "produtos", STORE_SETTINGS_ID), { ...settings, atualizadoEm: serverTimestamp() }, { merge: true });
-    await batch.commit();
+    await saveStoreSettingsTransaction(settings);
     storeSettings = { ...storeSettings, ...settings };
     renderStoreSettings();
     renderProducts();
