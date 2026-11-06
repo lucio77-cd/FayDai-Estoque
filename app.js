@@ -4,14 +4,13 @@ import { excelText, csvNumber, downloadCsv } from "./js/export.js?v=20261104-1";
 import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261105-1";
 import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
 import { saveEntryTransaction, saveExitTransaction } from "./js/servicos/movimentacoes.js?v=20261106-1";
+import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261106-2";
 
 
 
 const CATALOG_OPTIONS_ID = "catalogo_opcoes_faydai";
 const STORE_SETTINGS_ID = "configuracoes_faydai";
 const INTERNAL_COUNTER_ID = "contador_codigo_interno_faydai";
-// Limite de produtos ajustados por vistoria (limite de escritas de uma transação do Firestore).
-const MAX_INVENTORY_ADJUSTMENTS = 400;
 const EXIT_REASON_LABELS = { perda: "Perda", devolucao: "Devolução ao fornecedor", uso_interno: "Uso interno", outro: "Outra saída" };
 let storeSettings = { nome: "", responsavel: "", telefone: "", endereco: "", cnpj: "", codigoInternoAtivo: false, codigoBarrasAtivo: false, caixaAtivo: false, saidasAtivo: true };
 let editingProductId = null;
@@ -1176,14 +1175,6 @@ function renderEntries() {
 // ---------- Vistoria física ----------
 
 // Campo vazio = não contado (saldo mantido). "0" = contado, sem nenhuma unidade.
-function parseCountValue(raw) {
-  const text = String(raw ?? "").trim();
-  if (text === "") return { state: "empty" };
-  const value = Number(text);
-  if (!Number.isInteger(value) || value < 0) return { state: "invalid" };
-  return { state: "counted", value };
-}
-
 // Mantém o rascunho digitado: só recarrega das contagens salvas quando a vistoria mudou
 // ou quando não há alterações pendentes.
 function syncInventoryDraft() {
@@ -1201,16 +1192,6 @@ function syncInventoryDraft() {
       vistoriaDraft[productId] = String(value);
     });
   }
-}
-
-function describeCount(product, raw) {
-  const parsed = parseCountValue(raw);
-  const balance = Number(product.quantidade) || 0;
-  if (parsed.state === "empty") return { text: "Não contado", cls: "pending", counted: false };
-  if (parsed.state === "invalid") return { text: "Valor inválido", cls: "invalid", counted: false };
-  const diff = parsed.value - balance;
-  if (diff === 0) return { text: "Sem diferença", cls: "ok", counted: true };
-  return { text: `${diff > 0 ? "+" : ""}${diff} un.`, cls: diff > 0 ? "plus" : "minus", counted: true };
 }
 
 function inventoryCounts() {
@@ -1356,15 +1337,7 @@ async function startInventory() {
       return;
     }
     const email = auth.currentUser?.email || null;
-    await addDoc(collection(db, "vistorias"), {
-      status: "em_andamento",
-      contagens: {},
-      data: dateToday(),
-      criadoEm: serverTimestamp(),
-      criadoPor: email,
-      atualizadoEm: serverTimestamp(),
-      atualizadoPor: email
-    });
+    await startInventoryService({ date: dateToday(), userEmail: email });
     await loadData();
     setFeedback("#inventory-feedback", "Vistoria iniciada. Preencha as quantidades contadas.");
   } catch (error) {
@@ -1386,10 +1359,10 @@ async function saveInventory() {
   button.disabled = true;
   setFeedback("#inventory-feedback", "Salvando andamento…");
   try {
-    await updateDoc(doc(db, "vistorias", activeVistoria.id), {
-      contagens: counts,
-      atualizadoEm: serverTimestamp(),
-      atualizadoPor: auth.currentUser?.email || null
+    await saveInventoryService({
+      inventoryId: activeVistoria.id,
+      counts,
+      userEmail: auth.currentUser?.email || null
     });
     vistoriaDirty = false;
     await loadData();
@@ -1410,7 +1383,7 @@ async function discardInventory() {
   const button = $("#inventory-discard");
   button.disabled = true;
   try {
-    await deleteDoc(doc(db, "vistorias", activeVistoria.id));
+    await discardInventoryService({ inventoryId: activeVistoria.id });
     vistoriaDirty = false;
     await loadData();
     setFeedback("#inventory-feedback", "Vistoria descartada. Nenhum saldo foi alterado.");
@@ -1431,30 +1404,22 @@ async function finishInventory() {
     if (Object.values(vistoriaDraft).some((raw) => parseCountValue(raw).state === "invalid")) {
       throw new Error("Há valores inválidos na contagem. Use números inteiros, 0 ou maiores.");
     }
-    // Recarrega os saldos: a diferença é calculada com o saldo do momento da conclusão.
+    // Recarrega os saldos antes da confirmação; o serviço relê os saldos definitivos na transação.
     await loadData();
     if (!activeVistoria) throw new Error("A vistoria não está mais em andamento. Atualize a página.");
-    const vistoriaId = activeVistoria.id;
 
-    const counted = [];
-    const uncounted = [];
-    products.filter((product) => !product.arquivado).forEach((product) => {
-      const parsed = parseCountValue(vistoriaDraft[product.id]);
-      const balance = Number(product.quantidade) || 0;
-      if (parsed.state === "counted") {
-        counted.push({ id: product.id, nome: product.nome || "", valor: parsed.value, saldo: balance });
-      } else {
-        uncounted.push({ produtoId: product.id, produtoNome: product.nome || "", codigoInterno: product.codigoInterno || "", saldo: balance });
-      }
-    });
+    const { counts } = buildInventoryCounts();
+    const activeProducts = products.filter((product) => !product.arquivado);
+    const counted = activeProducts.filter((product) => Object.prototype.hasOwnProperty.call(counts, product.id));
+    const uncountedCount = activeProducts.length - counted.length;
     if (!counted.length) throw new Error("Informe a contagem de pelo menos um produto antes de concluir.");
-    const withDiff = counted.filter((item) => item.valor !== item.saldo).length;
+    const withDiff = counted.filter((product) => counts[product.id] !== (Number(product.quantidade) || 0)).length;
     if (withDiff > MAX_INVENTORY_ADJUSTMENTS) {
       throw new Error(`Há ${withDiff} produtos com diferença. O limite é ${MAX_INVENTORY_ADJUSTMENTS} por vistoria: deixe alguns produtos em branco (não contados) e conclua; depois faça outra vistoria com o restante.`);
     }
 
     const confirmed = window.confirm(
-      `Concluir a vistoria?\n\n• ${counted.length} produto(s) contado(s)\n• ${withDiff} com diferença: o saldo será ajustado para a quantidade contada\n• ${uncounted.length} NÃO contado(s): mantêm o saldo atual\n\nA conclusão não pode ser desfeita.`
+      `Concluir a vistoria?\n\n• ${counted.length} produto(s) contado(s)\n• ${withDiff} com diferença: o saldo será ajustado para a quantidade contada\n• ${uncountedCount} NÃO contado(s): mantêm o saldo atual\n\nA conclusão não pode ser desfeita.`
     );
     if (!confirmed) {
       setFeedback("#inventory-feedback", "");
@@ -1462,66 +1427,16 @@ async function finishInventory() {
     }
 
     setFeedback("#inventory-feedback", "Concluindo vistoria…");
-    const vistoriaRef = doc(db, "vistorias", vistoriaId);
     const email = auth.currentUser?.email || "Usuário não identificado";
     const date = dateToday();
     const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
-    let result = null;
-    await runTransaction(db, async (transaction) => {
-      const vistoriaSnapshot = await transaction.get(vistoriaRef);
-      if (!vistoriaSnapshot.exists() || vistoriaSnapshot.data().status !== "em_andamento") {
-        throw new Error("Esta vistoria já foi concluída ou foi descartada.");
-      }
-      const snapshots = await Promise.all(counted.map((item) => transaction.get(doc(db, "produtos", item.id))));
-      const itens = [];
-      const ignorados = [];
-      snapshots.forEach((snapshot, index) => {
-        const item = counted[index];
-        if (!snapshot.exists() || snapshot.data().arquivado) {
-          ignorados.push({
-            produtoId: item.id, produtoNome: item.nome, contado: item.valor,
-            motivo: !snapshot.exists() ? "Produto não existe mais" : "Produto arquivado"
-          });
-          return;
-        }
-        const product = snapshot.data();
-        const saldoAnterior = Number(product.quantidade) || 0;
-        itens.push({
-          produtoId: item.id,
-          produtoNome: product.nome || item.nome,
-          codigoInterno: product.codigoInterno || "",
-          saldoAnterior,
-          contado: item.valor,
-          diferenca: item.valor - saldoAnterior
-        });
-      });
-      const ajustados = itens.filter((item) => item.diferenca !== 0);
-      if (ajustados.length > MAX_INVENTORY_ADJUSTMENTS) {
-        throw new Error(`Há ${ajustados.length} produtos com diferença. O limite é ${MAX_INVENTORY_ADJUSTMENTS} por vistoria: deixe alguns produtos em branco e conclua em partes.`);
-      }
-      ajustados.forEach((item) => {
-        transaction.update(doc(db, "produtos", item.produtoId), {
-          quantidade: item.contado,
-          atualizadoEm: serverTimestamp()
-        });
-      });
-      transaction.update(vistoriaRef, {
-        status: "concluida",
-        contagens: Object.fromEntries(counted.map((item) => [item.id, item.valor])),
-        itens,
-        naoContados: uncounted,
-        ignorados,
-        totalContados: itens.length,
-        totalNaoContados: uncounted.length,
-        totalComDiferenca: ajustados.length,
-        data: date,
-        dataHora: dateTime,
-        concluidaEm: serverTimestamp(),
-        concluidaPor: email,
-        atualizadoEm: serverTimestamp(),
-        atualizadoPor: email
-      });
-      result = { contados: itens.length, ajustados: ajustados.length, ignorados: ignorados.length };
+    const result = await finishInventoryService({
+      inventoryId: activeVistoria.id,
+      counts,
+      activeProducts,
+      date,
+      dateTime,
+      userEmail: email
     });
 
     vistoriaDirty = false;
