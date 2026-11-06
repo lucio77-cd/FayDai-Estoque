@@ -8,13 +8,16 @@ import { parseCountValue, describeCount, startInventory as startInventoryService
 import { saveProductTransaction, deleteProductTransaction, saveStoreSettingsTransaction } from "./js/servicos/produtos.js?v=20261106-3";
 import { cartItemPrice as saleCartItemPrice, cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
 
+import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, replaceArray } from "./js/estado.js?v=20261106-5";
+import { loadAppData } from "./js/dados.js?v=20261106-5";
+
 
 
 const CATALOG_OPTIONS_ID = "catalogo_opcoes_faydai";
 const STORE_SETTINGS_ID = "configuracoes_faydai";
 const INTERNAL_COUNTER_ID = "contador_codigo_interno_faydai";
 const EXIT_REASON_LABELS = { perda: "Perda", devolucao: "Devolução ao fornecedor", uso_interno: "Uso interno", outro: "Outra saída" };
-let storeSettings = { nome: "", responsavel: "", telefone: "", endereco: "", cnpj: "", codigoInternoAtivo: false, codigoBarrasAtivo: false, caixaAtivo: false, saidasAtivo: true };
+
 let editingProductId = null;
 let salePriceManuallyEdited = false;
 const SUGGESTED_CATEGORIES = [
@@ -33,26 +36,23 @@ const SUGGESTED_CATEGORIES = [
   "Mercearia",
   "Outros"
 ];
-let products = [];
-let entries = [];
-let exits = [];
-let sales = [];
+
 let selectedExitProductId = "";
 let selectedEntryProductId = "";
 let selectedSaleProductId = "";
-let saleCart = [];
+
 // Instante em que o primeiro item entrou no carrinho (para registrar a duração do atendimento).
 let saleCartStartedAt = null;
 // Idempotência da venda: ID gerado no cliente e reaproveitado enquanto o carrinho não mudar.
 let saleAttempt = null; // { id, fingerprint }
 let saleInFlight = false;
-let brands = [];
-let categories = [];
+
+
 let showArchivedEntries = false;
 let toastTimeout;
 
 // Vistoria física
-let inventoryHistory = [];
+
 let activeVistoria = null;
 let vistoriaDraft = {};
 let vistoriaDraftOwner = null;
@@ -61,7 +61,7 @@ let inventoryAvailable = true;
 let inventoryLoadErrorShown = false;
 
 // Cancelamentos e devoluções de venda
-let saleReturns = [];
+
 let saleReturnsAvailable = true;
 let returnsLoadErrorShown = false;
 let saleAction = null; // { mode: "cancel" | "return", saleId }
@@ -1601,67 +1601,34 @@ function renderAll() {
 }
 
 async function loadData() {
-  const [productsSnap, entriesSnap, exitsSnap, salesSnap] = await Promise.all([
-    getDocs(collection(db, "produtos")),
-    getDocs(collection(db, "entradas")),
-    getDocs(collection(db, "saidas")),
-    getDocs(collection(db, "vendas"))
-  ]);
+  const data = await loadAppData();
+  replaceArray(products, data.products);
+  replaceArray(entries, data.entries);
+  replaceArray(exits, data.exits);
+  replaceArray(sales, data.sales);
+  replaceArray(saleReturns, data.saleReturns);
+  replaceArray(inventoryHistory, data.inventoryHistory);
+  Object.assign(storeSettings, data.storeSettingsData || {});
+  replaceArray(brands, uniqueOptions([...(data.catalogData.marcas || []), ...products.map((product) => product.marca)]));
+  replaceArray(categories, uniqueOptions([...(data.catalogData.categorias || []), ...products.map((product) => product.categoria)]));
+  saleReturnsAvailable = data.saleReturnsAvailable;
+  activeVistoria = data.activeVistoria;
+  inventoryAvailable = data.inventoryAvailable;
 
-  const specialIds = new Set([CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID]);
-  let catalogData = {};
-  products = [];
-  productsSnap.docs.forEach((item) => {
-    if (item.id === CATALOG_OPTIONS_ID) catalogData = item.data();
-    else if (item.id === STORE_SETTINGS_ID) {
-      storeSettings = { ...storeSettings, ...item.data() };
-    } else if (!specialIds.has(item.id)) {
-      products.push({ id: item.id, ...item.data() });
-    }
-  });
-  entries = entriesSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
-  exits = exitsSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
-  sales = salesSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
-
-  brands = uniqueOptions([...(catalogData.marcas || []), ...products.map((product) => product.marca)]);
-  categories = uniqueOptions([...(catalogData.categorias || []), ...products.map((product) => product.categoria)]);
-
-  try {
-    const returnsSnap = await getDocs(collection(db, "devolucoes"));
-    saleReturns = returnsSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
-    saleReturnsAvailable = true;
-  } catch (error) {
-    console.error("Falha ao carregar devoluções:", error);
-    saleReturns = [];
-    saleReturnsAvailable = false;
+  if (data.returnsError) {
+    console.error("Falha ao carregar devoluções:", data.returnsError);
     if (!returnsLoadErrorShown) {
       returnsLoadErrorShown = true;
       showToast("Devoluções indisponíveis: publique as regras do Firestore.");
     }
   }
-
-  try {
-    const inventorySnap = await getDocs(collection(db, "vistorias"));
-    const all = inventorySnap.docs.map((item) => {
-      const data = item.data();
-      return { id: item.id, ...data, atualizadoEmMs: data.atualizadoEm?.toMillis ? data.atualizadoEm.toMillis() : 0 };
-    });
-    activeVistoria = all.find((item) => item.status === "em_andamento") || null;
-    inventoryHistory = all.filter((item) => item.status === "concluida")
-      .sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || "")))
-      .slice(0, 30);
-    inventoryAvailable = true;
-  } catch (error) {
-    console.error("Falha ao carregar vistorias:", error);
-    activeVistoria = null;
-    inventoryHistory = [];
-    inventoryAvailable = false;
+  if (data.inventoryError) {
+    console.error("Falha ao carregar vistorias:", data.inventoryError);
     if (!inventoryLoadErrorShown) {
       inventoryLoadErrorShown = true;
       showToast("Vistoria indisponível: publique as regras do Firestore.");
     }
   }
-
   renderAll();
 }
 
@@ -2211,7 +2178,7 @@ async function finishSale(event) {
       ...(valorRecebido !== null ? { valorRecebido, troco } : {})
     };
     saleAttempt = null;
-    saleCart = [];
+    replaceArray(saleCart);
     saleCartStartedAt = null;
     $("#sale-payment-method").value = "";
     resetCaixaUI();
@@ -2238,7 +2205,7 @@ onEvent("#sale-form", "submit", finishSale);
 onEvent("#sale-clear-button", "click", () => {
   if (!saleCart.length) return;
   if (!window.confirm("Limpar todos os itens da compra?")) return;
-  saleCart = [];
+  replaceArray(saleCart);
   setFeedback("#sale-feedback", "");
   renderSaleCart();
 });
@@ -2430,7 +2397,7 @@ onEvent("#store-settings-form", "submit", async (event) => {
   setFeedback("#settings-feedback", "Salvando…");
   try {
     await saveStoreSettingsTransaction(settings);
-    storeSettings = { ...storeSettings, ...settings };
+    Object.assign(storeSettings, settings);
     renderStoreSettings();
     renderProducts();
     setFeedback("#settings-feedback", "Configurações salvas.");
@@ -2509,7 +2476,7 @@ onEvent("#logout-button", "click", async () => {
 });
 
 function clearSessionState() {
-  products = []; entries = []; exits = []; sales = []; saleReturns = [];
+  replaceArray(products); replaceArray(entries); replaceArray(exits); replaceArray(sales); replaceArray(saleReturns);
   saleCart = [];
   saleCartStartedAt = null;
   saleAttempt = null;
