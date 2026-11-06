@@ -10,6 +10,7 @@ import { cartItemPrice as saleCartItemPrice, cartItemSubtotal as saleCartItemSub
 
 import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, replaceArray } from "./js/estado.js?v=20261106-5";
 import { loadAppData } from "./js/dados.js?v=20261106-5";
+import { initScanner } from "./js/ui/scanner.js?v=20261106-6";
 
 
 
@@ -523,137 +524,21 @@ function renderProducts() {
 // Funciona no Caixa, em Entradas, em Saídas, na Vistoria e no cadastro de produto.
 
 // Som curto de confirmação (agudo) ou de erro (grave), gerado pelo navegador, sem arquivo de áudio.
-let scanAudioContext = null;
-function scanBeep(ok = true) {
-  try {
-    scanAudioContext = scanAudioContext || new (window.AudioContext || window.webkitAudioContext)();
-    if (scanAudioContext.state === "suspended") scanAudioContext.resume();
-    const oscillator = scanAudioContext.createOscillator();
-    const gain = scanAudioContext.createGain();
-    oscillator.type = "square";
-    oscillator.frequency.value = ok ? 1500 : 300;
-    gain.gain.value = 0.04;
-    oscillator.connect(gain);
-    gain.connect(scanAudioContext.destination);
-    oscillator.start();
-    oscillator.stop(scanAudioContext.currentTime + (ok ? 0.08 : 0.3));
-  } catch (error) {
-    // O som é opcional: se o navegador bloquear, a leitura continua funcionando.
-  }
-  if (!ok && navigator.vibrate) navigator.vibrate(200);
-}
-
-// Produtos ativos cujo código de barras ou código interno é exatamente o código lido.
-// Se não houver, aceita o nome idêntico (como o Caixa já fazia).
-function scanMatches(rawCode) {
-  const code = normalizeText(rawCode);
-  if (!code) return [];
-  const active = products.filter((product) => !product.arquivado);
-  const byCode = active.filter((product) => normalizeText(product.codigoBarras) === code
-    || normalizeText(product.codigoInterno) === code);
-  return byCode.length ? byCode : active.filter((product) => normalizeText(product.nome) === code);
-}
-
-// Resolve o código lido: devolve o produto, ou null avisando o usuário (com som de erro quando é um código).
-function resolveScannedProduct(rawCode, inputSelector, feedbackSelector) {
-  const text = String(rawCode || "").trim();
-  const matches = scanMatches(text);
-  if (matches.length === 1) {
-    setFeedback(feedbackSelector, "");
-    return matches[0];
-  }
-  if (matches.length > 1) {
-    scanBeep(false);
-    setFeedback(feedbackSelector, "Mais de um produto com este código. Escolha na lista.", true);
-    return null;
-  }
-  if (/^\d{6,}$/.test(text)) {
-    scanBeep(false);
-    setFeedback(feedbackSelector, `Código ${text} não encontrado. Confira o cadastro do produto.`, true);
-    // Limpa o campo para a próxima leitura não ser somada a este código.
-    const input = $(inputSelector);
-    input.value = "";
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    return null;
-  }
-  setFeedback(feedbackSelector, "Nenhum produto com exatamente este código ou nome. Toque em um item da lista.", true);
-  return null;
-}
-
-// Liga um campo de busca ao leitor. Enter nunca envia o formulário; Tab só vale quando o código existe.
-function bindScanner(selector, handleCode) {
-  $(selector).addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== "Tab") return;
-    const value = event.currentTarget.value.trim();
-    if (event.key === "Tab" && !(value && scanMatches(value).length)) return;
-    event.preventDefault();
-    if (value) handleCode(value);
-  });
-}
-
-// Caixa: cada leitura adiciona 1 unidade ao carrinho.
-bindScanner("#sale-product-search", (rawCode) => {
-  const product = resolveScannedProduct(rawCode, "#sale-product-search", "#sale-feedback");
-  if (!product) return;
-  // Origem do item (dado para análise): "leitor" quando o código lido é o código de barras do produto.
-  const barcode = normalizeText(product.codigoBarras);
-  const origin = barcode && barcode === normalizeText(rawCode) ? "leitor" : "busca";
-  const added = addProductToSaleCart(product, origin);
-  scanBeep(added);
-  if (!added) {
-    $("#sale-product-search").value = "";
-    renderSaleProductResults();
-    $("#sale-product-search").focus();
-  }
-});
-
-// Saídas: a leitura seleciona o produto e vai para a quantidade.
-bindScanner("#exit-product-search", (rawCode) => {
-  const product = resolveScannedProduct(rawCode, "#exit-product-search", "#exit-feedback");
-  if (!product) return;
-  scanBeep(true);
-  selectedExitProductId = product.id;
-  $("#exit-product-search").value = product.nome;
-  renderExitProductResults();
-  $("#exit-quantity").focus();
-});
-
-// Vistoria: cada leitura soma 1 à contagem do produto.
-bindScanner("#inventory-search", (rawCode) => {
-  const product = resolveScannedProduct(rawCode, "#inventory-search", "#inventory-scan-feedback");
-  if (!product) return;
-  const parsed = parseCountValue(vistoriaDraft[product.id]);
-  const next = parsed.state === "counted" ? parsed.value + 1 : 1;
-  vistoriaDraft[product.id] = String(next);
-  vistoriaDirty = true;
-  scanBeep(true);
-  setFeedback("#inventory-scan-feedback", `${product.nome}: contagem ${next} (saldo no sistema: ${Number(product.quantidade) || 0})`);
-  $("#inventory-search").value = "";
-  renderInventoryList();
-  updateInventorySummary();
-  $("#inventory-search").focus();
-});
-
-// Cadastro de produto: o Enter do leitor não envia o formulário; confere se o código já existe.
-$("#product-barcode").addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
-  event.preventDefault();
-  const input = $("#product-barcode");
-  const code = cleanOption(input.value);
-  input.value = code;
-  if (!code) return;
-  const duplicate = products.find((product) => product.id !== editingProductId && !product.arquivado
-    && String(product.codigoBarras || "") === code);
-  if (duplicate) {
-    scanBeep(false);
-    const message = `Este código de barras já está associado ao produto "${duplicate.nome}".`;
-    setFeedback("#product-feedback", message, true);
-    showToast(message);
-    return;
-  }
-  scanBeep(true);
-  setFeedback("#product-feedback", "");
-  $("#product-description").focus();
+initScanner({
+  getProducts: () => products,
+  getEditingProductId: () => editingProductId,
+  setSelectedExitProductId: (value) => { selectedExitProductId = value; },
+  getInventoryCount: (productId) => vistoriaDraft[productId],
+  setInventoryCount: (productId, value) => { vistoriaDraft[productId] = value; },
+  markInventoryDirty: () => { vistoriaDirty = true; },
+  parseInventoryCount: parseCountValue,
+  addProductToSaleCart,
+  renderSaleProductResults,
+  renderExitProductResults,
+  renderInventoryList,
+  updateInventorySummary,
+  setFeedback,
+  showToast
 });
 
 // ---------- Entradas: busca de produto (nome, código ou leitor) ----------
