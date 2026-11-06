@@ -3,6 +3,7 @@ import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, toDat
 import { excelText, csvNumber, downloadCsv } from "./js/export.js?v=20261104-1";
 import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261105-1";
 import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
+import { saveEntryTransaction, saveExitTransaction } from "./js/servicos/movimentacoes.js?v=20261106-1";
 
 
 
@@ -2232,36 +2233,20 @@ async function saveEntry(event) {
   submit.disabled = true;
   setFeedback("#entry-feedback", "Registrando…");
   try {
-    const productRef = doc(db, "produtos", product.id);
-    await runTransaction(db, async (transaction) => {
-      const snapshot = await transaction.get(productRef);
-      if (!snapshot.exists() || snapshot.data().arquivado) throw new Error("Este produto não está mais disponível.");
-      if (amounts.mode === "pack" && packSizeOf(snapshot.data()) !== amounts.size) {
-        throw new Error("O tamanho do fardo deste produto mudou. Selecione o produto novamente.");
-      }
-      transaction.update(productRef, {
-        quantidade: (Number(snapshot.data().quantidade) || 0) + quantidade,
-        atualizadoEm: serverTimestamp()
-      });
-      const entryData = {
-        produtoId: product.id,
-        produtoNome: snapshot.data().nome || product.nome || "",
-        quantidade,
-        custoUnitario,
-        data,
-        tipo: "entrada",
-        fornecedor: cleanOption(fieldValue("#entry-supplier")),
-        observacao: fieldValue("#entry-notes").trim(),
-        usuario: currentEmail(),
-        criadoEm: serverTimestamp(),
-        criadoEmMs: Date.now()
-      };
-      if (amounts.mode === "pack") {
-        entryData.fardos = amounts.packs;
-        entryData.unidadesPorFardo = amounts.size;
-        entryData.custoFardo = amounts.packCost;
-      }
-      transaction.set(doc(collection(db, "entradas")), entryData);
+    await saveEntryTransaction({
+      productId: product.id,
+      productName: product.nome || "",
+      quantity: quantidade,
+      unitCost: custoUnitario,
+      date: data,
+      supplier: cleanOption(fieldValue("#entry-supplier")),
+      notes: fieldValue("#entry-notes").trim(),
+      userEmail: currentEmail(),
+      pack: amounts.mode === "pack" ? {
+        packs: amounts.packs,
+        size: amounts.size,
+        packCost: amounts.packCost
+      } : null
     });
     $("#entry-form").reset();
     selectedEntryProductId = "";
@@ -2276,7 +2261,6 @@ async function saveEntry(event) {
     submit.disabled = false;
   }
 }
-
 onEvent("#entry-form", "submit", saveEntry);
 
 // ---------- Caixa: busca, carrinho e finalização ----------
@@ -2613,24 +2597,14 @@ async function saveExit(event) {
   submit.disabled = true;
   setFeedback("#exit-feedback", "Registrando…");
   try {
-    const productRef = doc(db, "produtos", product.id);
-    await runTransaction(db, async (transaction) => {
-      const snapshot = await transaction.get(productRef);
-      if (!snapshot.exists() || snapshot.data().arquivado) throw new Error("Este produto não está mais disponível.");
-      const balance = Number(snapshot.data().quantidade) || 0;
-      if (quantidade > balance) throw new Error(`Saldo insuficiente. Disponível: ${balance} unidade(s).`);
-      transaction.update(productRef, { quantidade: balance - quantidade, atualizadoEm: serverTimestamp() });
-      transaction.set(doc(collection(db, "saidas")), {
-        produtoId: product.id,
-        produtoNome: snapshot.data().nome || product.nome || "",
-        quantidade,
-        motivo,
-        observacao: fieldValue("#exit-notes").trim(),
-        data,
-        dataHora: dateTimeFor(data),
-        usuario: currentEmail(),
-        criadoEm: serverTimestamp()
-      });
+    await saveExitTransaction({
+      productId: product.id,
+      productName: product.nome || "",
+      quantity: quantidade,
+      reason: motivo,
+      date: data,
+      notes: fieldValue("#exit-notes").trim(),
+      userEmail: currentEmail()
     });
     $("#exit-form").reset();
     selectedExitProductId = "";
@@ -2645,7 +2619,6 @@ async function saveExit(event) {
     submit.disabled = false;
   }
 }
-
 onEvent("#exit-form", "submit", saveExit);
 
 // ---------- Vistoria: botões e campos ----------
