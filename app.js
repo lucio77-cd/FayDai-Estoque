@@ -6,6 +6,7 @@ import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v
 import { saveEntryTransaction, saveExitTransaction } from "./js/servicos/movimentacoes.js?v=20261106-1";
 import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261106-2";
 import { saveProductTransaction, deleteProductTransaction, saveStoreSettingsTransaction } from "./js/servicos/produtos.js?v=20261106-3";
+import { cartItemPrice as saleCartItemPrice, cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
 
 
 
@@ -788,10 +789,10 @@ bindScanner("#entry-product-search", (rawCode) => {
 // ---------- Caixa: carrinho com preço editável e alertas ----------
 
 // Preço do item (0 quando o campo está vazio ou inválido), subtotal e total em centavos exatos.
-const cartItemPrice = (item) => (Number.isFinite(item.precoUnitario) ? item.precoUnitario : 0);
-const cartItemSubtotal = (item) => roundMoney(item.quantidade * cartItemPrice(item));
-const cartTotal = () => roundMoney(saleCart.reduce((sum, item) => sum + cartItemSubtotal(item), 0));
-const cartHasInvalidPrice = () => saleCart.some((item) => !(item.precoUnitario > 0));
+const cartItemPrice = saleCartItemPrice;
+const cartItemSubtotal = saleCartItemSubtotal;
+const cartTotal = () => saleCartTotal(saleCart);
+const cartHasInvalidPrice = () => saleCartHasInvalidPrice(saleCart);
 
 // Alertas de preço: não bloqueiam a venda (exceto preço vazio/zero, que é erro de digitação).
 function getPriceAlert(item) {
@@ -2185,67 +2186,19 @@ async function finishSale(event) {
   button.disabled = true;
   setFeedback("#sale-feedback", "Registrando venda…");
   try {
-    let alreadySaved = false;
-    await runTransaction(db, async (transaction) => {
-      alreadySaved = false;
-      // Leituras primeiro: a própria venda (idempotência) e depois os produtos.
-      const existingSale = await transaction.get(saleRef);
-      if (existingSale.exists()) {
-        alreadySaved = true;
-        return;
-      }
-      const snapshots = [];
-      for (const item of cartSnapshot) snapshots.push(await transaction.get(doc(db, "produtos", item.produtoId)));
-      const itens = [];
-      snapshots.forEach((snapshot, index) => {
-        const item = cartSnapshot[index];
-        if (!snapshot.exists() || snapshot.data().arquivado) throw new Error(`O produto "${item.nome}" não está mais disponível.`);
-        const product = { id: snapshot.id, ...snapshot.data() };
-        const balance = Number(product.quantidade) || 0;
-        if (item.quantidade > balance) throw new Error(`Saldo insuficiente de "${product.nome}". Disponível: ${balance}.`);
-        const custoUnitario = roundMoney(product.custo);
-        const precoCadastrado = getRegisteredSalePrice(product);
-        const precoSugerido = calcSuggestedPrice(product);
-        itens.push({
-          produtoId: product.id,
-          produtoNome: product.nome || item.nome,
-          codigoInterno: product.codigoInterno || "",
-          quantidade: item.quantidade,
-          precoUnitario: item.precoUnitario,
-          precoCadastrado,
-          precoSugerido,
-          custoUnitario,
-          subtotal: roundMoney(item.quantidade * item.precoUnitario),
-          precoAlterado: item.precoUnitario !== precoCadastrado,
-          abaixoDoSugerido: item.precoUnitario < precoSugerido,
-          abaixoDoCusto: item.precoUnitario < custoUnitario,
-          // Dados novos para análise (previsão e combos):
-          saldoAntes: balance,
-          categoria: product.categoria || "",
-          marca: product.marca || "",
-          volumeMl: typeof product.volumeMl === "number" ? product.volumeMl : null,
-          origem: item.origem || "busca"
-        });
-        transaction.update(snapshot.ref, { quantidade: balance - item.quantidade, atualizadoEm: serverTimestamp() });
-      });
-      transaction.set(saleRef, {
-        itens,
-        total: roundMoney(itens.reduce((sum, item) => sum + item.subtotal, 0)),
-        formaPagamento,
-        data: date,
-        dataHora: dateTimeFor(date),
-        usuario: currentEmail(),
-        devolvidoPorProduto: {},
-        valorDevolvido: 0,
-        hora: saleHour,
-        diaSemana: saleWeekday,
-        duracaoSegundos: durationSeconds,
-        numeroItens: itens.length,
-        totalUnidades: itens.reduce((sum, item) => sum + item.quantidade, 0),
-        lancamentoRetroativo: retroactive,
-        ...(valorRecebido !== null ? { valorRecebido, troco } : {}),
-        criadoEm: serverTimestamp()
-      });
+    const { alreadySaved } = await finishSaleTransaction({
+      saleId: saleAttempt.id,
+      cartSnapshot,
+      formaPagamento,
+      date,
+      userEmail: currentEmail(),
+      saleHour,
+      saleWeekday,
+      durationSeconds,
+      retroactive,
+      valorRecebido,
+      troco,
+      dateTime: dateTimeFor(date)
     });
     const savedItems = cartSnapshot.map((item) => ({
       produtoNome: item.nome, quantidade: item.quantidade, precoUnitario: item.precoUnitario,
@@ -2302,14 +2255,13 @@ onEvent("#lost-demand-button", "click", async () => {
   setFeedback("#lost-demand-feedback", "Registrando…");
   try {
     const now = new Date();
-    await addDoc(collection(db, "procura_perdida"), {
-      descricao: text,
-      data: dateToday(),
-      dataHora: nowDateTime(),
-      hora: now.getHours(),
-      diaSemana: now.getDay(),
-      usuario: currentEmail(),
-      criadoEm: serverTimestamp()
+    await registerLostDemand({
+      description: text,
+      date: dateToday(),
+      dateTime: nowDateTime(),
+      hour: now.getHours(),
+      weekday: now.getDay(),
+      userEmail: currentEmail()
     });
     $("#lost-demand-text").value = "";
     setFeedback("#lost-demand-feedback", "Procura registrada.");
