@@ -3,7 +3,7 @@
 import {
   db, collection, doc, runTransaction, serverTimestamp, arrayUnion, updateDoc, deleteDoc, writeBatch
 } from "../firebase.js?v=20261104-1";
-import { roundMoney } from "../utils.js?v=20261104-1";
+import { roundMoney, normalizeText } from "../utils.js?v=20261104-1";
 
 async function reserveInternalCode(transaction, products) {
   const counterRef = doc(db, "produtos", "contador_codigo_interno_faydai");
@@ -32,10 +32,10 @@ export async function saveProductTransaction({
 }) {
   const catalogRef = doc(db, "produtos", "catalogo_opcoes_faydai");
   const catalogUpdate = {};
-  if (data.marca && !brands.some((value) => String(value).toLocaleLowerCase("pt-BR") === data.marca.toLocaleLowerCase("pt-BR"))) {
+  if (data.marca && !brands.some((value) => normalizeText(value) === normalizeText(data.marca))) {
     catalogUpdate.marcas = arrayUnion(data.marca);
   }
-  if (data.categoria && ![...suggestedCategories, ...categories].some((value) => String(value).toLocaleLowerCase("pt-BR") === data.categoria.toLocaleLowerCase("pt-BR"))) {
+  if (data.categoria && ![...suggestedCategories, ...categories].some((value) => normalizeText(value) === normalizeText(data.categoria))) {
     catalogUpdate.categorias = arrayUnion(data.categoria);
   }
   const hasCatalogUpdate = Object.keys(catalogUpdate).length > 0;
