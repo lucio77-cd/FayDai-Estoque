@@ -1,8 +1,8 @@
-import { auth, db, signInWithEmailAndPassword, onAuthStateChanged, signOut, collection, getDocs, doc, writeBatch, addDoc, runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion, query, where } from "./js/firebase.js?v=20261104-1";
+import { auth, db, signInWithEmailAndPassword, onAuthStateChanged, signOut, collection, getDocs, doc, writeBatch, addDoc, runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion } from "./js/firebase.js?v=20261104-1";
 import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, toDateString, dateToday, formatDate, formatTimestamp, escapeHtml, normalizeText, cleanOption, uniqueOptions, minStockOf, isLowStock, composeProductName, baseNameOf, packSizeOf, unitCostFromPack, saleItemsOf, saleTotalOf, returnTotalOf, saleDateOf, returnDateOf, inPeriod, yesNo, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime, wait } from "./js/utils.js?v=20261104-1";
 import { excelText, csvNumber, downloadCsv } from "./js/export.js?v=20261104-1";
 import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
-
+import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261105-1";
 
 
 const CATALOG_OPTIONS_ID = "catalogo_opcoes_faydai";
