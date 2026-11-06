@@ -1889,6 +1889,7 @@ function setCancelEditVisible(visible) {
     submit.insertAdjacentElement("afterend", button);
   }
   button.hidden = !visible;
+  }
   function startEditProduct(productId) {
   const product = products.find((item) => item.id === productId);
   if (!product) return;
@@ -2794,5 +2795,4 @@ onAuthStateChanged(auth, async (user) => {
   }
   switchTab("dashboard");
   showTutorialIfNeeded();
-});
-                                                                                                                                                                                                                                                        }
+});                                                                                                                                                                                                                                                  
