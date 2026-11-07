@@ -3,6 +3,7 @@ import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, dateT
 import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261105-1";
 import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
 import { saveEntryTransaction, saveExitTransaction } from "./js/servicos/movimentacoes.js?v=20261106-1";
+import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=20261106-21";
 import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261106-2";
 import { cartItemPrice as saleCartItemPrice, cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
 
@@ -160,6 +161,13 @@ initSessionUI({
     vistoriaDraft = {}; vistoriaDraftOwner = null; vistoriaDirty = false;
     selectedEntryProductId = ""; selectedExitProductId = "";
   }
+});
+
+initMovementFormsUI({
+  storeSettings, saveEntryTransaction, saveExitTransaction,
+  selectedEntryProduct, readEntryAmounts,
+  getSelectedExitProduct: () => products.find((item) => item.id === selectedExitProductId && !item.arquivado),
+  currentEmail, initDateFields, loadData, setFeedback, showToast, explainError
 });
 
 // ---------- Entradas: busca de produto (nome, código ou leitor) ----------
@@ -902,57 +910,7 @@ onEvent("#show-archived-entries", "change", (event) => {
   renderEntries();
 });
 
-async function saveEntry(event) {
-  event.preventDefault();
-  const submit = $("#entry-form button[type=submit]");
-  const product = selectedEntryProduct();
-  if (!product) return setFeedback("#entry-feedback", "Selecione um produto da lista.", true);
-  // Com fardo: quantidade = fardos e custo = custo do fardo; o saldo e o custo unitário são calculados.
-  const amounts = readEntryAmounts();
-  const data = fieldValue("#entry-date") || dateToday();
-  if (!amounts.quantityOk) {
-    return setFeedback("#entry-feedback", amounts.mode === "pack"
-      ? "A quantidade de fardos deve ser um número inteiro maior que zero."
-      : "A quantidade deve ser um número inteiro maior que zero.", true);
-  }
-  if (!amounts.costOk) {
-    return setFeedback("#entry-feedback", amounts.mode === "pack" ? "Informe um custo do fardo válido." : "Informe um custo unitário válido.", true);
-  }
-  const quantidade = amounts.units;
-  const custoUnitario = amounts.unitCost;
 
-  submit.disabled = true;
-  setFeedback("#entry-feedback", "Registrando…");
-  try {
-    await saveEntryTransaction({
-      productId: product.id,
-      productName: product.nome || "",
-      quantity: quantidade,
-      unitCost: custoUnitario,
-      date: data,
-      supplier: cleanOption(fieldValue("#entry-supplier")),
-      notes: fieldValue("#entry-notes").trim(),
-      userEmail: currentEmail(),
-      pack: amounts.mode === "pack" ? {
-        packs: amounts.packs,
-        size: amounts.size,
-        packCost: amounts.packCost
-      } : null
-    });
-    $("#entry-form").reset();
-    selectedEntryProductId = "";
-    initDateFields(true);
-    await loadData();
-    setFeedback("#entry-feedback", "Entrada registrada.");
-    showToast("Entrada registrada.");
-  } catch (error) {
-    console.error("Falha ao registrar entrada:", error);
-    setFeedback("#entry-feedback", explainError(error), true);
-  } finally {
-    submit.disabled = false;
-  }
-}
-onEvent("#entry-form", "submit", saveEntry);
 
 // ---------- Caixa: busca, carrinho e finalização ----------
 
@@ -1167,41 +1125,5 @@ onEvent("#exit-product-results", "click", (event) => {
   $("#exit-quantity").focus();
 });
 
-async function saveExit(event) {
-  event.preventDefault();
-  if (storeSettings.saidasAtivo === false) return setFeedback("#exit-feedback", "O módulo Saídas está desativado.", true);
-  const submit = $("#exit-form button[type=submit]");
-  const product = products.find((item) => item.id === selectedExitProductId && !item.arquivado);
-  if (!product) return setFeedback("#exit-feedback", "Selecione um produto da lista.", true);
-  const quantidade = Number(fieldValue("#exit-quantity"));
-  const motivo = fieldValue("#exit-reason");
-  const data = fieldValue("#exit-date") || dateToday();
-  if (!Number.isInteger(quantidade) || quantidade < 1) return setFeedback("#exit-feedback", "A quantidade deve ser um número inteiro maior que zero.", true);
-  if (!motivo) return setFeedback("#exit-feedback", "Selecione o motivo da saída.", true);
 
-  submit.disabled = true;
-  setFeedback("#exit-feedback", "Registrando…");
-  try {
-    await saveExitTransaction({
-      productId: product.id,
-      productName: product.nome || "",
-      quantity: quantidade,
-      reason: motivo,
-      date: data,
-      notes: fieldValue("#exit-notes").trim(),
-      userEmail: currentEmail()
-    });
-    $("#exit-form").reset();
-    selectedExitProductId = "";
-    initDateFields(true);
-    await loadData();
-    setFeedback("#exit-feedback", "Saída registrada.");
-    showToast("Saída registrada.");
-  } catch (error) {
-    console.error("Falha ao registrar saída:", error);
-    setFeedback("#exit-feedback", explainError(error), true);
-  } finally {
-    submit.disabled = false;
-  }
-}
 onEvent("#exit-form", "submit", saveExit);
