@@ -1,11 +1,10 @@
-import { auth, db, collection, getDocs, doc, writeBatch, addDoc, runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion } from "./js/firebase.js?v=20261104-1";
-import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, toDateString, dateToday, formatDate, formatTimestamp, escapeHtml, normalizeText, cleanOption, uniqueOptions, minStockOf, isLowStock, composeProductName, baseNameOf, packSizeOf, unitCostFromPack, saleItemsOf, saleTotalOf, returnTotalOf, saleDateOf, returnDateOf, inPeriod, yesNo, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime, wait } from "./js/utils.js?v=20261104-1";
-import { excelText, csvNumber, downloadCsv } from "./js/export.js?v=20261104-1";
+import { auth, db, collection, doc } from "./js/firebase.js?v=20261104-1";
+import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, dateToday, formatDate, escapeHtml, normalizeText, cleanOption, uniqueOptions, minStockOf, composeProductName, baseNameOf, packSizeOf, unitCostFromPack, saleItemsOf, saleTotalOf, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime } from "./js/utils.js?v=20261104-1";
 import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261105-1";
 import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
 import { saveEntryTransaction, saveExitTransaction } from "./js/servicos/movimentacoes.js?v=20261106-1";
 import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261106-2";
-import { saveProductTransaction, deleteProductTransaction, saveStoreSettingsTransaction } from "./js/servicos/produtos.js?v=20261106-3";
+import { saveProductTransaction, deleteProductTransaction } from "./js/servicos/produtos.js?v=20261106-3";
 import { cartItemPrice as saleCartItemPrice, cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
 
 import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, replaceArray } from "./js/estado.js?v=20261106-5";
