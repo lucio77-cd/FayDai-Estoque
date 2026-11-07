@@ -25,7 +25,6 @@ import { initCaixaTelaUI } from "./js/ui/caixa.js?v=20261106-16";
 const CATALOG_OPTIONS_ID = "catalogo_opcoes_faydai";
 const STORE_SETTINGS_ID = "configuracoes_faydai";
 const INTERNAL_COUNTER_ID = "contador_codigo_interno_faydai";
-const EXIT_REASON_LABELS = { perda: "Perda", devolucao: "Devolução ao fornecedor", uso_interno: "Uso interno", outro: "Outra saída" };
 
 let editingProductId = null;
 let salePriceManuallyEdited = false;
