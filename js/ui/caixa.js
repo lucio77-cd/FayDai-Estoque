@@ -60,11 +60,4 @@ onEvent("#sale-clear-button", "click", () => {
   renderSaleCart();
 });
 
-  onEvent("#sale-clear-button", "click", () => {
-    if (!saleCart.length) return;
-    if (!window.confirm("Limpar todos os itens da compra?")) return;
-    replaceArray(saleCart);
-    setFeedback("#sale-feedback", "");
-    renderSaleCart();
-  });
 }
