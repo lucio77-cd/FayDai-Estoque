@@ -17,6 +17,7 @@ import { initSessionUI, switchTab } from "./js/ui/sessao.js?v=20261106-9";
 import { renderSales } from "./js/ui/historico-vendas.js?v=20261106-10";
 import { renderEntries, renderExits } from "./js/ui/movimentacoes.js?v=20261106-11";
 import { initExportacaoUI } from "./js/ui/exportacao.js?v=20261106-12";
+import { initConfiguracoesUI, renderStoreSettings } from "./js/ui/configuracoes.js?v=20261106-13";
 
 
 
@@ -140,30 +141,6 @@ function showApp(isSignedIn) {
   $("#app-view").hidden = !isSignedIn;
 }
 
-function renderStoreSettings() {
-  $("#store-name").value = storeSettings.nome || "";
-  $("#store-manager").value = storeSettings.responsavel || "";
-  $("#store-phone").value = storeSettings.telefone || "";
-  $("#store-address").value = storeSettings.endereco || "";
-  $("#store-cnpj").value = storeSettings.cnpj || "";
-  $("#setting-internal-code").checked = Boolean(storeSettings.codigoInternoAtivo);
-  $("#setting-barcode").checked = Boolean(storeSettings.codigoBarrasAtivo);
-  $("#setting-caja-active").checked = Boolean(storeSettings.caixaAtivo);
-  $("#setting-exits-active").checked = storeSettings.saidasAtivo !== false;
-  renderModuleAvailability();
-  $("#product-internal-code").placeholder = storeSettings.codigoInternoAtivo ? "Gerado ao salvar" : "Desativado nas configurações";
-  $("#product-barcode").disabled = !storeSettings.codigoBarrasAtivo && !editingProductId;
-}
-
-function renderModuleAvailability() {
-  const cajaActive = Boolean(storeSettings.caixaAtivo);
-  const exitsActive = storeSettings.saidasAtivo !== false;
-  $("#caja-disabled-notice").hidden = cajaActive;
-  $("#caja-content").hidden = !cajaActive;
-  $("#exits-disabled-notice").hidden = exitsActive;
-  $("#exit-content").hidden = !exitsActive;
-}
-
 function resetProductForm() {
   editingProductId = null;
   $("#product-form").reset();
@@ -216,6 +193,7 @@ initScanner({
   showToast
 });
 
+initConfiguracoesUI({ setFeedback, showToast, explainError, renderProducts, renderEntryProductResults });
 initExportacaoUI({ setFeedback, showToast, explainError, loadData });
 initSessionUI({
   setFeedback, explainError, showToast, initDateFields, resetProductForm, loadData,
@@ -883,7 +861,7 @@ function initDateFields(force = false) {
 
 function renderAll() {
   renderCatalogOptions();
-  renderStoreSettings();
+  renderStoreSettings(Boolean(editingProductId));
   renderProducts(renderEntryProductResults);
   renderEntries(showArchivedEntries);
   renderExits();
@@ -1671,37 +1649,4 @@ onEvent("#inventory-list", "input", (event) => {
   vistoriaDirty = true;
   updateInventoryRow(productId);
   updateInventorySummary();
-});
-
-// ---------- Configurações ----------
-
-onEvent("#store-settings-form", "submit", async (event) => {
-  event.preventDefault();
-  const submit = $("#store-settings-form button[type=submit]");
-  const settings = {
-    nome: cleanOption(fieldValue("#store-name")),
-    responsavel: cleanOption(fieldValue("#store-manager")),
-    telefone: cleanOption(fieldValue("#store-phone")),
-    endereco: fieldValue("#store-address").trim(),
-    cnpj: cleanOption(fieldValue("#store-cnpj")),
-    codigoInternoAtivo: $("#setting-internal-code").checked,
-    codigoBarrasAtivo: $("#setting-barcode").checked,
-    caixaAtivo: $("#setting-caja-active").checked,
-    saidasAtivo: $("#setting-exits-active").checked
-  };
-  submit.disabled = true;
-  setFeedback("#settings-feedback", "Salvando…");
-  try {
-    await saveStoreSettingsTransaction(settings);
-    Object.assign(storeSettings, settings);
-    renderStoreSettings();
-    renderProducts(renderEntryProductResults);
-    setFeedback("#settings-feedback", "Configurações salvas.");
-    showToast("Configurações salvas.");
-  } catch (error) {
-    console.error("Falha ao salvar configurações:", error);
-    setFeedback("#settings-feedback", explainError(error), true);
-  } finally {
-    submit.disabled = false;
-  }
 });
