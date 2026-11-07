@@ -41,15 +41,6 @@ function showApp(isSignedIn) {
   $("#app-view").hidden = !isSignedIn;
 }
 
-function showTutorialIfNeeded() {
-  let dismissed = false;
-  try { dismissed = localStorage.getItem("faydai-tutorial-dismissed") === "yes"; }
-  catch (error) { console.warn("Não foi possível ler a preferência do tutorial:", error); }
-  if (!dismissed) $("#tutorial-overlay").hidden = false;
-}
-
-function closeTutorialForNow() { $("#tutorial-overlay").hidden = true; }
-
 export function initSessionUI({ setFeedback, explainError, showToast, initDateFields, resetProductForm, loadData, clearSessionState }) {
   document.querySelectorAll(".tab").forEach((button) => {
     button.addEventListener("click", () => switchTab(button.dataset.tab));
