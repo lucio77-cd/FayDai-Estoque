@@ -13,12 +13,12 @@ import { initScanner } from "./js/ui/scanner.js?v=20261106-6";
 import { initPainelUI, renderDashboard } from "./js/ui/painel.js?v=20261106-7";
 import { renderProducts } from "./js/ui/produtos.js?v=20261106-8";
 import { initSessionUI, switchTab } from "./js/ui/sessao.js?v=20261106-9";
-import { renderSales, returnableRows } from "./js/ui/historico-vendas.js?v=20261106-10";
+import { renderSales, returnableRows } from "./js/ui/historico-vendas.js?v=20261106-18";
 import { renderEntries, renderExits } from "./js/ui/movimentacoes.js?v=20261106-17";
 import { initExportacaoUI } from "./js/ui/exportacao.js?v=20261106-12";
 import { initConfiguracoesUI, renderStoreSettings } from "./js/ui/configuracoes.js?v=20261106-15";
 import { initVistoriaUI } from "./js/ui/vistoria.js?v=20261106-14";
-import { initCaixaTelaUI } from "./js/ui/caixa.js?v=20261106-16";
+import { initCaixaTelaUI } from "./js/ui/caixa.js?v=20261106-18";
 
 
 
