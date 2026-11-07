@@ -1019,7 +1019,7 @@ function renderAll() {
   renderExitProductResults();
   renderSaleProductResults();
   renderSaleCart();
-  renderSales();
+  renderSales(saleReturnsAvailable);
   syncInventoryDraft();
   renderInventory();
   renderDashboard();
