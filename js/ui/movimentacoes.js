@@ -21,7 +21,7 @@ function renderExits() {
     }).join("");
 }
 
-function renderEntries() {
+function renderEntries(showArchivedEntries = false) {
   const list = $("#entries-list");
   const visibleEntries = entries.filter((entry) => {
     const linkedProduct = products.find((product) => product.id === entry.produtoId);
