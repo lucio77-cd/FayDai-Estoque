@@ -1,10 +1,11 @@
 import { onEvent, parseDecimal, roundMoney } from "../utils.js?v=20261104-1";
 import { products, saleCart, replaceArray } from "../estado.js?v=20261106-5";
 
-export function initCaixaTelaUI({ renderSaleProductResults, addProductToSaleCart, setFeedback, renderSaleCart, updateCartRow, updateCartSummary, finishSale }) {
-onEvent("#sale-product-search", "input", renderSaleProductResults);
+export function initCaixaTelaUI({ renderSaleProductResults, addProductToSaleCart, setFeedback, renderSaleCart, updateCartRow, updateCartSummary, finishSale, isSaleInFlight = () => false, onCartCleared = () => {} }) {
+onEvent("#sale-product-search", "input", () => { if (!isSaleInFlight()) renderSaleProductResults(); });
 
 onEvent("#sale-product-results", "click", (event) => {
+  if (isSaleInFlight()) return;
   const button = event.target.closest("[data-select-sale-product]");
   if (!button) return;
   const product = products.find((item) => item.id === button.dataset.selectSaleProduct && !item.arquivado);
@@ -12,6 +13,7 @@ onEvent("#sale-product-results", "click", (event) => {
 });
 
 onEvent("#sale-cart-list", "click", (event) => {
+  if (isSaleInFlight()) return;
   const plus = event.target.closest("[data-cart-plus]");
   const minus = event.target.closest("[data-cart-minus]");
   const remove = event.target.closest("[data-cart-remove]");
@@ -39,6 +41,7 @@ onEvent("#sale-cart-list", "click", (event) => {
 
 // Digitar o preço atualiza só a linha (sem redesenhar, para não perder o foco).
 onEvent("#sale-cart-list", "input", (event) => {
+  if (isSaleInFlight()) return;
   const input = event.target.closest("[data-cart-price]");
   if (!input) return;
   const index = Number(input.dataset.cartPrice);
@@ -53,9 +56,10 @@ onEvent("#sale-cart-list", "input", (event) => {
 onEvent("#sale-form", "submit", finishSale);
 
 onEvent("#sale-clear-button", "click", () => {
-  if (!saleCart.length) return;
+  if (isSaleInFlight() || !saleCart.length) return;
   if (!window.confirm("Limpar todos os itens da compra?")) return;
   replaceArray(saleCart);
+  onCartCleared();
   setFeedback("#sale-feedback", "");
   renderSaleCart();
 });
