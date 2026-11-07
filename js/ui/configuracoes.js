@@ -26,14 +26,6 @@ export function renderStoreSettings(isEditingProduct = false) {
   $("#product-barcode").disabled = !storeSettings.codigoBarrasAtivo && !isEditingProduct;
 }
 
-function renderModuleAvailability() {
-  const cajaActive = Boolean(storeSettings.caixaAtivo);
-  const exitsActive = storeSettings.saidasAtivo !== false;
-  $("#caja-disabled-notice").hidden = cajaActive;
-  $("#caja-content").hidden = !cajaActive;
-  $("#exits-disabled-notice").hidden = exitsActive;
-  $("#exit-content").hidden = !exitsActive;
-}
 
 export function initConfiguracoesUI({ setFeedback, showToast, explainError, renderProducts, renderEntryProductResults }) {
 // ---------- Configurações ----------
