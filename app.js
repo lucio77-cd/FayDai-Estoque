@@ -881,30 +881,6 @@ async function loadData() {
   });
 });
 
-// ---------- Produtos: formulário ----------
-
-n(fieldValue("#entry-supplier")),
-      notes: fieldValue("#entry-notes").trim(),
-      userEmail: currentEmail(),
-      pack: amounts.mode === "pack" ? {
-        packs: amounts.packs,
-        size: amounts.size,
-        packCost: amounts.packCost
-      } : null
-    });
-    $("#entry-form").reset();
-    selectedEntryProductId = "";
-    initDateFields(true);
-    await loadData();
-    setFeedback("#entry-feedback", "Entrada registrada.");
-    showToast("Entrada registrada.");
-  } catch (error) {
-    console.error("Falha ao registrar entrada:", error);
-    setFeedback("#entry-feedback", explainError(error), true);
-  } finally {
-    submit.disabled = false;
-  }
-}
 onEvent("#show-archived-entries", "change", (event) => {
   showArchivedEntries = event.target.checked;
   renderEntries();
