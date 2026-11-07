@@ -1,6 +1,6 @@
 import { auth, db, collection, doc } from "./js/firebase.js?v=20261104-1";
 import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, dateToday, formatDate, escapeHtml, normalizeText, cleanOption, uniqueOptions, packSizeOf, unitCostFromPack, saleItemsOf, saleTotalOf, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime } from "./js/utils.js?v=20261104-1";
-import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261105-1";
+import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261107-1";
 import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
 import { saveEntryTransaction, saveExitTransaction } from "./js/servicos/movimentacoes.js?v=20261106-2";
 import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=20261106-23";
@@ -21,7 +21,7 @@ import { renderEntries, renderExits } from "./js/ui/movimentacoes.js?v=20261106-
 import { initExportacaoUI } from "./js/ui/exportacao.js?v=20261106-13";
 import { initConfiguracoesUI, renderStoreSettings } from "./js/ui/configuracoes.js?v=20261106-15";
 import { initVistoriaUI } from "./js/ui/vistoria.js?v=20261106-14";
-import { initCaixaTelaUI } from "./js/ui/caixa.js?v=20261106-18";
+import { initCaixaTelaUI } from "./js/ui/caixa.js?v=20261107-1";
 
 
 
@@ -116,7 +116,11 @@ initScanner({
   showToast
 });
 
-initCaixaTelaUI({ renderSaleProductResults, addProductToSaleCart, setFeedback, renderSaleCart, updateCartRow, updateCartSummary, finishSale });
+initCaixaTelaUI({
+  renderSaleProductResults, addProductToSaleCart, setFeedback, renderSaleCart, updateCartRow, updateCartSummary, finishSale,
+  isSaleInFlight: () => saleInFlight,
+  onCartCleared: () => { saleAttempt = null; saleCartStartedAt = null; }
+});
 initVistoriaUI({
   startInventory, saveInventory, finishInventory, discardInventory, renderInventoryList,
   updateCount: (productId, value) => {
@@ -385,6 +389,7 @@ function renderSaleCart() {
 
 // origin: "leitor" (código de barras lido) ou "busca" (nome digitado / item tocado na lista).
 function addProductToSaleCart(product, origin = "busca") {
+  if (saleInFlight) return false;
   if ((Number(product.quantidade) || 0) < 1) {
     setFeedback("#sale-feedback", "Este produto está sem saldo disponível.", true);
     return false;
@@ -422,7 +427,7 @@ function addProductToSaleCart(product, origin = "busca") {
 function openSaleAction(mode, saleId) {
   const sale = sales.find((item) => item.id === saleId);
   if (!sale) return;
-  saleAction = { mode, saleId };
+  saleAction = { mode, saleId, returnId: mode === "return" ? doc(collection(db, "devolucoes")).id : null };
   $("#sale-action-reason").value = "";
   setFeedback("#sale-action-feedback", "");
   const box = $("#sale-action-items");
@@ -915,6 +920,7 @@ async function finishSale(event) {
   const troco = valorRecebido !== null ? roundMoney(valorRecebido - cartTotal()) : null;
 
   saleInFlight = true;
+  setSaleBusy(true);
   const button = $("#sale-finish-button");
   button.disabled = true;
   setFeedback("#sale-feedback", "Registrando venda…");
@@ -950,20 +956,38 @@ async function finishSale(event) {
     resetCaixaUI();
     initDateFields(true);
     renderSaleCart();
-    await loadData();
-    if (!alreadySaved) showSaleDone(savedSale, storeSettings);
+    showSaleDone(savedSale, storeSettings);
     const message = alreadySaved
       ? "Esta venda já estava registrada (o envio anterior foi confirmado). Nada foi duplicado."
       : "Venda registrada.";
     setFeedback("#sale-feedback", message);
     showToast(alreadySaved ? "Venda já registrada." : "Venda registrada.");
+    try {
+      await loadData();
+    } catch (refreshError) {
+      console.error("Venda salva, mas falhou a atualização da tela:", refreshError);
+      setFeedback("#sale-feedback", "Venda registrada. Não finalize novamente. Atualize a página para atualizar os saldos.", true);
+    }
   } catch (error) {
     console.error("Falha ao registrar venda:", error);
     setFeedback("#sale-feedback", explainError(error), true);
   } finally {
     saleInFlight = false;
+    renderSaleCart();
+    setSaleBusy(false);
     updateCartSummary();
   }
+}
+
+function setSaleBusy(busy) {
+  const selectors = [
+    "#sale-product-search", "#sale-clear-button", "#sale-payment-method", "#sale-cash-received",
+    "#sale-date", "#sale-finish-button", "[data-pay]", "[data-cash]",
+    "[data-cart-price]", "[data-cart-plus]", "[data-cart-minus]", "[data-cart-remove]"
+  ];
+  selectors.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((element) => { element.disabled = busy; });
+  });
 }
 
 initCaixaUI(() => storeSettings);
@@ -1045,11 +1069,18 @@ onEvent("#sale-action-form", "submit", async (event) => {
       });
       if (invalid) throw new Error("Quantidade inválida. Use números inteiros até o máximo permitido.");
       if (!requested.length) throw new Error("Informe a quantidade de pelo menos um item.");
-      const total = await registerReturn(sale, requested, reason);
-      showToast(`Devolução registrada: ${money(total)}.`);
+      const result = await registerReturn(sale, requested, reason, saleAction.returnId);
+      showToast(result.alreadySaved
+        ? "Esta devolução já estava registrada. Nenhum estoque foi alterado novamente."
+        : `Devolução registrada: ${money(result.total)}.`);
     }
     closeSaleAction();
-    await loadData();
+    try {
+      await loadData();
+    } catch (refreshError) {
+      console.error("Operação da venda salva, mas falhou a atualização da tela:", refreshError);
+      showToast("Operação registrada. Atualize a página; não repita a operação.");
+    }
   } catch (error) {
     console.error("Falha na operação da venda:", error);
     setFeedback("#sale-action-feedback", explainError(error), true);
