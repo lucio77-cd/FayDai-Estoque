@@ -27,7 +27,7 @@ export function renderStoreSettings(isEditingProduct = false) {
 }
 
 
-export function initConfiguracoesUI({ setFeedback, showToast, explainError, renderProducts, renderEntryProductResults }) {
+export function initConfiguracoesUI({ setFeedback, showToast, explainError, renderProducts, renderEntryProductResults, isEditingProduct }) {
 // ---------- Configurações ----------
 
 onEvent("#store-settings-form", "submit", async (event) => {
@@ -49,7 +49,7 @@ onEvent("#store-settings-form", "submit", async (event) => {
   try {
     await saveStoreSettingsTransaction(settings);
     Object.assign(storeSettings, settings);
-    renderStoreSettings(false);
+    renderStoreSettings(isEditingProduct());
     renderProducts(renderEntryProductResults);
     setFeedback("#settings-feedback", "Configurações salvas.");
     showToast("Configurações salvas.");
