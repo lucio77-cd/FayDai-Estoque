@@ -9,8 +9,12 @@ export function initMovementFormsUI(dependencies) {
     currentEmail, initDateFields, loadData, setFeedback, showToast, explainError
   } = dependencies;
 
+  let entrySaving = false;
+  let exitSaving = false;
+
   async function saveEntry(event) {
   event.preventDefault();
+  if (entrySaving) return;
   const submit = $("#entry-form button[type=submit]");
   const product = selectedEntryProduct();
   if (!product) return setFeedback("#entry-feedback", "Selecione um produto da lista.", true);
@@ -28,8 +32,10 @@ export function initMovementFormsUI(dependencies) {
   const quantidade = amounts.units;
   const custoUnitario = amounts.unitCost;
 
+  entrySaving = true;
   submit.disabled = true;
   setFeedback("#entry-feedback", "Registrando…");
+  let saved = false;
   try {
     await saveEntryTransaction({
       productId: product.id,
@@ -46,16 +52,25 @@ export function initMovementFormsUI(dependencies) {
         packCost: amounts.packCost
       } : null
     });
+    saved = true;
     $("#entry-form").reset();
     setSelectedEntryProductId("");
     initDateFields(true);
-    await loadData();
     setFeedback("#entry-feedback", "Entrada registrada.");
     showToast("Entrada registrada.");
+    try {
+      await loadData();
+    } catch (refreshError) {
+      console.error("Entrada salva, mas falhou a atualização da tela:", refreshError);
+      setFeedback("#entry-feedback", "Entrada registrada. Não registre novamente. Atualize a página para atualizar os saldos.", true);
+    }
   } catch (error) {
-    console.error("Falha ao registrar entrada:", error);
-    setFeedback("#entry-feedback", explainError(error), true);
+    console.error(saved ? "Entrada salva, mas houve falha ao atualizar a tela:" : "Falha ao registrar entrada:", error);
+    setFeedback("#entry-feedback", saved
+      ? "Entrada registrada. Não registre novamente. Atualize a página."
+      : explainError(error), true);
   } finally {
+    entrySaving = false;
     submit.disabled = false;
   }
 }
@@ -63,6 +78,7 @@ export function initMovementFormsUI(dependencies) {
 
   async function saveExit(event) {
   event.preventDefault();
+  if (exitSaving) return;
   if (storeSettings.saidasAtivo === false) return setFeedback("#exit-feedback", "O módulo Saídas está desativado.", true);
   const submit = $("#exit-form button[type=submit]");
   const product = getSelectedExitProduct();
@@ -73,8 +89,10 @@ export function initMovementFormsUI(dependencies) {
   if (!Number.isInteger(quantidade) || quantidade < 1) return setFeedback("#exit-feedback", "A quantidade deve ser um número inteiro maior que zero.", true);
   if (!motivo) return setFeedback("#exit-feedback", "Selecione o motivo da saída.", true);
 
+  exitSaving = true;
   submit.disabled = true;
   setFeedback("#exit-feedback", "Registrando…");
+  let saved = false;
   try {
     await saveExitTransaction({
       productId: product.id,
@@ -85,16 +103,25 @@ export function initMovementFormsUI(dependencies) {
       notes: fieldValue("#exit-notes").trim(),
       userEmail: currentEmail()
     });
+    saved = true;
     $("#exit-form").reset();
     setSelectedExitProductId("");
     initDateFields(true);
-    await loadData();
     setFeedback("#exit-feedback", "Saída registrada.");
     showToast("Saída registrada.");
+    try {
+      await loadData();
+    } catch (refreshError) {
+      console.error("Saída salva, mas falhou a atualização da tela:", refreshError);
+      setFeedback("#exit-feedback", "Saída registrada. Não registre novamente. Atualize a página para atualizar os saldos.", true);
+    }
   } catch (error) {
-    console.error("Falha ao registrar saída:", error);
-    setFeedback("#exit-feedback", explainError(error), true);
+    console.error(saved ? "Saída salva, mas houve falha ao atualizar a tela:" : "Falha ao registrar saída:", error);
+    setFeedback("#exit-feedback", saved
+      ? "Saída registrada. Não registre novamente. Atualize a página."
+      : explainError(error), true);
   } finally {
+    exitSaving = false;
     submit.disabled = false;
   }
 }
