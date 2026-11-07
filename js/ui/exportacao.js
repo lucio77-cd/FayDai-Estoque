@@ -17,7 +17,6 @@ function returnedByProduct(saleId) {
 }
 
 export function initExportacaoUI({ setFeedback, showToast, explainError, loadData }) {
-  const EXIT_REASON_LABELS = { perda: "Perda", devolucao: "Devolução ao fornecedor", uso_interno: "Uso interno", outro: "Outra saída" };
 // As colunas novas ficam sempre no FINAL, para não deslocar as colunas das planilhas que você já usa.
 function exportProductsCsv() {
   const rows = [...products]
@@ -109,13 +108,13 @@ function exportReturnsCsv() {
   return downloadCsv("devolucoes", ["Data", "Produto", "Quantidade", "Preço unitário", "Valor devolvido", "Motivo", "Responsável"], rows);
 }
 
-const EXPORTERS = {
-  produtos: { label: "Produtos", run: exportProductsCsv },
-  vendas: { label: "Vendas", run: exportSalesCsv },
-  devolucoes: { label: "Devoluções", run: exportReturnsCsv },
-  entradas: { label: "Entradas", run: exportEntriesCsv },
-  saidas: { label: "Saídas", run: exportExitsCsv }
-};
+  const EXPORTERS = {
+    produtos: { label: "Produtos", run: exportProductsCsv },
+    vendas: { label: "Vendas", run: exportSalesCsv },
+    devolucoes: { label: "Devoluções", run: exportReturnsCsv },
+    entradas: { label: "Entradas", run: exportEntriesCsv },
+    saidas: { label: "Saídas", run: exportExitsCsv }
+  };
 
 async function runExport(keys) {
   const feedback = "#export-feedback";
@@ -142,15 +141,6 @@ async function runExport(keys) {
   }
 }
 
-
-
-  const EXPORTERS = {
-    produtos: { label: "Produtos", run: exportProductsCsv },
-    vendas: { label: "Vendas", run: exportSalesCsv },
-    devolucoes: { label: "Devoluções", run: exportReturnsCsv },
-    entradas: { label: "Entradas", run: exportEntriesCsv },
-    saidas: { label: "Saídas", run: exportExitsCsv }
-  };
   document.querySelectorAll("[data-export]").forEach((button) => button.addEventListener("click", () => runExport([button.dataset.export])));
   onEvent("#export-all", "click", () => runExport(Object.keys(EXPORTERS)));
 }
