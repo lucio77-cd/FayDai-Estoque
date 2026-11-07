@@ -778,10 +778,16 @@ async function finishInventory() {
     });
 
     vistoriaDirty = false;
-    await loadData();
     const message = `Vistoria concluída: ${result.contados} produto(s) contado(s), ${result.ajustados} com saldo ajustado${result.ignorados ? `, ${result.ignorados} ignorado(s) (arquivado ou removido)` : ""}.`;
     setFeedback("#inventory-feedback", message);
     showToast("Vistoria concluída.");
+    // A vistoria já está gravada: falha ao recarregar a tela não pode parecer falha ao concluir.
+    try {
+      await loadData();
+    } catch (refreshError) {
+      console.error("Vistoria concluída, mas falhou a atualização da tela:", refreshError);
+      setFeedback("#inventory-feedback", `${message} Atualize a página para ver os saldos novos.`, true);
+    }
   } catch (error) {
     console.error("Falha ao concluir vistoria:", error);
     setFeedback("#inventory-feedback", explainError(error), true);
@@ -952,16 +958,22 @@ async function finishSale(event) {
     saleAttempt = null;
     replaceArray(saleCart);
     saleCartStartedAt = null;
-    $("#sale-payment-method").value = "";
-    resetCaixaUI();
-    initDateFields(true);
-    renderSaleCart();
-    showSaleDone(savedSale, storeSettings);
-    const message = alreadySaved
-      ? "Esta venda já estava registrada (o envio anterior foi confirmado). Nada foi duplicado."
-      : "Venda registrada.";
-    setFeedback("#sale-feedback", message);
-    showToast(alreadySaved ? "Venda já registrada." : "Venda registrada.");
+    // A venda já está gravada: um erro só de interface (cupom, formulário) não pode parecer falha de registro.
+    try {
+      $("#sale-payment-method").value = "";
+      resetCaixaUI();
+      initDateFields(true);
+      renderSaleCart();
+      showSaleDone(savedSale, storeSettings);
+      const message = alreadySaved
+        ? "Esta venda já estava registrada (o envio anterior foi confirmado). Nada foi duplicado."
+        : "Venda registrada.";
+      setFeedback("#sale-feedback", message);
+      showToast(alreadySaved ? "Venda já registrada." : "Venda registrada.");
+    } catch (uiError) {
+      console.error("Venda salva, mas falhou a atualização da interface:", uiError);
+      setFeedback("#sale-feedback", "Venda registrada. Não finalize novamente. Atualize a página para ver o cupom e os saldos.", true);
+    }
     try {
       await loadData();
     } catch (refreshError) {
