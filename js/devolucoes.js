@@ -97,15 +97,24 @@ export async function cancelSale(sale, reason) {
 // Registra devolução parcial: requested = [{ index, quantidade }] (índice do item na venda).
 // O limite "não devolver mais do que foi vendido" é conferido dentro da transação, com o contador da venda,
 // e o contador é atualizado na mesma transação (duas devoluções simultâneas não passam do limite).
-export async function registerReturn(sale, requested, reason) {
+export async function registerReturn(sale, requested, reason, returnId) {
+  if (!returnId) throw new Error("Identificador da devolução não informado. Feche e abra a operação novamente.");
   const saleRef = doc(db, "vendas", sale.id);
-  const returnRef = doc(collection(db, "devolucoes"));
+  const returnRef = doc(db, "devolucoes", returnId);
   const email = auth.currentUser?.email || "Usuário não identificado";
   const date = dateToday();
   const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
   const legacy = hasReturnCounter(sale) ? null : await loadLegacyReturns(sale.id);
   let returnedTotal = 0;
+  let alreadySaved = false;
   await runTransaction(db, async (transaction) => {
+    alreadySaved = false;
+    const existingReturn = await transaction.get(returnRef);
+    if (existingReturn.exists()) {
+      alreadySaved = true;
+      returnedTotal = Number(existingReturn.data().totalDevolvido) || 0;
+      return;
+    }
     const saleSnapshot = await transaction.get(saleRef);
     if (!saleSnapshot.exists()) throw new Error("Esta venda não existe mais. Atualize a lista.");
     const saleData = saleSnapshot.data();
@@ -170,5 +179,5 @@ export async function registerReturn(sale, requested, reason) {
       ultimaDevolucaoEm: serverTimestamp()
     });
   });
-  return returnedTotal;
+  return { total: returnedTotal, alreadySaved };
                          }
