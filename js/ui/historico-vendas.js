@@ -92,4 +92,4 @@ function renderSales(saleReturnsAvailable) {
     }).join("");
 }
 
-export { renderSales };
+export { renderSales, returnableRows };
