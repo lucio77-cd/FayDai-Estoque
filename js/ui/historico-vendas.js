@@ -27,7 +27,7 @@ function returnableRows(sale) {
   });
 }
 
-function renderSales() {
+function renderSales(saleReturnsAvailable) {
   const list = $("#sales-list");
   if (!sales.length) {
     list.innerHTML = '<div class="empty-state">Nenhuma venda registrada ainda.</div>';
