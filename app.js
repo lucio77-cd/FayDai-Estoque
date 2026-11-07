@@ -3,7 +3,7 @@ import { money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, dateToda
 import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261105-1";
 import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
 import { saveEntryTransaction, saveExitTransaction } from "./js/servicos/movimentacoes.js?v=20261106-1";
-import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=20261106-22";
+import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=20261106-23";
 import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261106-2";
 import { cartItemPrice as saleCartItemPrice, cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
 
