@@ -1,10 +1,7 @@
 // dados.js — leitura do Firestore e normalização dos registros para o estado do aplicativo.
 // Não acessa a interface e não exibe avisos.
 import { db, collection, getDocs } from "./firebase.js?v=20261104-1";
-
-const CATALOG_OPTIONS_ID = "catalogo_opcoes_faydai";
-const STORE_SETTINGS_ID = "configuracoes_faydai";
-const INTERNAL_COUNTER_ID = "contador_codigo_interno_faydai";
+import { CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID } from "./constantes.js?v=20261107-1";
 
 export async function loadAppData() {
   const [productsSnap, entriesSnap, exitsSnap, salesSnap] = await Promise.all([

@@ -1,6 +1,6 @@
 import { $, cleanOption, fieldValue, onEvent } from "../utils.js?v=20261104-1";
 import { storeSettings } from "../estado.js?v=20261106-5";
-import { saveStoreSettingsTransaction } from "../servicos/produtos.js?v=20261106-3";
+import { saveStoreSettingsTransaction } from "../servicos/produtos.js?v=20261107-1";
 
 function renderModuleAvailability() {
   const cajaActive = Boolean(storeSettings.caixaAtivo);

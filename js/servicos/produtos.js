@@ -4,9 +4,10 @@ import {
   db, collection, doc, runTransaction, serverTimestamp, arrayUnion, updateDoc, deleteDoc, writeBatch
 } from "../firebase.js?v=20261104-1";
 import { roundMoney, normalizeText } from "../utils.js?v=20261104-1";
+import { CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID } from "../constantes.js?v=20261107-1";
 
 async function reserveInternalCode(transaction, products) {
-  const counterRef = doc(db, "produtos", "contador_codigo_interno_faydai");
+  const counterRef = doc(db, "produtos", INTERNAL_COUNTER_ID);
   const snap = await transaction.get(counterRef);
   const existingMax = products.reduce((max, product) => {
     const match = String(product.codigoInterno || "").match(/^FON(\d+)$/i);
@@ -30,7 +31,7 @@ export async function saveProductTransaction({
   today,
   userEmail = "Usuário não identificado"
 }) {
-  const catalogRef = doc(db, "produtos", "catalogo_opcoes_faydai");
+  const catalogRef = doc(db, "produtos", CATALOG_OPTIONS_ID);
   const catalogUpdate = {};
   if (data.marca && !brands.some((value) => normalizeText(value) === normalizeText(data.marca))) {
     catalogUpdate.marcas = arrayUnion(data.marca);
@@ -162,7 +163,7 @@ export async function deleteProductTransaction({ productId, archive }) {
 
 export async function saveStoreSettingsTransaction(settings) {
   const batch = writeBatch(db);
-  batch.set(doc(db, "produtos", "configuracoes_faydai"), {
+  batch.set(doc(db, "produtos", STORE_SETTINGS_ID), {
     ...settings,
     atualizadoEm: serverTimestamp()
   }, { merge: true });

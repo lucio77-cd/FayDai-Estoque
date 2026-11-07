@@ -8,18 +8,18 @@ import { parseCountValue, describeCount, startInventory as startInventoryService
 import { cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
 
 import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, replaceArray } from "./js/estado.js?v=20261106-5";
-import { loadAppData } from "./js/dados.js?v=20261106-5";
+import { loadAppData } from "./js/dados.js?v=20261107-1";
 import { initScanner } from "./js/ui/scanner.js?v=20261106-7";
 import { initPainelUI, renderDashboard } from "./js/ui/painel.js?v=20261106-7";
 import { renderProducts } from "./js/ui/produtos.js?v=20261106-8";
 import { initProductCatalogUI, renderCatalogOptions } from "./js/ui/catalogo-produtos.js?v=20261106-19";
-import { saveProductTransaction, deleteProductTransaction } from "./js/servicos/produtos.js?v=20261106-3";
+import { saveProductTransaction, deleteProductTransaction } from "./js/servicos/produtos.js?v=20261107-1";
 import { initProductFormUI } from "./js/ui/formulario-produtos.js?v=20261106-20";
 import { initSessionUI, switchTab } from "./js/ui/sessao.js?v=20261106-9";
 import { renderSales, returnableRows } from "./js/ui/historico-vendas.js?v=20261106-20";
 import { renderEntries, renderExits } from "./js/ui/movimentacoes.js?v=20261106-18";
 import { initExportacaoUI } from "./js/ui/exportacao.js?v=20261106-13";
-import { initConfiguracoesUI, renderStoreSettings } from "./js/ui/configuracoes.js?v=20261106-15";
+import { initConfiguracoesUI, renderStoreSettings } from "./js/ui/configuracoes.js?v=20261107-1";
 import { initVistoriaUI } from "./js/ui/vistoria.js?v=20261106-14";
 import { initCaixaTelaUI } from "./js/ui/caixa.js?v=20261107-1";
 
