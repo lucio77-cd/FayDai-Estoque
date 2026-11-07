@@ -1,11 +1,11 @@
 import { auth, db, collection, doc } from "./js/firebase.js?v=20261104-1";
-import { money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, dateToday, formatDate, escapeHtml, normalizeText, cleanOption, uniqueOptions, packSizeOf, unitCostFromPack, saleItemsOf, saleTotalOf, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime } from "./js/utils.js?v=20261104-1";
+import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, dateToday, formatDate, escapeHtml, normalizeText, cleanOption, uniqueOptions, packSizeOf, unitCostFromPack, saleItemsOf, saleTotalOf, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime } from "./js/utils.js?v=20261104-1";
 import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261105-1";
 import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
-import { saveEntryTransaction, saveExitTransaction } from "./js/servicos/movimentacoes.js?v=20261106-1";
+import { saveEntryTransaction, saveExitTransaction } from "./js/servicos/movimentacoes.js?v=20261106-2";
 import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=20261106-23";
 import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261106-2";
-import { cartItemPrice as saleCartItemPrice, cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
+import { cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
 
 import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, replaceArray } from "./js/estado.js?v=20261106-5";
 import { loadAppData } from "./js/dados.js?v=20261106-5";
@@ -16,24 +16,17 @@ import { initProductCatalogUI, renderCatalogOptions } from "./js/ui/catalogo-pro
 import { saveProductTransaction, deleteProductTransaction } from "./js/servicos/produtos.js?v=20261106-3";
 import { initProductFormUI } from "./js/ui/formulario-produtos.js?v=20261106-20";
 import { initSessionUI, switchTab } from "./js/ui/sessao.js?v=20261106-9";
-import { renderSales, returnableRows } from "./js/ui/historico-vendas.js?v=20261106-19";
-import { renderEntries, renderExits } from "./js/ui/movimentacoes.js?v=20261106-17";
-import { initExportacaoUI } from "./js/ui/exportacao.js?v=20261106-12";
+import { renderSales, returnableRows } from "./js/ui/historico-vendas.js?v=20261106-20";
+import { renderEntries, renderExits } from "./js/ui/movimentacoes.js?v=20261106-18";
+import { initExportacaoUI } from "./js/ui/exportacao.js?v=20261106-13";
 import { initConfiguracoesUI, renderStoreSettings } from "./js/ui/configuracoes.js?v=20261106-15";
 import { initVistoriaUI } from "./js/ui/vistoria.js?v=20261106-14";
 import { initCaixaTelaUI } from "./js/ui/caixa.js?v=20261106-18";
 
 
 
-const CATALOG_OPTIONS_ID = "catalogo_opcoes_faydai";
-const STORE_SETTINGS_ID = "configuracoes_faydai";
-const INTERNAL_COUNTER_ID = "contador_codigo_interno_faydai";
-
-
-
 let selectedExitProductId = "";
 let selectedEntryProductId = "";
-let selectedSaleProductId = "";
 
 // Instante em que o primeiro item entrou no carrinho (para registrar a duração do atendimento).
 let saleCartStartedAt = null;
@@ -63,9 +56,6 @@ let saleAction = null; // { mode: "cancel" | "return", saleId }
 // Painel: série diária usada pelo gráfico de vendas por dia
 
 
-const NEW_BRAND_VALUE = "__nova_marca__";
-const NEW_CATEGORY_VALUE = "__nova_categoria__";
-
 function showToast(message) {
   const toast = $("#toast");
   toast.textContent = message;
@@ -94,13 +84,6 @@ function explainError(error) {
   return messages[code] || (code.includes("permission-denied")
     ? "Acesso negado pelo Firestore. Confira as regras publicadas e se o e-mail da conta está na lista autorizada."
     : error?.message || "Ocorreu um erro inesperado.");
-}
-
-function showApp(isSignedIn) {
-  // Só revela login ou sistema depois que o Firebase confirmar a sessão.
-  $("#auth-loading-view").hidden = true;
-  $("#login-view").hidden = isSignedIn;
-  $("#app-view").hidden = !isSignedIn;
 }
 
 
@@ -297,7 +280,6 @@ $("#entry-product-results").addEventListener("click", (event) => {
 // ---------- Caixa: carrinho com preço editável e alertas ----------
 
 // Preço do item (0 quando o campo está vazio ou inválido), subtotal e total em centavos exatos.
-const cartItemPrice = saleCartItemPrice;
 const cartItemSubtotal = saleCartItemSubtotal;
 const cartTotal = () => saleCartTotal(saleCart);
 const cartHasInvalidPrice = () => saleCartHasInvalidPrice(saleCart);
@@ -521,7 +503,7 @@ function renderExitProductResults() {
       <span><strong>${escapeHtml(product.nome)}</strong><small>${escapeHtml(product.codigoInterno || product.codigoBarras || "Sem código")}</small></span>
       <span class="search-result-stock">${Number(product.quantidade) || 0} un.</span>
     </button>`).join("");
-}
+  }
 
 // ---------- Vistoria física ----------
 
@@ -803,7 +785,7 @@ async function finishInventory() {
   }
 }
 
-const currentEmail = () => auth.currentUser?.email || "Usuário não identificado";
+function currentEmail() { return auth.currentUser?.email || "Usuário não identificado"; }
 
 // Preenche os campos de data (entrada, venda, saída) com a data de hoje quando estiverem vazios.
 function initDateFields(force = false) {
@@ -923,7 +905,6 @@ async function finishSale(event) {
   if (!saleAttempt || saleAttempt.fingerprint !== fingerprint) {
     saleAttempt = { id: doc(collection(db, "vendas")).id, fingerprint };
   }
-  const saleRef = doc(db, "vendas", saleAttempt.id);
 
   // Dinheiro: valor recebido e troco (opcionais).
   const cashRaw = parseDecimal(fieldValue("#sale-cash-received"));
@@ -1094,5 +1075,3 @@ onEvent("#exit-product-results", "click", (event) => {
   renderExitProductResults();
   $("#exit-quantity").focus();
 });
-
-
