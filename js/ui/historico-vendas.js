@@ -1,8 +1,6 @@
 import { $, money, formatDate, formatTimestamp, escapeHtml, saleItemsOf, saleTotalOf, onEvent } from "../utils.js?v=20261104-1";
 import { sales, saleReturns } from "../estado.js?v=20261106-5";
 
-const isActionableSale = (sale) => Array.isArray(sale.itens) && sale.itens.length > 0 && sale.itens.every((item) => item.produtoId);
-
 // Só vendas no formato atual (com produtoId em todos os itens) aceitam cancelamento e devolução.
 const isActionableSale = (sale) => Array.isArray(sale.itens) && sale.itens.length > 0
   && sale.itens.every((item) => item.produtoId);
