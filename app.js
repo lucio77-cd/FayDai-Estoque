@@ -864,7 +864,7 @@ async function loadData() {
 
 onEvent("#show-archived-entries", "change", (event) => {
   showArchivedEntries = event.target.checked;
-  renderEntries();
+  renderEntries(showArchivedEntries);
 });
 
 
