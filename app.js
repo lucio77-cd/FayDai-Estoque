@@ -118,6 +118,8 @@ initScanner({
   getProducts: () => products,
   getEditingProductId: () => getProductEditingId(),
   setSelectedExitProductId: (value) => { selectedExitProductId = value; },
+  setSelectedEntryProductId: (value) => { selectedEntryProductId = value; },
+  renderEntryProductResults,
   getInventoryCount: (productId) => vistoriaDraft[productId],
   setInventoryCount: (productId, value) => { vistoriaDraft[productId] = value; },
   markInventoryDirty: () => { vistoriaDirty = true; },
@@ -285,16 +287,6 @@ $("#entry-product-results").addEventListener("click", (event) => {
   if (!button) return;
   const product = products.find((item) => item.id === button.dataset.selectEntryProduct && !item.arquivado);
   if (!product) return;
-  selectedEntryProductId = product.id;
-  $("#entry-product-search").value = product.nome;
-  renderEntryProductResults();
-  $("#entry-quantity").focus();
-});
-// Entradas: a leitura seleciona o produto e vai para a quantidade.
-bindScanner("#entry-product-search", (rawCode) => {
-  const product = resolveScannedProduct(rawCode, "#entry-product-search", "#entry-feedback");
-  if (!product) return;
-  scanBeep(true);
   selectedEntryProductId = product.id;
   $("#entry-product-search").value = product.nome;
   renderEntryProductResults();
@@ -1102,4 +1094,3 @@ onEvent("#exit-product-results", "click", (event) => {
 });
 
 
-onEvent("#exit-form", "submit", saveExit);
