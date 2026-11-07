@@ -897,6 +897,63 @@ n(fieldValue("#entry-supplier")),
     submit.disabled = false;
   }
 }
+onEvent("#show-archived-entries", "change", (event) => {
+  showArchivedEntries = event.target.checked;
+  renderEntries();
+});
+
+async function saveEntry(event) {
+  event.preventDefault();
+  const submit = $("#entry-form button[type=submit]");
+  const product = selectedEntryProduct();
+  if (!product) return setFeedback("#entry-feedback", "Selecione um produto da lista.", true);
+  // Com fardo: quantidade = fardos e custo = custo do fardo; o saldo e o custo unitário são calculados.
+  const amounts = readEntryAmounts();
+  const data = fieldValue("#entry-date") || dateToday();
+  if (!amounts.quantityOk) {
+    return setFeedback("#entry-feedback", amounts.mode === "pack"
+      ? "A quantidade de fardos deve ser um número inteiro maior que zero."
+      : "A quantidade deve ser um número inteiro maior que zero.", true);
+  }
+  if (!amounts.costOk) {
+    return setFeedback("#entry-feedback", amounts.mode === "pack" ? "Informe um custo do fardo válido." : "Informe um custo unitário válido.", true);
+  }
+  const quantidade = amounts.units;
+  const custoUnitario = amounts.unitCost;
+
+  submit.disabled = true;
+  setFeedback("#entry-feedback", "Registrando…");
+  try {
+    await saveEntryTransaction({
+      productId: product.id,
+      productName: product.nome || "",
+      quantity: quantidade,
+      unitCost: custoUnitario,
+      date: data,
+      supplier: cleanOption(fieldValue("#entry-supplier")),
+      notes: fieldValue("#entry-notes").trim(),
+      userEmail: currentEmail(),
+      pack: amounts.mode === "pack" ? {
+        packs: amounts.packs,
+        size: amounts.size,
+        packCost: amounts.packCost
+      } : null
+    });
+    $("#entry-form").reset();
+    selectedEntryProductId = "";
+    initDateFields(true);
+    await loadData();
+    setFeedback("#entry-feedback", "Entrada registrada.");
+    showToast("Entrada registrada.");
+  } catch (error) {
+    console.error("Falha ao registrar entrada:", error);
+    setFeedback("#entry-feedback", explainError(error), true);
+  } finally {
+    submit.disabled = false;
+  }
+}
+onEvent("#entry-form", "submit", saveEntry);
+
 onEvent("#entry-form", "submit", saveEntry);
 
 // ---------- Caixa: busca, carrinho e finalização ----------
