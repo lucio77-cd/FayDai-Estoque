@@ -35,7 +35,7 @@ export async function saveEntryTransaction({
     const entryData = {
       produtoId: productId,
       produtoNome: snapshot.data().nome || productName || "",
-      quantidade,
+      quantidade: quantity,
       custoUnitario: unitCost,
       data: date,
       tipo: "entrada",
@@ -87,7 +87,7 @@ export async function saveExitTransaction({
     transaction.set(doc(collection(db, "saidas")), {
       produtoId: productId,
       produtoNome: snapshot.data().nome || productName || "",
-      quantidade,
+      quantidade: quantity,
       motivo: reason,
       observacao: notes,
       data: date,
