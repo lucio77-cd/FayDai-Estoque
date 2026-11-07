@@ -954,8 +954,6 @@ async function saveEntry(event) {
 }
 onEvent("#entry-form", "submit", saveEntry);
 
-onEvent("#entry-form", "submit", saveEntry);
-
 // ---------- Caixa: busca, carrinho e finalização ----------
 
 async function finishSale(event) {
