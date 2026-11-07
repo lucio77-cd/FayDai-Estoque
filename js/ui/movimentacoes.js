@@ -1,4 +1,4 @@
-import { $, money, formatDate, escapeHtml } from "../utils.js?v=20261104-1";
+import { $, money, roundMoney, formatDate, escapeHtml } from "../utils.js?v=20261104-1";
 import { products, entries, exits } from "../estado.js?v=20261106-5";
 
 const EXIT_REASON_LABELS = { perda: "Perda", devolucao: "Devolução ao fornecedor", uso_interno: "Uso interno", outro: "Outra saída" };
