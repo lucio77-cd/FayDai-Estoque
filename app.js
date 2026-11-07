@@ -1,4 +1,4 @@
-import { auth, db, signInWithEmailAndPassword, onAuthStateChanged, signOut, collection, getDocs, doc, writeBatch, addDoc, runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion } from "./js/firebase.js?v=20261104-1";
+import { auth, db, collection, getDocs, doc, writeBatch, addDoc, runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion } from "./js/firebase.js?v=20261104-1";
 import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, toDateString, dateToday, formatDate, formatTimestamp, escapeHtml, normalizeText, cleanOption, uniqueOptions, minStockOf, isLowStock, composeProductName, baseNameOf, packSizeOf, unitCostFromPack, saleItemsOf, saleTotalOf, returnTotalOf, saleDateOf, returnDateOf, inPeriod, yesNo, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime, wait } from "./js/utils.js?v=20261104-1";
 import { excelText, csvNumber, downloadCsv } from "./js/export.js?v=20261104-1";
 import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261105-1";
@@ -13,6 +13,7 @@ import { loadAppData } from "./js/dados.js?v=20261106-5";
 import { initScanner } from "./js/ui/scanner.js?v=20261106-6";
 import { initPainelUI, renderDashboard } from "./js/ui/painel.js?v=20261106-7";
 import { renderProducts } from "./js/ui/produtos.js?v=20261106-8";
+import { initSessionUI, switchTab } from "./js/ui/sessao.js?v=20261106-9";
 
 
 
@@ -136,40 +137,6 @@ function showApp(isSignedIn) {
   $("#app-view").hidden = !isSignedIn;
 }
 
-function switchTab(tabName) {
-  document.querySelectorAll(".tab").forEach((button) => {
-    button.classList.toggle("active", button.dataset.tab === tabName);
-  });
-  document.querySelectorAll(".tab-panel").forEach((panel) => {
-    panel.hidden = panel.id !== `${tabName}-panel`;
-  });
-  // No computador, já deixa o cursor no campo onde o leitor de código de barras digita.
-  const scanFields = {
-    caja: "#sale-product-search",
-    entries: "#entry-product-search",
-    exits: "#exit-product-search",
-    inventory: "#inventory-search"
-  };
-  if (scanFields[tabName] && window.matchMedia("(pointer: fine)").matches) {
-    const field = $(scanFields[tabName]);
-    if (field && !field.closest("[hidden]")) field.focus();
-  }
-}
-
-function showTutorialIfNeeded() {
-  let dismissed = false;
-  try {
-    dismissed = localStorage.getItem("faydai-tutorial-dismissed") === "yes";
-  } catch (error) {
-    console.warn("Não foi possível ler a preferência do tutorial:", error);
-  }
-  if (!dismissed) $("#tutorial-overlay").hidden = false;
-}
-
-function closeTutorialForNow() {
-  $("#tutorial-overlay").hidden = true;
-}
-
 function renderStoreSettings() {
   $("#store-name").value = storeSettings.nome || "";
   $("#store-manager").value = storeSettings.responsavel || "";
@@ -246,6 +213,17 @@ initScanner({
   showToast
 });
 
+initSessionUI({
+  setFeedback, explainError, showToast, initDateFields, resetProductForm, loadData,
+  clearSessionState: () => {
+    replaceArray(products); replaceArray(entries); replaceArray(exits); replaceArray(sales); replaceArray(saleReturns);
+    replaceArray(saleCart);
+    saleCartStartedAt = null; saleAttempt = null; saleInFlight = false;
+    activeVistoria = null; replaceArray(inventoryHistory);
+    vistoriaDraft = {}; vistoriaDraftOwner = null; vistoriaDirty = false;
+    selectedEntryProductId = ""; selectedExitProductId = "";
+  }
+});
 initPainelUI({ switchTab });
 
 // ---------- Entradas: busca de produto (nome, código ou leitor) ----------
@@ -2001,78 +1979,3 @@ onEvent("#store-settings-form", "submit", async (event) => {
     submit.disabled = false;
   }
 });
-
-// ---------- Abas e tutorial ----------
-
-document.querySelectorAll(".tab").forEach((button) => {
-  button.addEventListener("click", () => switchTab(button.dataset.tab));
-});
-
-onEvent("#tutorial-close", "click", closeTutorialForNow);
-onEvent("#tutorial-understood", "click", closeTutorialForNow);
-onEvent("#tutorial-never", "click", () => {
-  try {
-    localStorage.setItem("faydai-tutorial-dismissed", "yes");
-  } catch (error) {
-    console.warn("Não foi possível salvar a preferência do tutorial:", error);
-  }
-  closeTutorialForNow();
-});
-onEvent("#show-tutorial", "click", () => { $("#tutorial-overlay").hidden = false; });
-
-// ---------- Login, saída e sessão ----------
-
-onEvent("#login-form", "submit", async (event) => {
-  event.preventDefault();
-  const submit = $("#login-form button[type=submit]");
-  submit.disabled = true;
-  setFeedback("#login-error", "");
-  try {
-    await signInWithEmailAndPassword(auth, fieldValue("#login-email").trim(), fieldValue("#login-password"));
-    $("#login-password").value = "";
-  } catch (error) {
-    console.error("Falha no login:", error);
-    setFeedback("#login-error", explainError(error), true);
-  } finally {
-    submit.disabled = false;
-  }
-});
-
-onEvent("#logout-button", "click", async () => {
-  try {
-    await signOut(auth);
-  } catch (error) {
-    console.error("Falha ao sair:", error);
-    showToast(explainError(error));
-  }
-});
-
-function clearSessionState() {
-  replaceArray(products); replaceArray(entries); replaceArray(exits); replaceArray(sales); replaceArray(saleReturns);
-  replaceArray(saleCart);
-  saleCartStartedAt = null;
-  saleAttempt = null;
-  saleInFlight = false;
-  activeVistoria = null; replaceArray(inventoryHistory);
-  vistoriaDraft = {}; vistoriaDraftOwner = null; vistoriaDirty = false;
-  selectedEntryProductId = ""; selectedExitProductId = "";
-}
-
-onAuthStateChanged(auth, async (user) => {
-  if (!user) {
-    clearSessionState();
-    showApp(false);
-    return;
-  }
-  showApp(true);
-  initDateFields(true);
-  resetProductForm();
-  try {
-    await loadData();
-  } catch (error) {
-    console.error("Falha ao carregar dados:", error);
-    showToast(explainError(error));
-  }
-  switchTab("dashboard");
-  showTutorialIfNeeded();
-});                                                                                                                                                                                                                                                  
