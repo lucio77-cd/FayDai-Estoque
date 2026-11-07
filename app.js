@@ -12,6 +12,7 @@ import { loadAppData } from "./js/dados.js?v=20261106-5";
 import { initScanner } from "./js/ui/scanner.js?v=20261106-6";
 import { initPainelUI, renderDashboard } from "./js/ui/painel.js?v=20261106-7";
 import { renderProducts } from "./js/ui/produtos.js?v=20261106-8";
+import { initProductCatalogUI, renderCatalogOptions, NEW_BRAND_VALUE, NEW_CATEGORY_VALUE } from "./js/ui/catalogo-produtos.js?v=20261106-19";
 import { initSessionUI, switchTab } from "./js/ui/sessao.js?v=20261106-9";
 import { renderSales, returnableRows } from "./js/ui/historico-vendas.js?v=20261106-18";
 import { renderEntries, renderExits } from "./js/ui/movimentacoes.js?v=20261106-17";
@@ -79,30 +80,6 @@ let saleAction = null; // { mode: "cancel" | "return", saleId }
 
 const NEW_BRAND_VALUE = "__nova_marca__";
 const NEW_CATEGORY_VALUE = "__nova_categoria__";
-
-function renderCatalogOptions() {
-  const brandSelect = $("#product-brand");
-  const categorySelect = $("#product-category");
-  brandSelect.innerHTML = '<option value="">Sem marca</option>' +
-    uniqueOptions(brands).map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("") +
-    `<option value="${NEW_BRAND_VALUE}">+ Cadastrar nova marca</option>`;
-  categorySelect.innerHTML = '<option value="">Sem categoria</option>' +
-    uniqueOptions([...SUGGESTED_CATEGORIES, ...categories]).map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("") +
-    `<option value="${NEW_CATEGORY_VALUE}">+ Cadastrar nova categoria</option>`;
-}
-
-function toggleNewCatalogInput(type) {
-  const isBrand = type === "brand";
-  const select = $(isBrand ? "#product-brand" : "#product-category");
-  const input = $(isBrand ? "#product-brand-new" : "#product-category-new");
-  const newValue = isBrand ? NEW_BRAND_VALUE : NEW_CATEGORY_VALUE;
-  input.hidden = select.value !== newValue;
-  if (input.hidden) input.value = "";
-  else input.focus();
-}
-
-$("#product-brand").addEventListener("change", () => toggleNewCatalogInput("brand"));
-$("#product-category").addEventListener("change", () => toggleNewCatalogInput("category"));
 
 function showToast(message) {
   const toast = $("#toast");
@@ -217,6 +194,7 @@ initSessionUI({
   }
 });
 initPainelUI({ switchTab });
+initProductCatalogUI();
 
 // ---------- Entradas: busca de produto (nome, código ou leitor) ----------
 
@@ -870,7 +848,7 @@ function initDateFields(force = false) {
 // ---------- Carregamento de dados do Firestore ----------
 
 function renderAll() {
-  renderCatalogOptions();
+  renderCatalogOptions(brands, categories);
   renderStoreSettings(Boolean(editingProductId));
   renderProducts(renderEntryProductResults);
   renderEntries(showArchivedEntries);
@@ -1082,7 +1060,7 @@ function setCancelEditVisible(visible) {
   set("#product-min-stock", minStockOf(product) ?? "");
   set("#product-internal-code", product.codigoInterno || "");
   set("#product-barcode", product.codigoBarras || "");
-  renderCatalogOptions();
+  renderCatalogOptions(brands, categories);
   set("#product-brand", product.marca || "");
   set("#product-category", product.categoria || "");
   set("#product-sale-price", getRegisteredSalePrice(product).toFixed(2));
