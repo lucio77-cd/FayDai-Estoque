@@ -80,6 +80,16 @@ export function initScanner(dependencies) {
     }
   }, dependencies);
 
+  bindScanner("#entry-product-search", (rawCode) => {
+    const product = resolveScannedProduct(rawCode, "#entry-product-search", "#entry-feedback", dependencies);
+    if (!product) return;
+    scanBeep(true);
+    dependencies.setSelectedEntryProductId(product.id);
+    $("#entry-product-search").value = product.nome;
+    dependencies.renderEntryProductResults();
+    $("#entry-quantity").focus();
+  }, dependencies);
+
   bindScanner("#exit-product-search", (rawCode) => {
     const product = resolveScannedProduct(rawCode, "#exit-product-search", "#exit-feedback", dependencies);
     if (!product) return;
