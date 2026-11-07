@@ -5,6 +5,7 @@ export function initMovementFormsUI(dependencies) {
   const {
     storeSettings, saveEntryTransaction, saveExitTransaction,
     selectedEntryProduct, readEntryAmounts, getSelectedExitProduct,
+    setSelectedEntryProductId, setSelectedExitProductId,
     currentEmail, initDateFields, loadData, setFeedback, showToast, explainError
   } = dependencies;
 
@@ -46,7 +47,7 @@ export function initMovementFormsUI(dependencies) {
       } : null
     });
     $("#entry-form").reset();
-    selectedEntryProductId = "";
+    setSelectedEntryProductId("");
     initDateFields(true);
     await loadData();
     setFeedback("#entry-feedback", "Entrada registrada.");
@@ -64,7 +65,7 @@ export function initMovementFormsUI(dependencies) {
   event.preventDefault();
   if (storeSettings.saidasAtivo === false) return setFeedback("#exit-feedback", "O módulo Saídas está desativado.", true);
   const submit = $("#exit-form button[type=submit]");
-  const product = products.find((item) => item.id === selectedExitProductId && !item.arquivado);
+  const product = getSelectedExitProduct();
   if (!product) return setFeedback("#exit-feedback", "Selecione um produto da lista.", true);
   const quantidade = Number(fieldValue("#exit-quantity"));
   const motivo = fieldValue("#exit-reason");
@@ -85,7 +86,7 @@ export function initMovementFormsUI(dependencies) {
       userEmail: currentEmail()
     });
     $("#exit-form").reset();
-    selectedExitProductId = "";
+    setSelectedExitProductId("");
     initDateFields(true);
     await loadData();
     setFeedback("#exit-feedback", "Saída registrada.");
