@@ -18,6 +18,7 @@ import { renderSales } from "./js/ui/historico-vendas.js?v=20261106-10";
 import { renderEntries, renderExits } from "./js/ui/movimentacoes.js?v=20261106-11";
 import { initExportacaoUI } from "./js/ui/exportacao.js?v=20261106-12";
 import { initConfiguracoesUI, renderStoreSettings } from "./js/ui/configuracoes.js?v=20261106-13";
+import { initVistoriaUI } from "./js/ui/vistoria.js?v=20261106-14";
 
 
 
@@ -193,6 +194,15 @@ initScanner({
   showToast
 });
 
+initVistoriaUI({
+  startInventory, saveInventory, finishInventory, discardInventory, renderInventoryList,
+  updateCount: (productId, value) => {
+    vistoriaDraft[productId] = value;
+    vistoriaDirty = true;
+    updateInventoryRow(productId);
+    updateInventorySummary();
+  }
+});
 initConfiguracoesUI({ setFeedback, showToast, explainError, renderProducts, renderEntryProductResults });
 initExportacaoUI({ setFeedback, showToast, explainError, loadData });
 initSessionUI({
@@ -1631,22 +1641,3 @@ async function saveExit(event) {
   }
 }
 onEvent("#exit-form", "submit", saveExit);
-
-// ---------- Vistoria: botões e campos ----------
-
-onEvent("#inventory-start", "click", startInventory);
-onEvent("#inventory-save", "click", saveInventory);
-onEvent("#inventory-finish", "click", finishInventory);
-onEvent("#inventory-discard", "click", discardInventory);
-onEvent("#inventory-search", "input", renderInventoryList);
-onEvent("#inventory-only-uncounted", "change", renderInventoryList);
-
-onEvent("#inventory-list", "input", (event) => {
-  const input = event.target.closest("[data-count-input]");
-  if (!input) return;
-  const productId = input.dataset.countInput;
-  vistoriaDraft[productId] = input.value;
-  vistoriaDirty = true;
-  updateInventoryRow(productId);
-  updateInventorySummary();
-});
