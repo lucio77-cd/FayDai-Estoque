@@ -198,8 +198,16 @@ As funcionalidades e regras deste documento poderão evoluir com base nessa vali
 
 Arquivos:
 - `index.html`: telas de login, painel, produtos, entradas, Caixa, saídas, vistoria, configurações (com exportação), ajuda, tutorial e painel de cancelamento/devolução.
-- `styles.css`: layout responsivo com prioridade para celular.
-- `app.js`: autenticação Firebase, painel, produtos, entradas, vendas, cancelamentos e devoluções, saídas, vistoria, exportação CSV e leitura/gravação no Cloud Firestore.
+- `styles.css` e `caixa.css`: layout responsivo com prioridade para celular (o segundo cuida da tela do Caixa).
+- `app.js`: ponto de entrada. Guarda parte do estado das telas (carrinho, vistoria, devolução), liga os módulos e ainda contém as telas de Entradas, Caixa, Saídas e Vistoria.
+- `cupom.js`: cupom não fiscal (térmica 80 mm) e apoio da tela do Caixa; não acessa o Firebase.
+- `js/`: módulos ES.
+  - Base: `firebase.js` (conexão, importar só uma vez), `estado.js` (estado compartilhado), `dados.js` (leitura do Firestore), `constantes.js` (IDs dos documentos especiais), `utils.js`, `export.js` e `devolucoes.js` (cancelamento e devolução).
+  - `servicos/`: regras e gravações no Firestore (produtos, entradas/saídas, vendas, vistoria). Não tocam na interface.
+  - `ui/`: telas e eventos (painel, produtos, formulários, histórico de vendas, scanner, exportação, configurações, sessão). Não acessam o Firestore.
+- `tools/verificar-modulos.mjs`: confere imports, versões e ciclos (veja abaixo).
+
+**Cache dos módulos (`?v=`):** cada import traz `?v=AAAAMMDD-N` para o navegador não usar arquivo antigo. Ao alterar um módulo, atualize o `?v=` dele em **todos** os arquivos que o importam, e o do `app.js` no `index.html`. O mesmo módulo importado com versões diferentes vira duas instâncias separadas (estado duplicado). Antes de publicar, rode `node tools/verificar-modulos.mjs`.
 
 ### Configuração necessária no Firebase
 

@@ -1,4 +1,6 @@
-// devolucoes.js — cancelamento de venda e devolução de itens (movido do app.js sem alteração de lógica).
+// devolucoes.js — cancelamento de venda e devolução de itens (movido do app.js).
+// registerReturn é idempotente: o chamador informa um returnId (gerado ao abrir a operação) e, se esse
+// documento de devolução já existir, nada é gravado nem o estoque é alterado de novo.
 // Só fala com o Firestore: não lê a tela nem o estado do app.js. O app.js chama cancelSale e registerReturn.
 // Os imports usam o MESMO ?v= do app.js para o navegador carregar cada módulo uma única vez.
 import { auth, db, collection, getDocs, doc, runTransaction, serverTimestamp, query, where } from "./firebase.js?v=20261104-1";
