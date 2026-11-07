@@ -202,7 +202,7 @@ initVistoriaUI({
     updateInventorySummary();
   }
 });
-initConfiguracoesUI({ setFeedback, showToast, explainError, renderProducts, renderEntryProductResults });
+initConfiguracoesUI({ setFeedback, showToast, explainError, renderProducts, renderEntryProductResults, isEditingProduct: () => Boolean(editingProductId) });
 initExportacaoUI({ setFeedback, showToast, explainError, loadData });
 initSessionUI({
   setFeedback, explainError, showToast, initDateFields, resetProductForm, loadData,
