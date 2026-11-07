@@ -140,8 +140,16 @@ initVistoriaUI({
     updateInventorySummary();
   }
 });
-initConfiguracoesUI({ setFeedback, showToast, explainError, renderProducts, renderEntryProductResults, isEditingProduct });
 initExportacaoUI({ setFeedback, showToast, explainError, loadData });
+
+initPainelUI({ switchTab });
+initProductCatalogUI();
+const { resetProductForm, isEditingProduct, getProductEditingId } = initProductFormUI({
+  products, entries, exits, sales, saleReturns, brands, categories, storeSettings,
+  saveProductTransaction, deleteProductTransaction, renderCatalogOptions,
+  setFeedback, showToast, explainError, loadData, currentEmail: () => currentEmail()
+});
+initConfiguracoesUI({ setFeedback, showToast, explainError, renderProducts, renderEntryProductResults, isEditingProduct });
 initSessionUI({
   setFeedback, explainError, showToast, initDateFields, resetProductForm, loadData,
   clearSessionState: () => {
@@ -152,13 +160,6 @@ initSessionUI({
     vistoriaDraft = {}; vistoriaDraftOwner = null; vistoriaDirty = false;
     selectedEntryProductId = ""; selectedExitProductId = "";
   }
-});
-initPainelUI({ switchTab });
-initProductCatalogUI();
-const { resetProductForm, isEditingProduct, getProductEditingId } = initProductFormUI({
-  products, entries, exits, sales, saleReturns, brands, categories, storeSettings,
-  saveProductTransaction, deleteProductTransaction, renderCatalogOptions,
-  setFeedback, showToast, explainError, loadData, currentEmail: () => currentEmail()
 });
 
 // ---------- Entradas: busca de produto (nome, código ou leitor) ----------
