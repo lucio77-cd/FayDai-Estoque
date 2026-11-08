@@ -1,5 +1,5 @@
 import { onEvent, parseDecimal, roundMoney } from "../utils.js?v=20261104-1";
-import { products, saleCart, replaceArray } from "../estado.js?v=20261106-5";
+import { products, saleCart, replaceArray } from "../estado.js?v=20261108-1";
 
 export function initCaixaTelaUI({ renderSaleProductResults, addProductToSaleCart, setFeedback, renderSaleCart, updateCartRow, updateCartSummary, finishSale, isSaleInFlight = () => false, onCartCleared = () => {} }) {
 onEvent("#sale-product-search", "input", () => { if (!isSaleInFlight()) renderSaleProductResults(); });

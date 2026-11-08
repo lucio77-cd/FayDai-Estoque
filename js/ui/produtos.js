@@ -1,5 +1,5 @@
 import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, formatDate, escapeHtml, minStockOf, isLowStock, packSizeOf } from "../utils.js?v=20261104-1";
-import { products, storeSettings } from "../estado.js?v=20261106-5";
+import { products, storeSettings } from "../estado.js?v=20261108-1";
 
 export function renderProducts(renderEntryProductResults) {
   const activeProducts = products.filter((product) => !product.arquivado);

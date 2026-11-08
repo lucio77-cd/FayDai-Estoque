@@ -1,5 +1,5 @@
 import { $, money, roundMoney, toDateString, dateToday, formatDate, escapeHtml, normalizeText, cleanOption, minStockOf, isLowStock, saleItemsOf, saleTotalOf, returnTotalOf, saleDateOf, returnDateOf, inPeriod, onEvent } from "../utils.js?v=20261104-1";
-import { products, sales, saleReturns } from "../estado.js?v=20261106-5";
+import { products, sales, saleReturns } from "../estado.js?v=20261108-1";
 
 let dailySeries = [];
 

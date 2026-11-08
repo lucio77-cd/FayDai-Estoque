@@ -7,7 +7,7 @@ import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=2026
 import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261106-2";
 import { cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
 
-import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, replaceArray } from "./js/estado.js?v=20261106-5";
+import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, replaceArray, estadoUi } from "./js/estado.js?v=20261108-1";
 import { loadAppData } from "./js/dados.js?v=20261107-1";
 import { initScanner } from "./js/ui/scanner.js?v=20261106-7";
 import { initPainelUI, renderDashboard } from "./js/ui/painel.js?v=20261106-7";
@@ -25,33 +25,17 @@ import { initCaixaTelaUI } from "./js/ui/caixa.js?v=20261107-1";
 
 
 
-let selectedExitProductId = "";
-let selectedEntryProductId = "";
 
 // Instante em que o primeiro item entrou no carrinho (para registrar a duração do atendimento).
-let saleCartStartedAt = null;
 // Idempotência da venda: ID gerado no cliente e reaproveitado enquanto o carrinho não mudar.
-let saleAttempt = null; // { id, fingerprint }
-let saleInFlight = false;
 
 
-let showArchivedEntries = false;
-let toastTimeout;
 
 // Vistoria física
 
-let activeVistoria = null;
-let vistoriaDraft = {};
-let vistoriaDraftOwner = null;
-let vistoriaDirty = false;
-let inventoryAvailable = true;
-let inventoryLoadErrorShown = false;
 
 // Cancelamentos e devoluções de venda
 
-let saleReturnsAvailable = true;
-let returnsLoadErrorShown = false;
-let saleAction = null; // { mode: "cancel" | "return", saleId }
 
 // Painel: série diária usada pelo gráfico de vendas por dia
 
@@ -60,8 +44,8 @@ function showToast(message) {
   const toast = $("#toast");
   toast.textContent = message;
   toast.classList.add("show");
-  clearTimeout(toastTimeout);
-  toastTimeout = setTimeout(() => toast.classList.remove("show"), 2800);
+  clearTimeout(estadoUi.toastTimeout);
+  estadoUi.toastTimeout = setTimeout(() => toast.classList.remove("show"), 2800);
 }
 
 function setFeedback(selector, message, isError = false) {
@@ -100,12 +84,12 @@ function explainError(error) {
 initScanner({
   getProducts: () => products,
   getEditingProductId: () => getProductEditingId(),
-  setSelectedExitProductId: (value) => { selectedExitProductId = value; },
-  setSelectedEntryProductId: (value) => { selectedEntryProductId = value; },
+  setSelectedExitProductId: (value) => { estadoUi.selectedExitProductId = value; },
+  setSelectedEntryProductId: (value) => { estadoUi.selectedEntryProductId = value; },
   renderEntryProductResults,
-  getInventoryCount: (productId) => vistoriaDraft[productId],
-  setInventoryCount: (productId, value) => { vistoriaDraft[productId] = value; },
-  markInventoryDirty: () => { vistoriaDirty = true; },
+  getInventoryCount: (productId) => estadoUi.vistoriaDraft[productId],
+  setInventoryCount: (productId, value) => { estadoUi.vistoriaDraft[productId] = value; },
+  markInventoryDirty: () => { estadoUi.vistoriaDirty = true; },
   parseInventoryCount: parseCountValue,
   addProductToSaleCart,
   renderSaleProductResults,
@@ -118,14 +102,14 @@ initScanner({
 
 initCaixaTelaUI({
   renderSaleProductResults, addProductToSaleCart, setFeedback, renderSaleCart, updateCartRow, updateCartSummary, finishSale,
-  isSaleInFlight: () => saleInFlight,
-  onCartCleared: () => { saleAttempt = null; saleCartStartedAt = null; }
+  isSaleInFlight: () => estadoUi.saleInFlight,
+  onCartCleared: () => { estadoUi.saleAttempt = null; estadoUi.saleCartStartedAt = null; }
 });
 initVistoriaUI({
   startInventory, saveInventory, finishInventory, discardInventory, renderInventoryList,
   updateCount: (productId, value) => {
-    vistoriaDraft[productId] = value;
-    vistoriaDirty = true;
+    estadoUi.vistoriaDraft[productId] = value;
+    estadoUi.vistoriaDirty = true;
     updateInventoryRow(productId);
     updateInventorySummary();
   }
@@ -145,26 +129,26 @@ initSessionUI({
   clearSessionState: () => {
     replaceArray(products); replaceArray(entries); replaceArray(exits); replaceArray(sales); replaceArray(saleReturns);
     replaceArray(saleCart);
-    saleCartStartedAt = null; saleAttempt = null; saleInFlight = false;
-    activeVistoria = null; replaceArray(inventoryHistory);
-    vistoriaDraft = {}; vistoriaDraftOwner = null; vistoriaDirty = false;
-    selectedEntryProductId = ""; selectedExitProductId = "";
+    estadoUi.saleCartStartedAt = null; estadoUi.saleAttempt = null; estadoUi.saleInFlight = false;
+    estadoUi.activeVistoria = null; replaceArray(inventoryHistory);
+    estadoUi.vistoriaDraft = {}; estadoUi.vistoriaDraftOwner = null; estadoUi.vistoriaDirty = false;
+    estadoUi.selectedEntryProductId = ""; estadoUi.selectedExitProductId = "";
   }
 });
 
 initMovementFormsUI({
   storeSettings, saveEntryTransaction, saveExitTransaction,
   selectedEntryProduct, readEntryAmounts,
-  getSelectedExitProduct: () => products.find((item) => item.id === selectedExitProductId && !item.arquivado),
-  setSelectedEntryProductId: (value) => { selectedEntryProductId = value; },
-  setSelectedExitProductId: (value) => { selectedExitProductId = value; },
+  getSelectedExitProduct: () => products.find((item) => item.id === estadoUi.selectedExitProductId && !item.arquivado),
+  setSelectedEntryProductId: (value) => { estadoUi.selectedEntryProductId = value; },
+  setSelectedExitProductId: (value) => { estadoUi.selectedExitProductId = value; },
   currentEmail, initDateFields, loadData, setFeedback, showToast, explainError
 });
 
 // ---------- Entradas: busca de produto (nome, código ou leitor) ----------
 
 function selectedEntryProduct() {
-  return products.find((product) => product.id === selectedEntryProductId && !product.arquivado) || null;
+  return products.find((product) => product.id === estadoUi.selectedEntryProductId && !product.arquivado) || null;
 }
 
 // Lê os campos da entrada. Em fardo: "quantidade" = fardos e "custo" = custo do fardo; sem fardo: unidades e custo unitário.
@@ -235,8 +219,8 @@ function renderEntryProductResults() {
   const query = normalizeText($("#entry-product-search").value);
   const results = $("#entry-product-results");
   const selectedBox = $("#entry-selected-product");
-  const selected = products.find((product) => product.id === selectedEntryProductId && !product.arquivado);
-  if (!selected) selectedEntryProductId = "";
+  const selected = products.find((product) => product.id === estadoUi.selectedEntryProductId && !product.arquivado);
+  if (!selected) estadoUi.selectedEntryProductId = "";
   updateEntryPackUI();
   if (selected) {
     const size = packSizeOf(selected);
@@ -265,7 +249,7 @@ function renderEntryProductResults() {
 }
 
 $("#entry-product-search").addEventListener("input", () => {
-  selectedEntryProductId = "";
+  estadoUi.selectedEntryProductId = "";
   renderEntryProductResults();
 });
 $("#entry-quantity").addEventListener("input", updateEntryPackUI);
@@ -276,7 +260,7 @@ $("#entry-product-results").addEventListener("click", (event) => {
   if (!button) return;
   const product = products.find((item) => item.id === button.dataset.selectEntryProduct && !item.arquivado);
   if (!product) return;
-  selectedEntryProductId = product.id;
+  estadoUi.selectedEntryProductId = product.id;
   $("#entry-product-search").value = product.nome;
   renderEntryProductResults();
   $("#entry-quantity").focus();
@@ -354,7 +338,7 @@ function updateCartRow(index) {
 function renderSaleCart() {
   const list = $("#sale-cart-list");
   // Carrinho vazio = atendimento zerado (a duração só conta a partir do primeiro item).
-  if (!saleCart.length) saleCartStartedAt = null;
+  if (!saleCart.length) estadoUi.saleCartStartedAt = null;
   if (!saleCart.length) {
     list.innerHTML = '<div class="empty-state">A compra está vazia. Pesquise e selecione os produtos acima.</div>';
   } else {
@@ -389,7 +373,7 @@ function renderSaleCart() {
 
 // origin: "leitor" (código de barras lido) ou "busca" (nome digitado / item tocado na lista).
 function addProductToSaleCart(product, origin = "busca") {
-  if (saleInFlight) return false;
+  if (estadoUi.saleInFlight) return false;
   if ((Number(product.quantidade) || 0) < 1) {
     setFeedback("#sale-feedback", "Este produto está sem saldo disponível.", true);
     return false;
@@ -402,7 +386,7 @@ function addProductToSaleCart(product, origin = "busca") {
     }
     existing.quantidade += 1;
   } else {
-    if (!saleCart.length) saleCartStartedAt = Date.now();
+    if (!saleCart.length) estadoUi.saleCartStartedAt = Date.now();
     const registeredPrice = getRegisteredSalePrice(product);
     saleCart.push({
       produtoId: product.id,
@@ -427,7 +411,7 @@ function addProductToSaleCart(product, origin = "busca") {
 function openSaleAction(mode, saleId) {
   const sale = sales.find((item) => item.id === saleId);
   if (!sale) return;
-  saleAction = { mode, saleId, returnId: mode === "return" ? doc(collection(db, "devolucoes")).id : null };
+  estadoUi.saleAction = { mode, saleId, returnId: mode === "return" ? doc(collection(db, "devolucoes")).id : null };
   $("#sale-action-reason").value = "";
   setFeedback("#sale-action-feedback", "");
   const box = $("#sale-action-items");
@@ -464,13 +448,13 @@ function openSaleAction(mode, saleId) {
 }
 
 function closeSaleAction() {
-  saleAction = null;
+  estadoUi.saleAction = null;
   $("#sale-action-overlay").hidden = true;
 }
 
 function updateReturnTotal() {
-  if (!saleAction || saleAction.mode !== "return") return;
-  const sale = sales.find((item) => item.id === saleAction.saleId);
+  if (!estadoUi.saleAction || estadoUi.saleAction.mode !== "return") return;
+  const sale = sales.find((item) => item.id === estadoUi.saleAction.saleId);
   if (!sale) return;
   const items = saleItemsOf(sale);
   let total = 0;
@@ -487,7 +471,7 @@ function updateReturnTotal() {
 function renderExitProductResults() {
   const query = normalizeText($("#exit-product-search").value);
   const results = $("#exit-product-results");
-  const selected = products.find((product) => product.id === selectedExitProductId && !product.arquivado);
+  const selected = products.find((product) => product.id === estadoUi.selectedExitProductId && !product.arquivado);
   if (selected) {
     $("#exit-selected-product").innerHTML = `<strong>${escapeHtml(selected.nome)}</strong><span>Saldo disponível: ${Number(selected.quantidade) || 0} un.</span>`;
     $("#exit-selected-product").hidden = false;
@@ -516,18 +500,18 @@ function renderExitProductResults() {
 // Mantém o rascunho digitado: só recarrega das contagens salvas quando a vistoria mudou
 // ou quando não há alterações pendentes.
 function syncInventoryDraft() {
-  const id = activeVistoria?.id || null;
-  if (id !== vistoriaDraftOwner) {
-    vistoriaDraftOwner = id;
-    vistoriaDirty = false;
-    vistoriaDraft = {};
-    Object.entries(activeVistoria?.contagens || {}).forEach(([productId, value]) => {
-      vistoriaDraft[productId] = String(value);
+  const id = estadoUi.activeVistoria?.id || null;
+  if (id !== estadoUi.vistoriaDraftOwner) {
+    estadoUi.vistoriaDraftOwner = id;
+    estadoUi.vistoriaDirty = false;
+    estadoUi.vistoriaDraft = {};
+    Object.entries(estadoUi.activeVistoria?.contagens || {}).forEach(([productId, value]) => {
+      estadoUi.vistoriaDraft[productId] = String(value);
     });
-  } else if (!vistoriaDirty) {
-    vistoriaDraft = {};
-    Object.entries(activeVistoria?.contagens || {}).forEach(([productId, value]) => {
-      vistoriaDraft[productId] = String(value);
+  } else if (!estadoUi.vistoriaDirty) {
+    estadoUi.vistoriaDraft = {};
+    Object.entries(estadoUi.activeVistoria?.contagens || {}).forEach(([productId, value]) => {
+      estadoUi.vistoriaDraft[productId] = String(value);
     });
   }
 }
@@ -537,7 +521,7 @@ function inventoryCounts() {
   let counted = 0;
   let withDiff = 0;
   activeProducts.forEach((product) => {
-    const parsed = parseCountValue(vistoriaDraft[product.id]);
+    const parsed = parseCountValue(estadoUi.vistoriaDraft[product.id]);
     if (parsed.state === "counted") {
       counted += 1;
       if (parsed.value !== (Number(product.quantidade) || 0)) withDiff += 1;
@@ -549,14 +533,14 @@ function inventoryCounts() {
 function updateInventorySummary() {
   const counts = inventoryCounts();
   $("#inventory-summary").innerHTML = `Contados: <strong>${counts.counted}</strong> de ${counts.total} · Não contados: <strong>${counts.uncounted}</strong> · Com diferença: <strong>${counts.withDiff}</strong>`;
-  $("#inventory-dirty").hidden = !vistoriaDirty;
+  $("#inventory-dirty").hidden = !estadoUi.vistoriaDirty;
 }
 
 function updateInventoryRow(productId) {
   const product = products.find((item) => item.id === productId);
   const row = document.querySelector(`[data-count-row="${CSS.escape(productId)}"]`);
   if (!product || !row) return;
-  const info = describeCount(product, vistoriaDraft[productId]);
+  const info = describeCount(product, estadoUi.vistoriaDraft[productId]);
   const diffElement = row.querySelector(".count-diff");
   diffElement.textContent = info.text;
   diffElement.className = `count-diff ${info.cls}`;
@@ -576,7 +560,7 @@ function renderInventoryList() {
   const visible = activeProducts.filter((product) => {
     if (queryText && ![product.nome, product.codigoInterno, product.codigoBarras, product.marca, product.categoria]
       .some((value) => normalizeText(value).includes(queryText))) return false;
-    if (onlyUncounted && parseCountValue(vistoriaDraft[product.id]).state === "counted") return false;
+    if (onlyUncounted && parseCountValue(estadoUi.vistoriaDraft[product.id]).state === "counted") return false;
     return true;
   });
   if (!visible.length) {
@@ -584,7 +568,7 @@ function renderInventoryList() {
     return;
   }
   list.innerHTML = visible.map((product) => {
-    const raw = vistoriaDraft[product.id] ?? "";
+    const raw = estadoUi.vistoriaDraft[product.id] ?? "";
     const info = describeCount(product, raw);
     return `<article class="count-row${info.counted ? " is-counted" : ""}" data-count-row="${escapeHtml(product.id)}">
       <div class="count-main">
@@ -635,15 +619,15 @@ function renderInventoryHistory() {
 }
 
 function renderInventory() {
-  const hasActive = Boolean(activeVistoria);
+  const hasActive = Boolean(estadoUi.activeVistoria);
   $("#inventory-idle").hidden = hasActive;
   $("#inventory-active").hidden = !hasActive;
-  $("#inventory-start").disabled = !inventoryAvailable;
+  $("#inventory-start").disabled = !estadoUi.inventoryAvailable;
   if (hasActive) {
-    const savedAt = activeVistoria.atualizadoEmMs
-      ? new Date(activeVistoria.atualizadoEmMs).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+    const savedAt = estadoUi.activeVistoria.atualizadoEmMs
+      ? new Date(estadoUi.activeVistoria.atualizadoEmMs).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
       : "";
-    $("#inventory-meta").textContent = `Iniciada em ${formatDate(activeVistoria.data)} por ${activeVistoria.criadoPor || "usuário não identificado"}.${savedAt ? ` Último salvamento: ${savedAt}.` : ""}`;
+    $("#inventory-meta").textContent = `Iniciada em ${formatDate(estadoUi.activeVistoria.data)} por ${estadoUi.activeVistoria.criadoPor || "usuário não identificado"}.${savedAt ? ` Último salvamento: ${savedAt}.` : ""}`;
     renderInventoryList();
     updateInventorySummary();
   }
@@ -655,7 +639,7 @@ function buildInventoryCounts() {
   const activeIds = new Set(products.filter((product) => !product.arquivado).map((product) => product.id));
   const counts = {};
   let hasInvalid = false;
-  Object.entries(vistoriaDraft).forEach(([productId, raw]) => {
+  Object.entries(estadoUi.vistoriaDraft).forEach(([productId, raw]) => {
     if (!activeIds.has(productId)) return;
     const parsed = parseCountValue(raw);
     if (parsed.state === "invalid") hasInvalid = true;
@@ -670,7 +654,7 @@ async function startInventory() {
   setFeedback("#inventory-feedback", "Iniciando vistoria…");
   try {
     await loadData();
-    if (activeVistoria) {
+    if (estadoUi.activeVistoria) {
       setFeedback("#inventory-feedback", "Já existe uma vistoria em andamento.", true);
       return;
     }
@@ -682,12 +666,12 @@ async function startInventory() {
     console.error("Falha ao iniciar vistoria:", error);
     setFeedback("#inventory-feedback", explainError(error), true);
   } finally {
-    button.disabled = !inventoryAvailable;
+    button.disabled = !estadoUi.inventoryAvailable;
   }
 }
 
 async function saveInventory() {
-  if (!activeVistoria) return;
+  if (!estadoUi.activeVistoria) return;
   const button = $("#inventory-save");
   const { counts, hasInvalid } = buildInventoryCounts();
   if (hasInvalid) {
@@ -698,11 +682,11 @@ async function saveInventory() {
   setFeedback("#inventory-feedback", "Salvando andamento…");
   try {
     await saveInventoryService({
-      inventoryId: activeVistoria.id,
+      inventoryId: estadoUi.activeVistoria.id,
       counts,
       userEmail: auth.currentUser?.email || null
     });
-    vistoriaDirty = false;
+    estadoUi.vistoriaDirty = false;
     await loadData();
     setFeedback("#inventory-feedback", `Andamento salvo (${Object.keys(counts).length} produto(s) contado(s)).`);
     showToast("Andamento da vistoria salvo.");
@@ -715,14 +699,14 @@ async function saveInventory() {
 }
 
 async function discardInventory() {
-  if (!activeVistoria) return;
+  if (!estadoUi.activeVistoria) return;
   const confirmed = window.confirm("Descartar a vistoria em andamento?\n\nTodas as contagens (salvas ou não) serão perdidas. Nenhum saldo será alterado.");
   if (!confirmed) return;
   const button = $("#inventory-discard");
   button.disabled = true;
   try {
-    await discardInventoryService({ inventoryId: activeVistoria.id });
-    vistoriaDirty = false;
+    await discardInventoryService({ inventoryId: estadoUi.activeVistoria.id });
+    estadoUi.vistoriaDirty = false;
     await loadData();
     setFeedback("#inventory-feedback", "Vistoria descartada. Nenhum saldo foi alterado.");
   } catch (error) {
@@ -734,17 +718,17 @@ async function discardInventory() {
 }
 
 async function finishInventory() {
-  if (!activeVistoria) return;
+  if (!estadoUi.activeVistoria) return;
   const button = $("#inventory-finish");
   button.disabled = true;
   setFeedback("#inventory-feedback", "Conferindo os saldos atuais…");
   try {
-    if (Object.values(vistoriaDraft).some((raw) => parseCountValue(raw).state === "invalid")) {
+    if (Object.values(estadoUi.vistoriaDraft).some((raw) => parseCountValue(raw).state === "invalid")) {
       throw new Error("Há valores inválidos na contagem. Use números inteiros, 0 ou maiores.");
     }
     // Recarrega os saldos antes da confirmação; o serviço relê os saldos definitivos na transação.
     await loadData();
-    if (!activeVistoria) throw new Error("A vistoria não está mais em andamento. Atualize a página.");
+    if (!estadoUi.activeVistoria) throw new Error("A vistoria não está mais em andamento. Atualize a página.");
 
     const { counts } = buildInventoryCounts();
     const activeProducts = products.filter((product) => !product.arquivado);
@@ -769,7 +753,7 @@ async function finishInventory() {
     const date = dateToday();
     const dateTime = `${date} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
     const result = await finishInventoryService({
-      inventoryId: activeVistoria.id,
+      inventoryId: estadoUi.activeVistoria.id,
       counts,
       activeProducts,
       date,
@@ -777,7 +761,7 @@ async function finishInventory() {
       userEmail: email
     });
 
-    vistoriaDirty = false;
+    estadoUi.vistoriaDirty = false;
     const message = `Vistoria concluída: ${result.contados} produto(s) contado(s), ${result.ajustados} com saldo ajustado${result.ignorados ? `, ${result.ignorados} ignorado(s) (arquivado ou removido)` : ""}.`;
     setFeedback("#inventory-feedback", message);
     showToast("Vistoria concluída.");
@@ -812,12 +796,12 @@ function renderAll() {
   renderCatalogOptions(brands, categories);
   renderStoreSettings(isEditingProduct());
   renderProducts(renderEntryProductResults);
-  renderEntries(showArchivedEntries);
+  renderEntries(estadoUi.showArchivedEntries);
   renderExits();
   renderExitProductResults();
   renderSaleProductResults();
   renderSaleCart();
-  renderSales(saleReturnsAvailable);
+  renderSales(estadoUi.saleReturnsAvailable);
   syncInventoryDraft();
   renderInventory();
   renderDashboard();
@@ -834,21 +818,21 @@ async function loadData() {
   Object.assign(storeSettings, data.storeSettingsData || {});
   replaceArray(brands, uniqueOptions([...(data.catalogData.marcas || []), ...products.map((product) => product.marca)]));
   replaceArray(categories, uniqueOptions([...(data.catalogData.categorias || []), ...products.map((product) => product.categoria)]));
-  saleReturnsAvailable = data.saleReturnsAvailable;
-  activeVistoria = data.activeVistoria;
-  inventoryAvailable = data.inventoryAvailable;
+  estadoUi.saleReturnsAvailable = data.saleReturnsAvailable;
+  estadoUi.activeVistoria = data.activeVistoria;
+  estadoUi.inventoryAvailable = data.inventoryAvailable;
 
   if (data.returnsError) {
     console.error("Falha ao carregar devoluções:", data.returnsError);
-    if (!returnsLoadErrorShown) {
-      returnsLoadErrorShown = true;
+    if (!estadoUi.returnsLoadErrorShown) {
+      estadoUi.returnsLoadErrorShown = true;
       showToast("Devoluções indisponíveis: publique as regras do Firestore.");
     }
   }
   if (data.inventoryError) {
     console.error("Falha ao carregar vistorias:", data.inventoryError);
-    if (!inventoryLoadErrorShown) {
-      inventoryLoadErrorShown = true;
+    if (!estadoUi.inventoryLoadErrorShown) {
+      estadoUi.inventoryLoadErrorShown = true;
       showToast("Vistoria indisponível: publique as regras do Firestore.");
     }
   }
@@ -869,8 +853,8 @@ async function loadData() {
 });
 
 onEvent("#show-archived-entries", "change", (event) => {
-  showArchivedEntries = event.target.checked;
-  renderEntries(showArchivedEntries);
+  estadoUi.showArchivedEntries = event.target.checked;
+  renderEntries(estadoUi.showArchivedEntries);
 });
 
 
@@ -880,7 +864,7 @@ onEvent("#show-archived-entries", "change", (event) => {
 async function finishSale(event) {
   event.preventDefault();
   // Trava de clique duplo: enquanto uma gravação está em andamento, novos envios são ignorados.
-  if (saleInFlight) return;
+  if (estadoUi.saleInFlight) return;
   if (!storeSettings.caixaAtivo) return setFeedback("#sale-feedback", "O módulo Caixa está desativado.", true);
   if (!saleCart.length) return setFeedback("#sale-feedback", "Adicione pelo menos um produto.", true);
   if (cartHasInvalidPrice()) return setFeedback("#sale-feedback", "Há item com preço vazio ou zero.", true);
@@ -902,7 +886,7 @@ async function finishSale(event) {
   const clock = new Date();
   const saleHour = clock.getHours();
   const saleWeekday = new Date(`${date}T12:00:00`).getDay();
-  const durationSeconds = saleCartStartedAt ? Math.max(0, Math.round((Date.now() - saleCartStartedAt) / 1000)) : null;
+  const durationSeconds = estadoUi.saleCartStartedAt ? Math.max(0, Math.round((Date.now() - estadoUi.saleCartStartedAt) / 1000)) : null;
   const retroactive = date !== dateToday();
 
   // Idempotência: o ID da venda é gerado no cliente ANTES da transação e só muda quando o conteúdo
@@ -913,8 +897,8 @@ async function finishSale(event) {
     date,
     itens: cartSnapshot.map((item) => [item.produtoId, item.quantidade, item.precoUnitario])
   });
-  if (!saleAttempt || saleAttempt.fingerprint !== fingerprint) {
-    saleAttempt = { id: doc(collection(db, "vendas")).id, fingerprint };
+  if (!estadoUi.saleAttempt || estadoUi.saleAttempt.fingerprint !== fingerprint) {
+    estadoUi.saleAttempt = { id: doc(collection(db, "vendas")).id, fingerprint };
   }
 
   // Dinheiro: valor recebido e troco (opcionais).
@@ -925,14 +909,14 @@ async function finishSale(event) {
   }
   const troco = valorRecebido !== null ? roundMoney(valorRecebido - cartTotal()) : null;
 
-  saleInFlight = true;
+  estadoUi.saleInFlight = true;
   setSaleBusy(true);
   const button = $("#sale-finish-button");
   button.disabled = true;
   setFeedback("#sale-feedback", "Registrando venda…");
   try {
     const { alreadySaved } = await finishSaleTransaction({
-      saleId: saleAttempt.id,
+      saleId: estadoUi.saleAttempt.id,
       cartSnapshot,
       formaPagamento,
       date,
@@ -950,14 +934,14 @@ async function finishSale(event) {
       subtotal: roundMoney(item.quantidade * item.precoUnitario)
     }));
     const savedSale = {
-      id: saleAttempt.id, itens: savedItems,
+      id: estadoUi.saleAttempt.id, itens: savedItems,
       total: roundMoney(savedItems.reduce((sum, item) => sum + item.subtotal, 0)),
       formaPagamento, data: date, dataHora: dateTimeFor(date), usuario: currentEmail(),
       ...(valorRecebido !== null ? { valorRecebido, troco } : {})
     };
-    saleAttempt = null;
+    estadoUi.saleAttempt = null;
     replaceArray(saleCart);
-    saleCartStartedAt = null;
+    estadoUi.saleCartStartedAt = null;
     // A venda já está gravada: um erro só de interface (cupom, formulário) não pode parecer falha de registro.
     try {
       $("#sale-payment-method").value = "";
@@ -984,7 +968,7 @@ async function finishSale(event) {
     console.error("Falha ao registrar venda:", error);
     setFeedback("#sale-feedback", explainError(error), true);
   } finally {
-    saleInFlight = false;
+    estadoUi.saleInFlight = false;
     renderSaleCart();
     setSaleBusy(false);
     updateCartSummary();
@@ -1057,8 +1041,8 @@ onEvent("#sale-action-items", "input", updateReturnTotal);
 
 onEvent("#sale-action-form", "submit", async (event) => {
   event.preventDefault();
-  if (!saleAction) return;
-  const sale = sales.find((item) => item.id === saleAction.saleId);
+  if (!estadoUi.saleAction) return;
+  const sale = sales.find((item) => item.id === estadoUi.saleAction.saleId);
   if (!sale) return setFeedback("#sale-action-feedback", "Venda não encontrada. Atualize a lista.", true);
   const reason = fieldValue("#sale-action-reason").trim();
   if (!reason) return setFeedback("#sale-action-feedback", "Informe o motivo.", true);
@@ -1067,7 +1051,7 @@ onEvent("#sale-action-form", "submit", async (event) => {
   button.disabled = true;
   setFeedback("#sale-action-feedback", "Salvando…");
   try {
-    if (saleAction.mode === "cancel") {
+    if (estadoUi.saleAction.mode === "cancel") {
       await cancelSale(sale, reason);
       showToast("Venda cancelada.");
     } else {
@@ -1081,7 +1065,7 @@ onEvent("#sale-action-form", "submit", async (event) => {
       });
       if (invalid) throw new Error("Quantidade inválida. Use números inteiros até o máximo permitido.");
       if (!requested.length) throw new Error("Informe a quantidade de pelo menos um item.");
-      const result = await registerReturn(sale, requested, reason, saleAction.returnId);
+      const result = await registerReturn(sale, requested, reason, estadoUi.saleAction.returnId);
       showToast(result.alreadySaved
         ? "Esta devolução já estava registrada. Nenhum estoque foi alterado novamente."
         : `Devolução registrada: ${money(result.total)}.`);
@@ -1104,7 +1088,7 @@ onEvent("#sale-action-form", "submit", async (event) => {
 // ---------- Saídas ----------
 
 onEvent("#exit-product-search", "input", () => {
-  selectedExitProductId = "";
+  estadoUi.selectedExitProductId = "";
   renderExitProductResults();
 });
 
@@ -1113,7 +1097,7 @@ onEvent("#exit-product-results", "click", (event) => {
   if (!button) return;
   const product = products.find((item) => item.id === button.dataset.selectExitProduct && !item.arquivado);
   if (!product) return;
-  selectedExitProductId = product.id;
+  estadoUi.selectedExitProductId = product.id;
   $("#exit-product-search").value = product.nome;
   renderExitProductResults();
   $("#exit-quantity").focus();

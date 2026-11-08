@@ -1,5 +1,5 @@
 import { roundMoney, formatDate, formatTimestamp, minStockOf, isLowStock, getRegisteredSalePrice, calcSuggestedPrice, packSizeOf, baseNameOf, saleItemsOf, saleTotalOf, saleDateOf, returnDateOf, inPeriod, yesNo, fieldValue, onEvent, dateToday, wait } from "../utils.js?v=20261104-1";
-import { products, entries, exits, sales, saleReturns } from "../estado.js?v=20261106-5";
+import { products, entries, exits, sales, saleReturns } from "../estado.js?v=20261108-1";
 import { excelText, csvNumber, downloadCsv } from "../export.js?v=20261104-1";
 
 const EXIT_REASON_LABELS = { perda: "Perda", devolucao: "Devolução ao fornecedor", uso_interno: "Uso interno", outro: "Outra saída" };
