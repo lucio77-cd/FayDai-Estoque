@@ -22,6 +22,7 @@ async function reserveInternalCode(transaction, products) {
 
 export async function saveProductTransaction({
   productId = null,
+  creationId = null,
   data,
   products = [],
   brands = [],
@@ -85,11 +86,28 @@ export async function saveProductTransaction({
     return { productId, created: false };
   }
 
-  const productRef = doc(collection(db, "produtos"));
+  if (!creationId) throw new Error("Identificador do cadastro não informado. Tente novamente.");
+  const productRef = doc(db, "produtos", creationId);
+  const creationFingerprint = JSON.stringify(data);
+  let alreadySaved = false;
+
   await runTransaction(db, async (transaction) => {
+    alreadySaved = false;
+    const existingProduct = await transaction.get(productRef);
+    if (existingProduct.exists()) {
+      const existing = existingProduct.data();
+      if (existing.cadastroOperationId === creationId && existing.cadastroFingerprint === creationFingerprint) {
+        alreadySaved = true;
+        return;
+      }
+      throw new Error("Este identificador de cadastro já foi utilizado com outros dados. Recarregue o formulário antes de tentar novamente.");
+    }
+
     const reservation = internalCodeEnabled ? await reserveInternalCode(transaction, products) : null;
     if (hasCatalogUpdate) transaction.set(catalogRef, catalogUpdate, { merge: true });
     transaction.set(productRef, {
+      cadastroOperationId: creationId,
+      cadastroFingerprint: creationFingerprint,
       nome: data.nome,
       descricao: data.descricao,
       marca: data.marca,
@@ -146,7 +164,7 @@ export async function saveProductTransaction({
     }
     if (reservation) reservation.commit();
   });
-  return { productId: productRef.id, created: true };
+  return { productId: productRef.id, created: true, alreadySaved };
 }
 
 export async function deleteProductTransaction({ productId, archive }) {
