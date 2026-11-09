@@ -1,6 +1,6 @@
 // vistoria.js — regras de contagem e operações de persistência da vistoria.
 // Não acessa a interface, não exibe avisos e não mantém estado global do aplicativo.
-import { db, collection, doc, addDoc, runTransaction, serverTimestamp } from "../firebase.js?v=20261104-1";
+import { db, collection, doc, addDoc, runTransaction, serverTimestamp, query, where } from "../firebase.js?v=20261104-1";
 
 export const MAX_INVENTORY_ADJUSTMENTS = 400;
 
@@ -22,16 +22,48 @@ export function describeCount(product, raw) {
   return { text: `${diff > 0 ? "+" : ""}${diff} un.`, cls: diff > 0 ? "plus" : "minus", counted: true };
 }
 
+const ACTIVE_INVENTORY_LOCK_ID = "__controle_vistoria_ativa__";
+
 export async function startInventory({ date, userEmail = null }) {
-  return addDoc(collection(db, "vistorias"), {
-    status: "em_andamento",
-    contagens: {},
-    data: date,
-    criadoEm: serverTimestamp(),
-    criadoPor: userEmail,
-    atualizadoEm: serverTimestamp(),
-    atualizadoPor: userEmail
+  const inventoryCollection = collection(db, "vistorias");
+  const inventoryRef = doc(inventoryCollection);
+  const lockRef = doc(db, "vistorias", ACTIVE_INVENTORY_LOCK_ID);
+
+  await runTransaction(db, async (transaction) => {
+    // O documento de controle serializa tentativas simultâneas de início.
+    const lockSnapshot = await transaction.get(lockRef);
+    if (lockSnapshot.exists() && lockSnapshot.data().inventoryId) {
+      const previousRef = doc(db, "vistorias", lockSnapshot.data().inventoryId);
+      const previousSnapshot = await transaction.get(previousRef);
+      if (previousSnapshot.exists() && previousSnapshot.data().status === "em_andamento") {
+        throw new Error("Já existe uma vistoria em andamento. Conclua ou descarte a vistoria atual antes de iniciar outra.");
+      }
+    }
+
+    // Também bloqueia vistorias antigas criadas antes da implantação do controle.
+    const activeQuery = query(inventoryCollection, where("status", "==", "em_andamento"));
+    const activeSnapshot = await transaction.get(activeQuery);
+    if (!activeSnapshot.empty) {
+      throw new Error("Já existe uma vistoria em andamento. Atualize a tela para continuar nela.");
+    }
+
+    transaction.set(inventoryRef, {
+      status: "em_andamento",
+      contagens: {},
+      data: date,
+      criadoEm: serverTimestamp(),
+      criadoPor: userEmail,
+      atualizadoEm: serverTimestamp(),
+      atualizadoPor: userEmail
+    });
+    transaction.set(lockRef, {
+      inventoryId: inventoryRef.id,
+      atualizadoEm: serverTimestamp(),
+      atualizadoPor: userEmail
+    });
   });
+
+  return inventoryRef;
 }
 
 export async function saveInventory({ inventoryId, counts, userEmail = null }) {
