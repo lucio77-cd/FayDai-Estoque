@@ -1,6 +1,6 @@
 // vistoria.js — regras de contagem e operações de persistência da vistoria.
 // Não acessa a interface, não exibe avisos e não mantém estado global do aplicativo.
-import { db, collection, doc, addDoc, runTransaction, serverTimestamp, query, where } from "../firebase.js?v=20261104-1";
+import { db, collection, doc, runTransaction, serverTimestamp, query, where } from "../firebase.js?v=20261104-1";
 
 export const MAX_INVENTORY_ADJUSTMENTS = 400;
 
