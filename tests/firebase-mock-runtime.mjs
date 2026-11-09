@@ -1,6 +1,7 @@
 // Adaptador mínimo em memória para testar os serviços sem acessar o Firebase real.
 const records = new Map();
 let sequence = 0;
+let transactionQueue = Promise.resolve();
 
 export const db = { __mockFirestore: true };
 
@@ -65,8 +66,14 @@ function makeQuerySnapshot(ref) {
 }
 
 export async function runTransaction(_db, callback) {
-  const writes = [];
-  const transaction = {
+  const previousTransaction = transactionQueue;
+  let releaseTransaction;
+  transactionQueue = new Promise((resolve) => { releaseTransaction = resolve; });
+  await previousTransaction;
+
+  try {
+    const writes = [];
+    const transaction = {
     async get(ref) {
       return ref.kind === "doc" ? makeDocSnapshot(ref) : makeQuerySnapshot(ref);
     },
@@ -81,20 +88,23 @@ export async function runTransaction(_db, callback) {
     }
   };
 
-  const result = await callback(transaction);
-  for (const write of writes) {
-    const recordKey = key(write.ref);
-    if (write.type === "delete") {
-      records.delete(recordKey);
-    } else if (write.type === "update") {
-      if (!records.has(recordKey)) throw new Error("Documento inexistente no mock.");
-      records.set(recordKey, { ...records.get(recordKey), ...write.data });
-    } else {
-      const current = records.get(recordKey);
-      records.set(recordKey, write.merge && current ? { ...current, ...write.data } : write.data);
+    const result = await callback(transaction);
+    for (const write of writes) {
+      const recordKey = key(write.ref);
+      if (write.type === "delete") {
+        records.delete(recordKey);
+      } else if (write.type === "update") {
+        if (!records.has(recordKey)) throw new Error("Documento inexistente no mock.");
+        records.set(recordKey, { ...records.get(recordKey), ...write.data });
+      } else {
+        const current = records.get(recordKey);
+        records.set(recordKey, write.merge && current ? { ...current, ...write.data } : write.data);
+      }
     }
+    return result;
+  } finally {
+    releaseTransaction();
   }
-  return result;
 }
 
 export async function addDoc(collectionRef, data) {
@@ -120,6 +130,7 @@ export function writeBatch() {
 export function resetMockDb() {
   records.clear();
   sequence = 0;
+  transactionQueue = Promise.resolve();
 }
 
 export function seedDoc(collectionName, id, data) {
