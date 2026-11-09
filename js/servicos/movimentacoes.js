@@ -19,7 +19,7 @@ export async function saveEntryTransaction({
 }) {
   if (!entryId) throw new Error("Identificador da entrada não informado. Tente novamente.");
   if (!Number.isInteger(quantity) || quantity < 1) throw new Error("A quantidade da entrada deve ser um número inteiro maior que zero.");
-  if (!Number.isFinite(unitCost) || unitCost <= 0) throw new Error("O custo da entrada deve ser maior que zero.");
+  if (!Number.isFinite(unitCost) || unitCost < 0) throw new Error("O custo da entrada deve ser zero ou maior.");
   const productRef = doc(db, "produtos", productId);
   const entryRef = doc(db, "entradas", entryId);
   let alreadySaved = false;
