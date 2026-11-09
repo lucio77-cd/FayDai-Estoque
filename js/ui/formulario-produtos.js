@@ -349,9 +349,14 @@ async function saveProduct(event) {
     const wasEditing = Boolean(editing);
     resetProductForm();
     setCancelEditVisible(false);
-    await loadData();
     setFeedback("#product-feedback", wasEditing ? "Produto atualizado." : "Produto salvo.");
     showToast(wasEditing ? "Produto atualizado." : "Produto salvo.");
+    try {
+      await loadData();
+    } catch (refreshError) {
+      console.error("Produto salvo, mas falhou a atualização da tela:", refreshError);
+      setFeedback("#product-feedback", "Produto salvo. Não salve novamente. Atualize a página para atualizar os dados.", true);
+    }
   } catch (error) {
     console.error("Falha ao salvar produto:", error);
     setFeedback("#product-feedback", explainError(error), true);
@@ -385,8 +390,13 @@ async function deleteProduct(productId) {
       resetProductForm();
       setCancelEditVisible(false);
     }
-    await loadData();
     showToast(hasHistory ? "Produto arquivado." : "Produto excluído.");
+    try {
+      await loadData();
+    } catch (refreshError) {
+      console.error("Produto excluído/arquivado, mas falhou a atualização da tela:", refreshError);
+      showToast("Operação concluída. Atualize a página para atualizar os dados.");
+    }
   } catch (error) {
     console.error("Falha ao excluir produto:", error);
     showToast(explainError(error));
