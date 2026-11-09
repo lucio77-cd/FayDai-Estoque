@@ -1,6 +1,6 @@
 // vistoria.js — regras de contagem e operações de persistência da vistoria.
 // Não acessa a interface, não exibe avisos e não mantém estado global do aplicativo.
-import { db, collection, doc, addDoc, updateDoc, deleteDoc, runTransaction, serverTimestamp } from "../firebase.js?v=20261104-1";
+import { db, collection, doc, addDoc, runTransaction, serverTimestamp } from "../firebase.js?v=20261104-1";
 
 export const MAX_INVENTORY_ADJUSTMENTS = 400;
 
@@ -35,15 +35,35 @@ export async function startInventory({ date, userEmail = null }) {
 }
 
 export async function saveInventory({ inventoryId, counts, userEmail = null }) {
-  await updateDoc(doc(db, "vistorias", inventoryId), {
-    contagens: counts,
-    atualizadoEm: serverTimestamp(),
-    atualizadoPor: userEmail
+  const vistoriaRef = doc(db, "vistorias", inventoryId);
+  await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(vistoriaRef);
+    if (!snapshot.exists() || snapshot.data().status !== "em_andamento") {
+      throw new Error("Esta vistoria já foi concluída ou foi descartada. Atualize a tela antes de continuar.");
+    }
+    transaction.update(vistoriaRef, {
+      contagens: counts,
+      atualizadoEm: serverTimestamp(),
+      atualizadoPor: userEmail
+    });
   });
 }
 
-export async function discardInventory({ inventoryId }) {
-  await deleteDoc(doc(db, "vistorias", inventoryId));
+export async function discardInventory({ inventoryId, userEmail = null }) {
+  const vistoriaRef = doc(db, "vistorias", inventoryId);
+  await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(vistoriaRef);
+    if (!snapshot.exists() || snapshot.data().status !== "em_andamento") {
+      throw new Error("Esta vistoria já foi concluída ou foi descartada. O histórico foi preservado.");
+    }
+    transaction.update(vistoriaRef, {
+      status: "descartada",
+      descartadaEm: serverTimestamp(),
+      descartadaPor: userEmail,
+      atualizadoEm: serverTimestamp(),
+      atualizadoPor: userEmail
+    });
+  });
 }
 
 // activeProducts deve conter os produtos ativos carregados imediatamente antes da confirmação.
