@@ -562,7 +562,7 @@ async function discardInventory() {
   const button = $("#inventory-discard");
   button.disabled = true;
   try {
-    await discardInventoryService({ inventoryId: estadoUi.activeVistoria.id });
+    await discardInventoryService({ inventoryId: estadoUi.activeVistoria.id, userEmail: auth.currentUser?.email || null });
     estadoUi.vistoriaDirty = false;
     await loadData();
     setFeedback("#inventory-feedback", "Vistoria descartada. Nenhum saldo foi alterado.");
