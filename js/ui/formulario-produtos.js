@@ -395,12 +395,12 @@ async function deleteProduct(productId) {
     : `Excluir o produto "${product.nome}"?\n\nEsta ação não pode ser desfeita.`;
   if (!window.confirm(message)) return;
   try {
-    await deleteProductTransaction({ productId, archive: hasHistory });
+    const operation = await deleteProductTransaction({ productId, archive: hasHistory });
     if (editingProductId === productId) {
       resetProductForm();
       setCancelEditVisible(false);
     }
-    showToast(hasHistory ? "Produto arquivado." : "Produto excluído.");
+    showToast(operation?.archived ? "Produto arquivado para preservar o histórico." : "Produto excluído.");
     try {
       await loadData();
       productDataRefreshPending = false;
