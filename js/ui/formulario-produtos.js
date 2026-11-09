@@ -357,17 +357,6 @@ async function saveProduct(event) {
   if (estoqueMinimo !== null && (!Number.isInteger(estoqueMinimo) || estoqueMinimo < 0)) {
     return setFeedback("#product-feedback", "O estoque mínimo deve ser um número inteiro, 0 ou maior.", true);
   }
-  restorePendingProductCreation();
-  const sameName = products.find((product) => product.id !== editingProductId && !product.arquivado
-    && product.cadastroOperationId !== pendingProductCreationId
-    && normalizeText(product.nome) === normalizeText(nome));
-  if (sameName) return setFeedback("#product-feedback", `Já existe um produto ativo chamado "${sameName.nome}".`, true);
-  if (barcode) {
-    const duplicate = products.find((product) => product.id !== editingProductId && !product.arquivado
-      && String(product.codigoBarras || "") === barcode);
-    if (duplicate) return setFeedback("#product-feedback", `Este código de barras já está associado ao produto "${duplicate.nome}".`, true);
-  }
-
   // Campos novos (todos opcionais; produtos antigos continuam sem eles).
   const packFields = {
     nomeBase,
@@ -397,6 +386,16 @@ async function saveProduct(event) {
       custoFardo
     };
     const creationId = editing ? null : getPendingProductCreationId(productData);
+    const sameName = products.find((product) => product.id !== editingProductId && !product.arquivado
+      && product.cadastroOperationId !== creationId
+      && normalizeText(product.nome) === normalizeText(nome));
+    if (sameName) return setFeedback("#product-feedback", `Já existe um produto ativo chamado "${sameName.nome}".`, true);
+    if (barcode) {
+      const duplicate = products.find((product) => product.id !== editingProductId && !product.arquivado
+        && product.cadastroOperationId !== creationId
+        && String(product.codigoBarras || "") === barcode);
+      if (duplicate) return setFeedback("#product-feedback", `Este código de barras já está associado ao produto "${duplicate.nome}".`, true);
+    }
     const saveResult = await saveProductTransaction({
       productId: editing ? editing.id : null,
       creationId,
