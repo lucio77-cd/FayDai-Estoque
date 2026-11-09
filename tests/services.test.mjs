@@ -41,6 +41,16 @@ test("início bloqueia uma segunda vistoria ativa", async () => {
   assert.equal(active[0].id, first.id);
 });
 
+test("duas tentativas simultâneas de início resultam em apenas uma vistoria", async () => {
+  const results = await Promise.allSettled([
+    startInventory({ date: "2026-11-09", userEmail: "a@faydai.local" }),
+    startInventory({ date: "2026-11-09", userEmail: "b@faydai.local" })
+  ]);
+  assert.equal(results.filter((item) => item.status === "fulfilled").length, 1);
+  assert.equal(results.filter((item) => item.status === "rejected").length, 1);
+  assert.equal(dumpCollection("vistorias").filter((item) => item.data.status === "em_andamento").length, 1);
+});
+
 test("início bloqueia vistoria antiga ativa sem documento de controle", async () => {
   seedDoc("vistorias", "legada-ativa", { status: "em_andamento", contagens: {} });
   await assert.rejects(
