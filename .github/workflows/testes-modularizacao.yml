@@ -1,0 +1,31 @@
+name: Testes da branch modularizacao
+
+on:
+  push:
+    branches:
+      - modularizacao
+  pull_request:
+    branches:
+      - modularizacao
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verificar estrutura dos módulos
+        run: node tools/verificar-modulos.mjs
+
+      - name: Executar testes dos serviços
+        run: node --experimental-default-type=module --experimental-loader ./tests/firebase-mock-loader.mjs --test ./tests/services.test.mjs
