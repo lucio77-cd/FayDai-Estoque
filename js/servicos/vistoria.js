@@ -1,6 +1,6 @@
 // vistoria.js — regras de contagem e operações de persistência da vistoria.
 // Não acessa a interface, não exibe avisos e não mantém estado global do aplicativo.
-import { db, collection, doc, runTransaction, serverTimestamp, query, where } from "../firebase.js?v=20261104-1";
+import { db, collection, doc, getDocs, runTransaction, serverTimestamp, query, where } from "../firebase.js?v=20261109-7";
 
 export const MAX_INVENTORY_ADJUSTMENTS = 400;
 
@@ -22,10 +22,18 @@ export function describeCount(product, raw) {
   return { text: `${diff > 0 ? "+" : ""}${diff} un.`, cls: diff > 0 ? "plus" : "minus", counted: true };
 }
 
-const ACTIVE_INVENTORY_LOCK_ID = "__controle_vistoria_ativa__";
+// O Firestore reserva IDs no formato __nome__, por isso o documento de controle não usa esse formato.
+export const ACTIVE_INVENTORY_LOCK_ID = "controle_vistoria_ativa";
+const ACTIVE_INVENTORY_MESSAGE = "Já existe uma vistoria em andamento. Conclua ou descarte a vistoria atual antes de iniciar outra.";
 
 export async function startInventory({ date, userEmail = null }) {
   const inventoryCollection = collection(db, "vistorias");
+
+  // Bloqueia vistorias antigas criadas antes do documento de controle. A consulta fica FORA da
+  // transação porque Transaction.get do SDK web só aceita documentos, não consultas.
+  const legacyActive = await getDocs(query(inventoryCollection, where("status", "==", "em_andamento")));
+  if (!legacyActive.empty) throw new Error(ACTIVE_INVENTORY_MESSAGE);
+
   const inventoryRef = doc(inventoryCollection);
   const lockRef = doc(db, "vistorias", ACTIVE_INVENTORY_LOCK_ID);
 
@@ -36,15 +44,8 @@ export async function startInventory({ date, userEmail = null }) {
       const previousRef = doc(db, "vistorias", lockSnapshot.data().inventoryId);
       const previousSnapshot = await transaction.get(previousRef);
       if (previousSnapshot.exists() && previousSnapshot.data().status === "em_andamento") {
-        throw new Error("Já existe uma vistoria em andamento. Conclua ou descarte a vistoria atual antes de iniciar outra.");
+        throw new Error(ACTIVE_INVENTORY_MESSAGE);
       }
-    }
-
-    // Também bloqueia vistorias antigas criadas antes da implantação do controle.
-    const activeQuery = query(inventoryCollection, where("status", "==", "em_andamento"));
-    const activeSnapshot = await transaction.get(activeQuery);
-    if (!activeSnapshot.empty) {
-      throw new Error("Já existe uma vistoria em andamento. Atualize a tela para continuar nela.");
     }
 
     transaction.set(inventoryRef, {

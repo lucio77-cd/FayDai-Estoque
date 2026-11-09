@@ -1,8 +1,20 @@
 // movimentacoes.js — transações de entradas e saídas de estoque.
 // Este módulo não acessa a tela, não exibe avisos e não mantém estado da interface.
 // Recebe dados simples e preserva as validações e mensagens das transações originais.
-import { db, doc, runTransaction, serverTimestamp } from "../firebase.js?v=20261104-1";
+import { db, collection, doc, runTransaction, serverTimestamp } from "../firebase.js?v=20261109-7";
 import { dateTimeFor, packSizeOf } from "../utils.js?v=20261104-1";
+
+// Identificadores gerados no cliente: repetir o envio da MESMA tentativa reaproveita o ID e não duplica o saldo.
+export const newEntryId = () => doc(collection(db, "entradas")).id;
+export const newExitId = () => doc(collection(db, "saidas")).id;
+
+// Mantém o ID da tentativa enquanto o conteúdo do formulário for o mesmo (reenvio após falha de rede).
+// Se o usuário alterar qualquer dado, é outra operação e recebe um ID novo, para que a alteração não seja
+// descartada como "já registrada".
+export function attemptFor(current, fingerprint, makeId) {
+  if (current && current.fingerprint === fingerprint) return current;
+  return { id: makeId(), fingerprint };
+}
 
 // Registra uma entrada e atualiza o saldo na mesma transação.
 export async function saveEntryTransaction({

@@ -1,10 +1,10 @@
-import { auth, db, collection, doc } from "./js/firebase.js?v=20261104-1";
+import { auth, db, collection, doc } from "./js/firebase.js?v=20261109-7";
 import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, dateToday, formatDate, escapeHtml, normalizeText, cleanOption, uniqueOptions, saleItemsOf, saleTotalOf, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime } from "./js/utils.js?v=20261104-1";
 import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261107-1";
 import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
-import { saveEntryTransaction, saveExitTransaction } from "./js/servicos/movimentacoes.js?v=20261109-2";
-import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=20261109-1";
-import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261109-1";
+import { saveEntryTransaction, saveExitTransaction, newEntryId, newExitId, attemptFor } from "./js/servicos/movimentacoes.js?v=20261109-7";
+import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=20261109-7";
+import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261109-7";
 import { cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
 
 import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, replaceArray, estadoUi } from "./js/estado.js?v=20261108-1";
@@ -13,7 +13,7 @@ import { initScanner } from "./js/ui/scanner.js?v=20261106-7";
 import { initPainelUI, renderDashboard } from "./js/ui/painel.js?v=20261106-7";
 import { renderProducts } from "./js/ui/produtos.js?v=20261106-8";
 import { initProductCatalogUI, renderCatalogOptions } from "./js/ui/catalogo-produtos.js?v=20261106-19";
-import { saveProductTransaction, deleteProductTransaction } from "./js/servicos/produtos.js?v=20261109-2";
+import { saveProductTransaction, deleteProductTransaction } from "./js/servicos/produtos.js?v=20261109-7";
 import { initProductFormUI } from "./js/ui/formulario-produtos.js?v=20261109-3";
 import { initSessionUI, switchTab } from "./js/ui/sessao.js?v=20261106-9";
 import { renderSales, returnableRows } from "./js/ui/historico-vendas.js?v=20261106-20";
@@ -138,7 +138,7 @@ initSessionUI({
 });
 
 initMovementFormsUI({
-  storeSettings, saveEntryTransaction, saveExitTransaction,
+  storeSettings, saveEntryTransaction, saveExitTransaction, newEntryId, newExitId, attemptFor,
   selectedEntryProduct, readEntryAmounts,
   getSelectedExitProduct: () => products.find((item) => item.id === estadoUi.selectedExitProductId && !item.arquivado),
   setSelectedEntryProductId: (value) => { estadoUi.selectedEntryProductId = value; },

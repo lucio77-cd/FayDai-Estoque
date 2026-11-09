@@ -2,23 +2,23 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  resetMockDb, seedDoc, readDoc, dumpCollection
+  resetMockDb, seedDoc, readDoc, dumpCollection, setGetDocsHook, collection, doc, runTransaction, db
 } from "./firebase-mock-runtime.mjs";
 
 import {
   parseCountValue, describeCount, startInventory, saveInventory,
   discardInventory, finishInventory
-} from "../js/servicos/vistoria.js?v=20261109-1";
+} from "../js/servicos/vistoria.js?v=20261109-7";
 
 import {
   saveProductTransaction, deleteProductTransaction
-} from "../js/servicos/produtos.js?v=20261109-2";
+} from "../js/servicos/produtos.js?v=20261109-7";
 
 import {
-  saveEntryTransaction, saveExitTransaction
-} from "../js/servicos/movimentacoes.js?v=20261109-2";
+  saveEntryTransaction, saveExitTransaction, attemptFor
+} from "../js/servicos/movimentacoes.js?v=20261109-7";
 
-test.beforeEach(() => resetMockDb());
+test.beforeEach(() => { resetMockDb(); setGetDocsHook(null); });
 
 test("contagem distingue vazio, inválido, zero e quantidade inteira", () => {
   assert.deepEqual(parseCountValue(""), { state: "empty" });
@@ -180,4 +180,84 @@ test("saída idempotente não desconta estoque duas vezes", async () => {
   assert.equal(first.alreadySaved, false);
   assert.equal(second.alreadySaved, true);
   assert.equal(readDoc("produtos", "produto-saida").quantidade, 3);
+});
+
+// ---- Restrições do Firestore real, garantidas pelo mock estrito ----
+
+test("mock estrito rejeita consulta dentro de transação, ID __reservado__ e undefined", async () => {
+  await assert.rejects(
+    () => runTransaction(db, (transaction) => transaction.get(collection(db, "vendas"))),
+    /só aceita DocumentReference/
+  );
+  assert.throws(() => doc(db, "vistorias", "__controle__"), /reservado/);
+  await assert.rejects(
+    () => runTransaction(db, async (transaction) => {
+      transaction.set(doc(db, "produtos", "x"), { nome: undefined });
+    }),
+    /undefined/
+  );
+  await assert.rejects(
+    () => runTransaction(db, async (transaction) => {
+      transaction.set(doc(db, "produtos", "x"), { nome: "a" });
+      await transaction.get(doc(db, "produtos", "y"));
+    }),
+    /leituras da transação devem vir antes/
+  );
+});
+
+test("depois de concluir a vistoria, uma nova pode ser iniciada", async () => {
+  const first = await startInventory({ date: "2026-11-09" });
+  await discardInventory({ inventoryId: first.id });
+  const second = await startInventory({ date: "2026-11-10" });
+  assert.notEqual(second.id, first.id);
+  assert.equal(dumpCollection("vistorias").filter((item) => item.data.status === "em_andamento").length, 1);
+});
+
+test("exclusão não apaga produto que recebeu movimento durante a verificação", async () => {
+  seedDoc("produtos", "produto-corrida", { nome: "Produto", quantidade: 0, arquivado: false });
+  // Simula uma entrada concluída depois da leitura do histórico e antes da transação.
+  setGetDocsHook(async (name) => {
+    if (name !== "vistorias") return;
+    setGetDocsHook(null);
+    await saveEntryTransaction({
+      entryId: "entrada-corrida", productId: "produto-corrida", productName: "Produto",
+      quantity: 2, unitCost: 1, date: "2026-11-09"
+    });
+  });
+  await assert.rejects(
+    () => deleteProductTransaction({ productId: "produto-corrida", archive: false }),
+    /foi alterado enquanto era verificado/
+  );
+  assert.ok(readDoc("produtos", "produto-corrida"));
+  assert.equal(readDoc("produtos", "produto-corrida").quantidade, 2);
+});
+
+test("produto com entrada registrada é arquivado, não apagado", async () => {
+  seedDoc("produtos", "produto-entrada-h", { nome: "Produto", quantidade: 0, arquivado: false });
+  seedDoc("entradas", "e1", { produtoId: "produto-entrada-h", quantidade: 1 });
+  const result = await deleteProductTransaction({ productId: "produto-entrada-h", archive: false });
+  assert.deepEqual(result, { archived: true, deleted: false });
+});
+
+test("ID da tentativa só é reaproveitado quando o conteúdo é idêntico", () => {
+  let counter = 0;
+  const makeId = () => `id-${++counter}`;
+  const first = attemptFor(null, "A", makeId);
+  assert.equal(attemptFor(first, "A", makeId), first);
+  const changed = attemptFor(first, "B", makeId);
+  assert.notEqual(changed.id, first.id);
+  assert.equal(changed.fingerprint, "B");
+});
+
+test("reenvio com o mesmo ID mas conteúdo editado não é descartado: novo ID registra a nova entrada", async () => {
+  seedDoc("produtos", "produto-edit", { nome: "Produto", quantidade: 0, arquivado: false });
+  let counter = 0;
+  const makeId = () => `entrada-edit-${++counter}`;
+  let attempt = attemptFor(null, "qtd=2", makeId);
+  await saveEntryTransaction({ entryId: attempt.id, productId: "produto-edit", productName: "Produto", quantity: 2, unitCost: 1, date: "2026-11-09" });
+  // Conteúdo diferente (outra quantidade) => nova tentativa, novo ID.
+  attempt = attemptFor(attempt, "qtd=5", makeId);
+  const result = await saveEntryTransaction({ entryId: attempt.id, productId: "produto-edit", productName: "Produto", quantity: 5, unitCost: 1, date: "2026-11-09" });
+  assert.equal(result.alreadySaved, false);
+  assert.equal(readDoc("produtos", "produto-edit").quantidade, 7);
 });

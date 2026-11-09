@@ -2,6 +2,8 @@
 
 Os testes de serviço usam um Firestore em memória (`firebase-mock-runtime.mjs`) para validar regras e resultados sem acessar o projeto real nem alterar dados da loja.
 
+O mock é estrito de propósito: `transaction.get` só aceita documento (como no SDK web), leituras vêm antes de escritas, IDs `__nome__` e valores `undefined` são rejeitados. Assim, um código que só funcionaria num mock permissivo falha aqui.
+
 Na raiz do repositório, com Node.js 22:
 
 ```bash

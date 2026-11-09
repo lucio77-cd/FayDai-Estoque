@@ -1,4 +1,4 @@
-import { auth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "../firebase.js?v=20261104-1";
+import { auth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "../firebase.js?v=20261109-7";
 import { $, fieldValue, onEvent } from "../utils.js?v=20261104-1";
 
 function switchTab(tabName) {

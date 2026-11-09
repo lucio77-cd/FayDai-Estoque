@@ -1,10 +1,9 @@
 // formularios-movimentacoes.js — validação e submissão de Entradas e Saídas.
 import { $, dateToday, fieldValue, cleanOption, onEvent } from "../utils.js?v=20261104-1";
-import { db, collection, doc } from "../firebase.js?v=20261104-1";
 
 export function initMovementFormsUI(dependencies) {
   const {
-    storeSettings, saveEntryTransaction, saveExitTransaction,
+    storeSettings, saveEntryTransaction, saveExitTransaction, newEntryId, newExitId, attemptFor,
     selectedEntryProduct, readEntryAmounts, getSelectedExitProduct,
     setSelectedEntryProductId, setSelectedExitProductId,
     currentEmail, initDateFields, loadData, setFeedback, showToast, explainError
@@ -12,8 +11,8 @@ export function initMovementFormsUI(dependencies) {
 
   let entrySaving = false;
   let exitSaving = false;
-  let entryAttemptId = null;
-  let exitAttemptId = null;
+  let entryAttempt = null;
+  let exitAttempt = null;
 
   async function saveEntry(event) {
   event.preventDefault();
@@ -40,25 +39,29 @@ export function initMovementFormsUI(dependencies) {
   setFeedback("#entry-feedback", "Registrando…");
   let saved = false;
   try {
-    if (!entryAttemptId) entryAttemptId = doc(collection(db, "entradas")).id;
+    const supplier = cleanOption(fieldValue("#entry-supplier"));
+    const notes = fieldValue("#entry-notes").trim();
+    const pack = amounts.mode === "pack" ? {
+      packs: amounts.packs,
+      size: amounts.size,
+      packCost: amounts.packCost
+    } : null;
+    // O ID da tentativa só é reaproveitado se o conteúdo for idêntico ao da tentativa anterior.
+    entryAttempt = attemptFor(entryAttempt, JSON.stringify([product.id, quantidade, custoUnitario, data, supplier, notes, pack]), newEntryId);
     const result = await saveEntryTransaction({
-      entryId: entryAttemptId,
+      entryId: entryAttempt.id,
       productId: product.id,
       productName: product.nome || "",
       quantity: quantidade,
       unitCost: custoUnitario,
       date: data,
-      supplier: cleanOption(fieldValue("#entry-supplier")),
-      notes: fieldValue("#entry-notes").trim(),
+      supplier,
+      notes,
       userEmail: currentEmail(),
-      pack: amounts.mode === "pack" ? {
-        packs: amounts.packs,
-        size: amounts.size,
-        packCost: amounts.packCost
-      } : null
+      pack
     });
     saved = true;
-    entryAttemptId = null;
+    entryAttempt = null;
     $("#entry-form").reset();
     setSelectedEntryProductId("");
     initDateFields(true);
@@ -100,19 +103,20 @@ export function initMovementFormsUI(dependencies) {
   setFeedback("#exit-feedback", "Registrando…");
   let saved = false;
   try {
-    if (!exitAttemptId) exitAttemptId = doc(collection(db, "saidas")).id;
+    const notes = fieldValue("#exit-notes").trim();
+    exitAttempt = attemptFor(exitAttempt, JSON.stringify([product.id, quantidade, motivo, data, notes]), newExitId);
     const result = await saveExitTransaction({
-      exitId: exitAttemptId,
+      exitId: exitAttempt.id,
       productId: product.id,
       productName: product.nome || "",
       quantity: quantidade,
       reason: motivo,
       date: data,
-      notes: fieldValue("#exit-notes").trim(),
+      notes,
       userEmail: currentEmail()
     });
     saved = true;
-    exitAttemptId = null;
+    exitAttempt = null;
     $("#exit-form").reset();
     setSelectedExitProductId("");
     initDateFields(true);
