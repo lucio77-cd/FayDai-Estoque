@@ -14,6 +14,7 @@ export function initProductFormUI(dependencies) {
   } = dependencies;
 
   let editingProductId = null;
+  let pendingProductCreationId = null;
   let salePriceManuallyEdited = false;
   let productDataRefreshPending = false;
   const SUGGESTED_CATEGORIES = [
@@ -35,6 +36,7 @@ export function initProductFormUI(dependencies) {
 
   function resetProductForm() {
   editingProductId = null;
+  pendingProductCreationId = null;
   $("#product-form").reset();
   $("#product-form h3").textContent = "Novo produto";
   $("#product-form button[type=submit]").textContent = "Salvar produto";
@@ -323,8 +325,14 @@ async function saveProduct(event) {
   submit.disabled = true;
   setFeedback("#product-feedback", "Salvando…");
   try {
-    await saveProductTransaction({
+    if (!editing && !pendingProductCreationId) {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      pendingProductCreationId = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+    }
+    const saveResult = await saveProductTransaction({
       productId: editing ? editing.id : null,
+      creationId: editing ? null : pendingProductCreationId,
       data: {
         nome,
         descricao,
@@ -351,10 +359,14 @@ async function saveProduct(event) {
       userEmail: currentEmail()
     });
     const wasEditing = Boolean(editing);
+    const wasAlreadySaved = Boolean(saveResult?.alreadySaved);
     resetProductForm();
     setCancelEditVisible(false);
-    setFeedback("#product-feedback", wasEditing ? "Produto atualizado." : "Produto salvo.");
-    showToast(wasEditing ? "Produto atualizado." : "Produto salvo.");
+    const successMessage = wasEditing
+      ? "Produto atualizado."
+      : wasAlreadySaved ? "Este cadastro já havia sido confirmado. Nenhuma duplicação foi criada." : "Produto salvo.";
+    setFeedback("#product-feedback", successMessage);
+    showToast(successMessage);
     try {
       await loadData();
       productDataRefreshPending = false;
