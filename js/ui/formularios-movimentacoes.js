@@ -1,5 +1,6 @@
 // formularios-movimentacoes.js — validação e submissão de Entradas e Saídas.
 import { $, dateToday, fieldValue, cleanOption, onEvent } from "../utils.js?v=20261104-1";
+import { db, collection, doc } from "../firebase.js?v=20261104-1";
 
 export function initMovementFormsUI(dependencies) {
   const {
@@ -11,6 +12,8 @@ export function initMovementFormsUI(dependencies) {
 
   let entrySaving = false;
   let exitSaving = false;
+  let entryAttemptId = null;
+  let exitAttemptId = null;
 
   async function saveEntry(event) {
   event.preventDefault();
@@ -37,7 +40,9 @@ export function initMovementFormsUI(dependencies) {
   setFeedback("#entry-feedback", "Registrando…");
   let saved = false;
   try {
-    await saveEntryTransaction({
+    if (!entryAttemptId) entryAttemptId = doc(collection(db, "entradas")).id;
+    const result = await saveEntryTransaction({
+      entryId: entryAttemptId,
       productId: product.id,
       productName: product.nome || "",
       quantity: quantidade,
@@ -53,11 +58,12 @@ export function initMovementFormsUI(dependencies) {
       } : null
     });
     saved = true;
+    entryAttemptId = null;
     $("#entry-form").reset();
     setSelectedEntryProductId("");
     initDateFields(true);
-    setFeedback("#entry-feedback", "Entrada registrada.");
-    showToast("Entrada registrada.");
+    setFeedback("#entry-feedback", result?.alreadySaved ? "Esta entrada já havia sido registrada. O saldo não foi alterado novamente." : "Entrada registrada.");
+    showToast(result?.alreadySaved ? "Entrada já registrada." : "Entrada registrada.");
     try {
       await loadData();
     } catch (refreshError) {
@@ -94,7 +100,9 @@ export function initMovementFormsUI(dependencies) {
   setFeedback("#exit-feedback", "Registrando…");
   let saved = false;
   try {
-    await saveExitTransaction({
+    if (!exitAttemptId) exitAttemptId = doc(collection(db, "saidas")).id;
+    const result = await saveExitTransaction({
+      exitId: exitAttemptId,
       productId: product.id,
       productName: product.nome || "",
       quantity: quantidade,
@@ -104,11 +112,12 @@ export function initMovementFormsUI(dependencies) {
       userEmail: currentEmail()
     });
     saved = true;
+    exitAttemptId = null;
     $("#exit-form").reset();
     setSelectedExitProductId("");
     initDateFields(true);
-    setFeedback("#exit-feedback", "Saída registrada.");
-    showToast("Saída registrada.");
+    setFeedback("#exit-feedback", result?.alreadySaved ? "Esta saída já havia sido registrada. O saldo não foi alterado novamente." : "Saída registrada.");
+    showToast(result?.alreadySaved ? "Saída já registrada." : "Saída registrada.");
     try {
       await loadData();
     } catch (refreshError) {
