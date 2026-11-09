@@ -15,6 +15,8 @@ export function initProductFormUI(dependencies) {
 
   let editingProductId = null;
   let pendingProductCreationId = null;
+  let pendingProductCreationFingerprint = null;
+  let pendingProductCreationEmail = null;
   let salePriceManuallyEdited = false;
   let productDataRefreshPending = false;
   const SUGGESTED_CATEGORIES = [
@@ -34,9 +36,59 @@ export function initProductFormUI(dependencies) {
   "Outros"
 ];
 
+  const PENDING_PRODUCT_CREATE_KEY = "faydai-pending-product-create";
+
+  function restorePendingProductCreation() {
+    if (pendingProductCreationId) return;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(PENDING_PRODUCT_CREATE_KEY) || "null");
+      const email = currentEmail() || "";
+      if (saved?.id && saved.email === email) {
+        pendingProductCreationId = saved.id;
+        pendingProductCreationFingerprint = saved.fingerprint || null;
+        pendingProductCreationEmail = saved.email;
+      }
+    } catch (error) {
+      console.warn("Não foi possível recuperar a tentativa pendente de cadastro:", error);
+    }
+  }
+
+  function getPendingProductCreationId(data) {
+    const fingerprint = JSON.stringify(data);
+    const email = currentEmail() || "";
+    restorePendingProductCreation();
+    if (pendingProductCreationId
+      && pendingProductCreationFingerprint === fingerprint
+      && pendingProductCreationEmail === email) return pendingProductCreationId;
+
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    pendingProductCreationId = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+    pendingProductCreationFingerprint = fingerprint;
+    pendingProductCreationEmail = email;
+    try {
+      sessionStorage.setItem(PENDING_PRODUCT_CREATE_KEY, JSON.stringify({
+        id: pendingProductCreationId, fingerprint, email
+      }));
+    } catch (error) {
+      console.warn("Não foi possível persistir a tentativa pendente de cadastro:", error);
+    }
+    return pendingProductCreationId;
+  }
+
+  function clearPendingProductCreation() {
+    pendingProductCreationId = null;
+    pendingProductCreationFingerprint = null;
+    pendingProductCreationEmail = null;
+    try { sessionStorage.removeItem(PENDING_PRODUCT_CREATE_KEY); }
+    catch (error) { console.warn("Não foi possível limpar a tentativa pendente de cadastro:", error); }
+  }
+
   function resetProductForm() {
   editingProductId = null;
   pendingProductCreationId = null;
+  pendingProductCreationFingerprint = null;
+  pendingProductCreationEmail = null;
   $("#product-form").reset();
   $("#product-form h3").textContent = "Novo produto";
   $("#product-form button[type=submit]").textContent = "Salvar produto";
@@ -305,7 +357,9 @@ async function saveProduct(event) {
   if (estoqueMinimo !== null && (!Number.isInteger(estoqueMinimo) || estoqueMinimo < 0)) {
     return setFeedback("#product-feedback", "O estoque mínimo deve ser um número inteiro, 0 ou maior.", true);
   }
+  restorePendingProductCreation();
   const sameName = products.find((product) => product.id !== editingProductId && !product.arquivado
+    && product.cadastroOperationId !== pendingProductCreationId
     && normalizeText(product.nome) === normalizeText(nome));
   if (sameName) return setFeedback("#product-feedback", `Já existe um produto ativo chamado "${sameName.nome}".`, true);
   if (barcode) {
@@ -325,31 +379,28 @@ async function saveProduct(event) {
   submit.disabled = true;
   setFeedback("#product-feedback", "Salvando…");
   try {
-    if (!editing && !pendingProductCreationId) {
-      const bytes = new Uint8Array(16);
-      crypto.getRandomValues(bytes);
-      pendingProductCreationId = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
-    }
+    const productData = {
+      nome,
+      descricao,
+      marca,
+      categoria,
+      packFields,
+      barcode,
+      custo,
+      percentualGanho,
+      precoVenda,
+      estoqueMinimo,
+      quantity,
+      packSize,
+      packsClosed,
+      looseUnits,
+      custoFardo
+    };
+    const creationId = editing ? null : getPendingProductCreationId(productData);
     const saveResult = await saveProductTransaction({
       productId: editing ? editing.id : null,
-      creationId: editing ? null : pendingProductCreationId,
-      data: {
-        nome,
-        descricao,
-        marca,
-        categoria,
-        packFields,
-        barcode,
-        custo,
-        percentualGanho,
-        precoVenda,
-        estoqueMinimo,
-        quantity,
-        packSize,
-        packsClosed,
-        looseUnits,
-        custoFardo
-      },
+      creationId,
+      data: productData,
       products,
       brands,
       categories,
@@ -360,6 +411,7 @@ async function saveProduct(event) {
     });
     const wasEditing = Boolean(editing);
     const wasAlreadySaved = Boolean(saveResult?.alreadySaved);
+    if (!wasEditing) clearPendingProductCreation();
     resetProductForm();
     setCancelEditVisible(false);
     const successMessage = wasEditing
