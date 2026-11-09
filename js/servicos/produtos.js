@@ -1,7 +1,7 @@
 // produtos.js — persistência de produtos, códigos internos, histórico de custos e configurações.
 // Este módulo não acessa a interface nem exibe mensagens.
 import {
-  db, collection, doc, runTransaction, serverTimestamp, arrayUnion, updateDoc, deleteDoc, writeBatch
+  db, collection, doc, runTransaction, serverTimestamp, arrayUnion, writeBatch, query, where
 } from "../firebase.js?v=20261104-1";
 import { roundMoney, normalizeText } from "../utils.js?v=20261104-1";
 import { CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID } from "../constantes.js?v=20261107-1";
@@ -150,15 +150,59 @@ export async function saveProductTransaction({
 }
 
 export async function deleteProductTransaction({ productId, archive }) {
-  if (archive) {
-    await updateDoc(doc(db, "produtos", productId), {
-      arquivado: true,
-      arquivadoEm: serverTimestamp(),
-      atualizadoEm: serverTimestamp()
-    });
-  } else {
-    await deleteDoc(doc(db, "produtos", productId));
-  }
+  const productRef = doc(db, "produtos", productId);
+  let result = { archived: Boolean(archive), deleted: false };
+
+  await runTransaction(db, async (transaction) => {
+    const productSnapshot = await transaction.get(productRef);
+    if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista.");
+    const product = productSnapshot.data();
+    if (product.arquivado) throw new Error("Este produto já está arquivado. Atualize a lista.");
+
+    if (!archive && (Number(product.quantidade) || 0) > 0) {
+      throw new Error("Não é possível excluir um produto com saldo. Use Saídas ou Vistoria para zerar o estoque.");
+    }
+
+    let hasHistory = Boolean(archive);
+    if (!hasHistory) {
+      const [entriesSnapshot, exitsSnapshot, costHistorySnapshot, salesSnapshot, returnsSnapshot, inventoriesSnapshot] = await Promise.all([
+        transaction.get(query(collection(db, "entradas"), where("produtoId", "==", productId))),
+        transaction.get(query(collection(db, "saidas"), where("produtoId", "==", productId))),
+        transaction.get(query(collection(db, "historico_custos"), where("produtoId", "==", productId))),
+        transaction.get(collection(db, "vendas")),
+        transaction.get(collection(db, "devolucoes")),
+        transaction.get(collection(db, "vistorias"))
+      ]);
+
+      const containsProduct = (record) => {
+        if (record.produtoId === productId) return true;
+        if (Array.isArray(record.itens) && record.itens.some((item) => item.produtoId === productId)) return true;
+        if (Array.isArray(record.naoContados) && record.naoContados.some((item) => item.produtoId === productId)) return true;
+        if (Array.isArray(record.ignorados) && record.ignorados.some((item) => item.produtoId === productId)) return true;
+        return Boolean(record.contagens && Object.prototype.hasOwnProperty.call(record.contagens, productId));
+      };
+
+      hasHistory = !entriesSnapshot.empty || !exitsSnapshot.empty || !costHistorySnapshot.empty
+        || salesSnapshot.docs.some((item) => containsProduct(item.data()))
+        || returnsSnapshot.docs.some((item) => containsProduct(item.data()))
+        || inventoriesSnapshot.docs.some((item) => containsProduct(item.data()));
+    }
+
+    if (hasHistory) {
+      transaction.update(productRef, {
+        arquivado: true,
+        arquivadoEm: serverTimestamp(),
+        atualizadoEm: serverTimestamp()
+      });
+      result = { archived: true, deleted: false };
+      return;
+    }
+
+    transaction.delete(productRef);
+    result = { archived: false, deleted: true };
+  });
+
+  return result;
 }
 
 export async function saveStoreSettingsTransaction(settings) {
