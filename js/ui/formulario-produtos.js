@@ -15,6 +15,7 @@ export function initProductFormUI(dependencies) {
 
   let editingProductId = null;
   let salePriceManuallyEdited = false;
+  let productDataRefreshPending = false;
   const SUGGESTED_CATEGORIES = [
   "Celulares",
   "Capas e películas",
@@ -225,6 +226,9 @@ function setCancelEditVisible(visible) {
 
 async function saveProduct(event) {
   event.preventDefault();
+  if (productDataRefreshPending) {
+    return setFeedback("#product-feedback", "Os dados ainda não foram atualizados. Recarregue a página antes de salvar outro produto.", true);
+  }
   const submit = $("#product-form button[type=submit]");
   const editing = editingProductId ? products.find((item) => item.id === editingProductId) : null;
 
@@ -353,9 +357,11 @@ async function saveProduct(event) {
     showToast(wasEditing ? "Produto atualizado." : "Produto salvo.");
     try {
       await loadData();
+      productDataRefreshPending = false;
     } catch (refreshError) {
+      productDataRefreshPending = true;
       console.error("Produto salvo, mas falhou a atualização da tela:", refreshError);
-      setFeedback("#product-feedback", "Produto salvo. Não salve novamente. Atualize a página para atualizar os dados.", true);
+      setFeedback("#product-feedback", "Produto salvo. Não salve novamente. Recarregue a página antes de cadastrar outro produto.", true);
     }
   } catch (error) {
     console.error("Falha ao salvar produto:", error);
@@ -370,6 +376,10 @@ onEvent("#product-form", "submit", saveProduct);
 // ---------- Produtos: editar, excluir ou arquivar ----------
 
 async function deleteProduct(productId) {
+  if (productDataRefreshPending) {
+    showToast("Os dados ainda não foram atualizados. Recarregue a página antes de excluir ou arquivar outro produto.");
+    return;
+  }
   const product = products.find((item) => item.id === productId);
   if (!product) return;
   if ((Number(product.quantidade) || 0) > 0) {
@@ -393,9 +403,11 @@ async function deleteProduct(productId) {
     showToast(hasHistory ? "Produto arquivado." : "Produto excluído.");
     try {
       await loadData();
+      productDataRefreshPending = false;
     } catch (refreshError) {
+      productDataRefreshPending = true;
       console.error("Produto excluído/arquivado, mas falhou a atualização da tela:", refreshError);
-      showToast("Operação concluída. Atualize a página para atualizar os dados.");
+      showToast("Operação concluída. Recarregue a página antes de outra operação com produtos.");
     }
   } catch (error) {
     console.error("Falha ao excluir produto:", error);
