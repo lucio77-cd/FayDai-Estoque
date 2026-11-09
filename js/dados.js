@@ -1,6 +1,6 @@
 // dados.js — leitura do Firestore e normalização dos registros para o estado do aplicativo.
 // Não acessa a interface e não exibe avisos.
-import { db, collection, getDocs } from "./firebase.js?v=20261104-1";
+import { db, collection, getDocs } from "./firebase.js?v=20261109-7";
 import { CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID } from "./constantes.js?v=20261107-1";
 
 export async function loadAppData() {

@@ -14,7 +14,11 @@ export function initProductFormUI(dependencies) {
   } = dependencies;
 
   let editingProductId = null;
+  let pendingProductCreationId = null;
+  let pendingProductCreationFingerprint = null;
+  let pendingProductCreationEmail = null;
   let salePriceManuallyEdited = false;
+  let productDataRefreshPending = false;
   const SUGGESTED_CATEGORIES = [
   "Celulares",
   "Capas e películas",
@@ -32,8 +36,59 @@ export function initProductFormUI(dependencies) {
   "Outros"
 ];
 
+  const PENDING_PRODUCT_CREATE_KEY = "faydai-pending-product-create";
+
+  function restorePendingProductCreation() {
+    if (pendingProductCreationId) return;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(PENDING_PRODUCT_CREATE_KEY) || "null");
+      const email = currentEmail() || "";
+      if (saved?.id && saved.email === email) {
+        pendingProductCreationId = saved.id;
+        pendingProductCreationFingerprint = saved.fingerprint || null;
+        pendingProductCreationEmail = saved.email;
+      }
+    } catch (error) {
+      console.warn("Não foi possível recuperar a tentativa pendente de cadastro:", error);
+    }
+  }
+
+  function getPendingProductCreationId(data) {
+    const fingerprint = JSON.stringify(data);
+    const email = currentEmail() || "";
+    restorePendingProductCreation();
+    if (pendingProductCreationId
+      && pendingProductCreationFingerprint === fingerprint
+      && pendingProductCreationEmail === email) return pendingProductCreationId;
+
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    pendingProductCreationId = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+    pendingProductCreationFingerprint = fingerprint;
+    pendingProductCreationEmail = email;
+    try {
+      sessionStorage.setItem(PENDING_PRODUCT_CREATE_KEY, JSON.stringify({
+        id: pendingProductCreationId, fingerprint, email
+      }));
+    } catch (error) {
+      console.warn("Não foi possível persistir a tentativa pendente de cadastro:", error);
+    }
+    return pendingProductCreationId;
+  }
+
+  function clearPendingProductCreation() {
+    pendingProductCreationId = null;
+    pendingProductCreationFingerprint = null;
+    pendingProductCreationEmail = null;
+    try { sessionStorage.removeItem(PENDING_PRODUCT_CREATE_KEY); }
+    catch (error) { console.warn("Não foi possível limpar a tentativa pendente de cadastro:", error); }
+  }
+
   function resetProductForm() {
   editingProductId = null;
+  pendingProductCreationId = null;
+  pendingProductCreationFingerprint = null;
+  pendingProductCreationEmail = null;
   $("#product-form").reset();
   $("#product-form h3").textContent = "Novo produto";
   $("#product-form button[type=submit]").textContent = "Salvar produto";
@@ -225,6 +280,9 @@ function setCancelEditVisible(visible) {
 
 async function saveProduct(event) {
   event.preventDefault();
+  if (productDataRefreshPending) {
+    return setFeedback("#product-feedback", "Os dados ainda não foram atualizados. Recarregue a página antes de salvar outro produto.", true);
+  }
   const submit = $("#product-form button[type=submit]");
   const editing = editingProductId ? products.find((item) => item.id === editingProductId) : null;
 
@@ -299,15 +357,6 @@ async function saveProduct(event) {
   if (estoqueMinimo !== null && (!Number.isInteger(estoqueMinimo) || estoqueMinimo < 0)) {
     return setFeedback("#product-feedback", "O estoque mínimo deve ser um número inteiro, 0 ou maior.", true);
   }
-  const sameName = products.find((product) => product.id !== editingProductId && !product.arquivado
-    && normalizeText(product.nome) === normalizeText(nome));
-  if (sameName) return setFeedback("#product-feedback", `Já existe um produto ativo chamado "${sameName.nome}".`, true);
-  if (barcode) {
-    const duplicate = products.find((product) => product.id !== editingProductId && !product.arquivado
-      && String(product.codigoBarras || "") === barcode);
-    if (duplicate) return setFeedback("#product-feedback", `Este código de barras já está associado ao produto "${duplicate.nome}".`, true);
-  }
-
   // Campos novos (todos opcionais; produtos antigos continuam sem eles).
   const packFields = {
     nomeBase,
@@ -319,25 +368,38 @@ async function saveProduct(event) {
   submit.disabled = true;
   setFeedback("#product-feedback", "Salvando…");
   try {
-    await saveProductTransaction({
+    const productData = {
+      nome,
+      descricao,
+      marca,
+      categoria,
+      packFields,
+      barcode,
+      custo,
+      percentualGanho,
+      precoVenda,
+      estoqueMinimo,
+      quantity,
+      packSize,
+      packsClosed,
+      looseUnits,
+      custoFardo
+    };
+    const creationId = editing ? null : getPendingProductCreationId(productData);
+    const sameName = products.find((product) => product.id !== editingProductId && !product.arquivado
+      && product.cadastroOperationId !== creationId
+      && normalizeText(product.nome) === normalizeText(nome));
+    if (sameName) return setFeedback("#product-feedback", `Já existe um produto ativo chamado "${sameName.nome}".`, true);
+    if (barcode) {
+      const duplicate = products.find((product) => product.id !== editingProductId && !product.arquivado
+        && product.cadastroOperationId !== creationId
+        && String(product.codigoBarras || "") === barcode);
+      if (duplicate) return setFeedback("#product-feedback", `Este código de barras já está associado ao produto "${duplicate.nome}".`, true);
+    }
+    const saveResult = await saveProductTransaction({
       productId: editing ? editing.id : null,
-      data: {
-        nome,
-        descricao,
-        marca,
-        categoria,
-        packFields,
-        barcode,
-        custo,
-        percentualGanho,
-        precoVenda,
-        estoqueMinimo,
-        quantity,
-        packSize,
-        packsClosed,
-        looseUnits,
-        custoFardo
-      },
+      creationId,
+      data: productData,
       products,
       brands,
       categories,
@@ -347,11 +409,23 @@ async function saveProduct(event) {
       userEmail: currentEmail()
     });
     const wasEditing = Boolean(editing);
+    const wasAlreadySaved = Boolean(saveResult?.alreadySaved);
+    if (!wasEditing) clearPendingProductCreation();
     resetProductForm();
     setCancelEditVisible(false);
-    await loadData();
-    setFeedback("#product-feedback", wasEditing ? "Produto atualizado." : "Produto salvo.");
-    showToast(wasEditing ? "Produto atualizado." : "Produto salvo.");
+    const successMessage = wasEditing
+      ? "Produto atualizado."
+      : wasAlreadySaved ? "Este cadastro já havia sido confirmado. Nenhuma duplicação foi criada." : "Produto salvo.";
+    setFeedback("#product-feedback", successMessage);
+    showToast(successMessage);
+    try {
+      await loadData();
+      productDataRefreshPending = false;
+    } catch (refreshError) {
+      productDataRefreshPending = true;
+      console.error("Produto salvo, mas falhou a atualização da tela:", refreshError);
+      setFeedback("#product-feedback", "Produto salvo. Não salve novamente. Recarregue a página antes de cadastrar outro produto.", true);
+    }
   } catch (error) {
     console.error("Falha ao salvar produto:", error);
     setFeedback("#product-feedback", explainError(error), true);
@@ -365,6 +439,10 @@ onEvent("#product-form", "submit", saveProduct);
 // ---------- Produtos: editar, excluir ou arquivar ----------
 
 async function deleteProduct(productId) {
+  if (productDataRefreshPending) {
+    showToast("Os dados ainda não foram atualizados. Recarregue a página antes de excluir ou arquivar outro produto.");
+    return;
+  }
   const product = products.find((item) => item.id === productId);
   if (!product) return;
   if ((Number(product.quantidade) || 0) > 0) {
@@ -380,13 +458,20 @@ async function deleteProduct(productId) {
     : `Excluir o produto "${product.nome}"?\n\nEsta ação não pode ser desfeita.`;
   if (!window.confirm(message)) return;
   try {
-    await deleteProductTransaction({ productId, archive: hasHistory });
+    const operation = await deleteProductTransaction({ productId, archive: hasHistory });
     if (editingProductId === productId) {
       resetProductForm();
       setCancelEditVisible(false);
     }
-    await loadData();
-    showToast(hasHistory ? "Produto arquivado." : "Produto excluído.");
+    showToast(operation?.archived ? "Produto arquivado para preservar o histórico." : "Produto excluído.");
+    try {
+      await loadData();
+      productDataRefreshPending = false;
+    } catch (refreshError) {
+      productDataRefreshPending = true;
+      console.error("Produto excluído/arquivado, mas falhou a atualização da tela:", refreshError);
+      showToast("Operação concluída. Recarregue a página antes de outra operação com produtos.");
+    }
   } catch (error) {
     console.error("Falha ao excluir produto:", error);
     showToast(explainError(error));

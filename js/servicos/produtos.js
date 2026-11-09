@@ -1,8 +1,8 @@
 // produtos.js — persistência de produtos, códigos internos, histórico de custos e configurações.
 // Este módulo não acessa a interface nem exibe mensagens.
 import {
-  db, collection, doc, runTransaction, serverTimestamp, arrayUnion, updateDoc, deleteDoc, writeBatch
-} from "../firebase.js?v=20261104-1";
+  db, collection, doc, getDoc, getDocs, runTransaction, serverTimestamp, arrayUnion, writeBatch, query, where, limit
+} from "../firebase.js?v=20261109-7";
 import { roundMoney, normalizeText } from "../utils.js?v=20261104-1";
 import { CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID } from "../constantes.js?v=20261107-1";
 
@@ -22,6 +22,7 @@ async function reserveInternalCode(transaction, products) {
 
 export async function saveProductTransaction({
   productId = null,
+  creationId = null,
   data,
   products = [],
   brands = [],
@@ -85,11 +86,28 @@ export async function saveProductTransaction({
     return { productId, created: false };
   }
 
-  const productRef = doc(collection(db, "produtos"));
+  if (!creationId) throw new Error("Identificador do cadastro não informado. Tente novamente.");
+  const productRef = doc(db, "produtos", creationId);
+  const creationFingerprint = JSON.stringify(data);
+  let alreadySaved = false;
+
   await runTransaction(db, async (transaction) => {
+    alreadySaved = false;
+    const existingProduct = await transaction.get(productRef);
+    if (existingProduct.exists()) {
+      const existing = existingProduct.data();
+      if (existing.cadastroOperationId === creationId && existing.cadastroFingerprint === creationFingerprint) {
+        alreadySaved = true;
+        return;
+      }
+      throw new Error("Este identificador de cadastro já foi utilizado com outros dados. Recarregue o formulário antes de tentar novamente.");
+    }
+
     const reservation = internalCodeEnabled ? await reserveInternalCode(transaction, products) : null;
     if (hasCatalogUpdate) transaction.set(catalogRef, catalogUpdate, { merge: true });
     transaction.set(productRef, {
+      cadastroOperationId: creationId,
+      cadastroFingerprint: creationFingerprint,
       nome: data.nome,
       descricao: data.descricao,
       marca: data.marca,
@@ -146,19 +164,76 @@ export async function saveProductTransaction({
     }
     if (reservation) reservation.commit();
   });
-  return { productId: productRef.id, created: true };
+  return { productId: productRef.id, created: true, alreadySaved };
+}
+
+// Resumo do produto usado para detectar mudança entre a leitura do histórico e a transação.
+const productStamp = (product) => JSON.stringify([
+  Number(product.quantidade) || 0,
+  Boolean(product.arquivado),
+  product.atualizadoEm?.toMillis ? product.atualizadoEm.toMillis() : null
+]);
+
+const recordHasProduct = (record, productId) => {
+  if (record.produtoId === productId) return true;
+  if (Array.isArray(record.itens) && record.itens.some((item) => item.produtoId === productId)) return true;
+  if (Array.isArray(record.naoContados) && record.naoContados.some((item) => item.produtoId === productId)) return true;
+  if (Array.isArray(record.ignorados) && record.ignorados.some((item) => item.produtoId === productId)) return true;
+  return Boolean(record.contagens && Object.prototype.hasOwnProperty.call(record.contagens, productId));
+};
+
+// Consultas e coleções inteiras não podem ser lidas dentro de transação no SDK web (só documentos).
+// Por isso o histórico é verificado ANTES; a transação relê apenas o produto e confirma que ele não mudou.
+async function productHasHistory(productId) {
+  const byProduct = (name) => getDocs(query(collection(db, name), where("produtoId", "==", productId), limit(1)));
+  const [entriesSnapshot, exitsSnapshot, costHistorySnapshot, salesSnapshot, returnsSnapshot, inventoriesSnapshot] = await Promise.all([
+    byProduct("entradas"), byProduct("saidas"), byProduct("historico_custos"),
+    getDocs(collection(db, "vendas")), getDocs(collection(db, "devolucoes")), getDocs(collection(db, "vistorias"))
+  ]);
+  return !entriesSnapshot.empty || !exitsSnapshot.empty || !costHistorySnapshot.empty
+    || salesSnapshot.docs.some((item) => recordHasProduct(item.data(), productId))
+    || returnsSnapshot.docs.some((item) => recordHasProduct(item.data(), productId))
+    || inventoriesSnapshot.docs.some((item) => recordHasProduct(item.data(), productId));
 }
 
 export async function deleteProductTransaction({ productId, archive }) {
-  if (archive) {
-    await updateDoc(doc(db, "produtos", productId), {
-      arquivado: true,
-      arquivadoEm: serverTimestamp(),
-      atualizadoEm: serverTimestamp()
-    });
-  } else {
-    await deleteDoc(doc(db, "produtos", productId));
+  const productRef = doc(db, "produtos", productId);
+
+  const beforeSnapshot = await getDoc(productRef);
+  if (!beforeSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista.");
+  const before = beforeSnapshot.data();
+  if (before.arquivado) throw new Error("Este produto já está arquivado. Atualize a lista.");
+  if (!archive && (Number(before.quantidade) || 0) > 0) {
+    throw new Error("Não é possível excluir um produto com saldo. Use Saídas ou Vistoria para zerar o estoque.");
   }
+
+  const hasHistory = Boolean(archive) || await productHasHistory(productId);
+  const stampBefore = productStamp(before);
+  let result = { archived: hasHistory, deleted: !hasHistory };
+
+  await runTransaction(db, async (transaction) => {
+    const productSnapshot = await transaction.get(productRef);
+    if (!productSnapshot.exists()) throw new Error("Este produto não existe mais. Atualize a lista.");
+    const product = productSnapshot.data();
+    if (productStamp(product) !== stampBefore) {
+      throw new Error("O produto foi alterado enquanto era verificado. Atualize a lista e tente novamente.");
+    }
+
+    if (hasHistory) {
+      transaction.update(productRef, {
+        arquivado: true,
+        arquivadoEm: serverTimestamp(),
+        atualizadoEm: serverTimestamp()
+      });
+      result = { archived: true, deleted: false };
+      return;
+    }
+
+    transaction.delete(productRef);
+    result = { archived: false, deleted: true };
+  });
+
+  return result;
 }
 
 export async function saveStoreSettingsTransaction(settings) {

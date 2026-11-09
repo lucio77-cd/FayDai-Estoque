@@ -2,7 +2,7 @@
 // Importe este arquivo APENAS uma vez, a partir do app.js (iniciar o Firebase duas vezes dá erro).
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-import { getFirestore, collection, getDocs, doc, writeBatch, addDoc, runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import { getFirestore, collection, getDoc, getDocs, doc, writeBatch, addDoc, runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 // Configuração do aplicativo web FayDai-Estoque.
 const firebaseConfig = {
@@ -20,4 +20,4 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 export { app, auth, db };
-export { signInWithEmailAndPassword, onAuthStateChanged, signOut, collection, getDocs, doc, writeBatch, addDoc, runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion, query, where, orderBy, limit };
+export { signInWithEmailAndPassword, onAuthStateChanged, signOut, collection, getDoc, getDocs, doc, writeBatch, addDoc, runTransaction, serverTimestamp, deleteDoc, updateDoc, arrayUnion, query, where, orderBy, limit };

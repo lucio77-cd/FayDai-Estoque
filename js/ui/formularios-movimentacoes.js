@@ -3,7 +3,7 @@ import { $, dateToday, fieldValue, cleanOption, onEvent } from "../utils.js?v=20
 
 export function initMovementFormsUI(dependencies) {
   const {
-    storeSettings, saveEntryTransaction, saveExitTransaction,
+    storeSettings, saveEntryTransaction, saveExitTransaction, newEntryId, newExitId, attemptFor,
     selectedEntryProduct, readEntryAmounts, getSelectedExitProduct,
     setSelectedEntryProductId, setSelectedExitProductId,
     currentEmail, initDateFields, loadData, setFeedback, showToast, explainError
@@ -11,6 +11,8 @@ export function initMovementFormsUI(dependencies) {
 
   let entrySaving = false;
   let exitSaving = false;
+  let entryAttempt = null;
+  let exitAttempt = null;
 
   async function saveEntry(event) {
   event.preventDefault();
@@ -37,27 +39,34 @@ export function initMovementFormsUI(dependencies) {
   setFeedback("#entry-feedback", "Registrando…");
   let saved = false;
   try {
-    await saveEntryTransaction({
+    const supplier = cleanOption(fieldValue("#entry-supplier"));
+    const notes = fieldValue("#entry-notes").trim();
+    const pack = amounts.mode === "pack" ? {
+      packs: amounts.packs,
+      size: amounts.size,
+      packCost: amounts.packCost
+    } : null;
+    // O ID da tentativa só é reaproveitado se o conteúdo for idêntico ao da tentativa anterior.
+    entryAttempt = attemptFor(entryAttempt, JSON.stringify([product.id, quantidade, custoUnitario, data, supplier, notes, pack]), newEntryId);
+    const result = await saveEntryTransaction({
+      entryId: entryAttempt.id,
       productId: product.id,
       productName: product.nome || "",
       quantity: quantidade,
       unitCost: custoUnitario,
       date: data,
-      supplier: cleanOption(fieldValue("#entry-supplier")),
-      notes: fieldValue("#entry-notes").trim(),
+      supplier,
+      notes,
       userEmail: currentEmail(),
-      pack: amounts.mode === "pack" ? {
-        packs: amounts.packs,
-        size: amounts.size,
-        packCost: amounts.packCost
-      } : null
+      pack
     });
     saved = true;
+    entryAttempt = null;
     $("#entry-form").reset();
     setSelectedEntryProductId("");
     initDateFields(true);
-    setFeedback("#entry-feedback", "Entrada registrada.");
-    showToast("Entrada registrada.");
+    setFeedback("#entry-feedback", result?.alreadySaved ? "Esta entrada já havia sido registrada. O saldo não foi alterado novamente." : "Entrada registrada.");
+    showToast(result?.alreadySaved ? "Entrada já registrada." : "Entrada registrada.");
     try {
       await loadData();
     } catch (refreshError) {
@@ -94,21 +103,25 @@ export function initMovementFormsUI(dependencies) {
   setFeedback("#exit-feedback", "Registrando…");
   let saved = false;
   try {
-    await saveExitTransaction({
+    const notes = fieldValue("#exit-notes").trim();
+    exitAttempt = attemptFor(exitAttempt, JSON.stringify([product.id, quantidade, motivo, data, notes]), newExitId);
+    const result = await saveExitTransaction({
+      exitId: exitAttempt.id,
       productId: product.id,
       productName: product.nome || "",
       quantity: quantidade,
       reason: motivo,
       date: data,
-      notes: fieldValue("#exit-notes").trim(),
+      notes,
       userEmail: currentEmail()
     });
     saved = true;
+    exitAttempt = null;
     $("#exit-form").reset();
     setSelectedExitProductId("");
     initDateFields(true);
-    setFeedback("#exit-feedback", "Saída registrada.");
-    showToast("Saída registrada.");
+    setFeedback("#exit-feedback", result?.alreadySaved ? "Esta saída já havia sido registrada. O saldo não foi alterado novamente." : "Saída registrada.");
+    showToast(result?.alreadySaved ? "Saída já registrada." : "Saída registrada.");
     try {
       await loadData();
     } catch (refreshError) {

@@ -1,6 +1,6 @@
 // vistoria.js — regras de contagem e operações de persistência da vistoria.
 // Não acessa a interface, não exibe avisos e não mantém estado global do aplicativo.
-import { db, collection, doc, addDoc, updateDoc, deleteDoc, runTransaction, serverTimestamp } from "../firebase.js?v=20261104-1";
+import { db, collection, doc, getDocs, runTransaction, serverTimestamp, query, where } from "../firebase.js?v=20261109-7";
 
 export const MAX_INVENTORY_ADJUSTMENTS = 400;
 
@@ -22,28 +22,81 @@ export function describeCount(product, raw) {
   return { text: `${diff > 0 ? "+" : ""}${diff} un.`, cls: diff > 0 ? "plus" : "minus", counted: true };
 }
 
+// O Firestore reserva IDs no formato __nome__, por isso o documento de controle não usa esse formato.
+export const ACTIVE_INVENTORY_LOCK_ID = "controle_vistoria_ativa";
+const ACTIVE_INVENTORY_MESSAGE = "Já existe uma vistoria em andamento. Conclua ou descarte a vistoria atual antes de iniciar outra.";
+
 export async function startInventory({ date, userEmail = null }) {
-  return addDoc(collection(db, "vistorias"), {
-    status: "em_andamento",
-    contagens: {},
-    data: date,
-    criadoEm: serverTimestamp(),
-    criadoPor: userEmail,
-    atualizadoEm: serverTimestamp(),
-    atualizadoPor: userEmail
+  const inventoryCollection = collection(db, "vistorias");
+
+  // Bloqueia vistorias antigas criadas antes do documento de controle. A consulta fica FORA da
+  // transação porque Transaction.get do SDK web só aceita documentos, não consultas.
+  const legacyActive = await getDocs(query(inventoryCollection, where("status", "==", "em_andamento")));
+  if (!legacyActive.empty) throw new Error(ACTIVE_INVENTORY_MESSAGE);
+
+  const inventoryRef = doc(inventoryCollection);
+  const lockRef = doc(db, "vistorias", ACTIVE_INVENTORY_LOCK_ID);
+
+  await runTransaction(db, async (transaction) => {
+    // O documento de controle serializa tentativas simultâneas de início.
+    const lockSnapshot = await transaction.get(lockRef);
+    if (lockSnapshot.exists() && lockSnapshot.data().inventoryId) {
+      const previousRef = doc(db, "vistorias", lockSnapshot.data().inventoryId);
+      const previousSnapshot = await transaction.get(previousRef);
+      if (previousSnapshot.exists() && previousSnapshot.data().status === "em_andamento") {
+        throw new Error(ACTIVE_INVENTORY_MESSAGE);
+      }
+    }
+
+    transaction.set(inventoryRef, {
+      status: "em_andamento",
+      contagens: {},
+      data: date,
+      criadoEm: serverTimestamp(),
+      criadoPor: userEmail,
+      atualizadoEm: serverTimestamp(),
+      atualizadoPor: userEmail
+    });
+    transaction.set(lockRef, {
+      inventoryId: inventoryRef.id,
+      atualizadoEm: serverTimestamp(),
+      atualizadoPor: userEmail
+    });
   });
+
+  return inventoryRef;
 }
 
 export async function saveInventory({ inventoryId, counts, userEmail = null }) {
-  await updateDoc(doc(db, "vistorias", inventoryId), {
-    contagens: counts,
-    atualizadoEm: serverTimestamp(),
-    atualizadoPor: userEmail
+  const vistoriaRef = doc(db, "vistorias", inventoryId);
+  await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(vistoriaRef);
+    if (!snapshot.exists() || snapshot.data().status !== "em_andamento") {
+      throw new Error("Esta vistoria já foi concluída ou foi descartada. Atualize a tela antes de continuar.");
+    }
+    transaction.update(vistoriaRef, {
+      contagens: counts,
+      atualizadoEm: serverTimestamp(),
+      atualizadoPor: userEmail
+    });
   });
 }
 
-export async function discardInventory({ inventoryId }) {
-  await deleteDoc(doc(db, "vistorias", inventoryId));
+export async function discardInventory({ inventoryId, userEmail = null }) {
+  const vistoriaRef = doc(db, "vistorias", inventoryId);
+  await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(vistoriaRef);
+    if (!snapshot.exists() || snapshot.data().status !== "em_andamento") {
+      throw new Error("Esta vistoria já foi concluída ou foi descartada. O histórico foi preservado.");
+    }
+    transaction.update(vistoriaRef, {
+      status: "descartada",
+      descartadaEm: serverTimestamp(),
+      descartadaPor: userEmail,
+      atualizadoEm: serverTimestamp(),
+      atualizadoPor: userEmail
+    });
+  });
 }
 
 // activeProducts deve conter os produtos ativos carregados imediatamente antes da confirmação.

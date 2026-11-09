@@ -2,7 +2,7 @@
 // Não acessa a interface, não exibe avisos e não mantém estado visual.
 import {
   db, collection, doc, runTransaction, serverTimestamp, addDoc
-} from "../firebase.js?v=20261104-1";
+} from "../firebase.js?v=20261109-7";
 import {
   roundMoney, getRegisteredSalePrice, calcSuggestedPrice
 } from "../utils.js?v=20261104-1";
