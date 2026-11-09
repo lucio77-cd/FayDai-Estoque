@@ -14,11 +14,20 @@ export async function saveEntryTransaction({
   supplier = "",
   notes = "",
   userEmail = null,
-  pack = null
+  pack = null,
+  entryId
 }) {
+  if (!entryId) throw new Error("Identificador da entrada não informado. Tente novamente.");
+  if (!Number.isInteger(quantity) || quantity < 1) throw new Error("A quantidade da entrada deve ser um número inteiro maior que zero.");
+  if (!Number.isFinite(unitCost) || unitCost <= 0) throw new Error("O custo da entrada deve ser maior que zero.");
   const productRef = doc(db, "produtos", productId);
+  const entryRef = doc(db, "entradas", entryId);
+  let alreadySaved = false;
 
   await runTransaction(db, async (transaction) => {
+    alreadySaved = false;
+    const existingEntry = await transaction.get(entryRef);
+    if (existingEntry.exists()) { alreadySaved = true; return; }
     const snapshot = await transaction.get(productRef);
     if (!snapshot.exists() || snapshot.data().arquivado) {
       throw new Error("Este produto não está mais disponível.");
@@ -52,8 +61,9 @@ export async function saveEntryTransaction({
       entryData.custoFardo = pack.packCost;
     }
 
-    transaction.set(doc(collection(db, "entradas")), entryData);
+    transaction.set(entryRef, entryData);
   });
+  return { alreadySaved };
 }
 
 // Registra uma saída e atualiza o saldo na mesma transação.
@@ -64,11 +74,19 @@ export async function saveExitTransaction({
   reason,
   date,
   notes = "",
-  userEmail = "Usuário não identificado"
+  userEmail = "Usuário não identificado",
+  exitId
 }) {
+  if (!exitId) throw new Error("Identificador da saída não informado. Tente novamente.");
+  if (!Number.isInteger(quantity) || quantity < 1) throw new Error("A quantidade da saída deve ser um número inteiro maior que zero.");
   const productRef = doc(db, "produtos", productId);
+  const exitRef = doc(db, "saidas", exitId);
+  let alreadySaved = false;
 
   await runTransaction(db, async (transaction) => {
+    alreadySaved = false;
+    const existingExit = await transaction.get(exitRef);
+    if (existingExit.exists()) { alreadySaved = true; return; }
     const snapshot = await transaction.get(productRef);
     if (!snapshot.exists() || snapshot.data().arquivado) {
       throw new Error("Este produto não está mais disponível.");
@@ -84,7 +102,7 @@ export async function saveExitTransaction({
       atualizadoEm: serverTimestamp()
     });
 
-    transaction.set(doc(collection(db, "saidas")), {
+    transaction.set(exitRef, {
       produtoId: productId,
       produtoNome: snapshot.data().nome || productName || "",
       quantidade: quantity,
@@ -96,4 +114,5 @@ export async function saveExitTransaction({
       criadoEm: serverTimestamp()
     });
   });
+  return { alreadySaved };
 }
