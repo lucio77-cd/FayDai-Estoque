@@ -3,9 +3,11 @@ name: Testes da branch modularizacao
 on:
   push:
     branches:
+      - main
       - modularizacao
   pull_request:
     branches:
+      - main
       - modularizacao
   workflow_dispatch:
 
