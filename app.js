@@ -1,7 +1,7 @@
 import { auth, db, collection, doc } from "./js/firebase.js?v=20261109-7";
 import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, dateToday, formatDate, escapeHtml, normalizeText, cleanOption, uniqueOptions, saleItemsOf, saleTotalOf, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime } from "./js/utils.js?v=20261104-1";
 import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261107-1";
-import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261102-1";
+import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261110-1";
 import { saveEntryTransaction, saveExitTransaction, newEntryId, newExitId, attemptFor } from "./js/servicos/movimentacoes.js?v=20261109-7";
 import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=20261109-7";
 import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261109-7";
