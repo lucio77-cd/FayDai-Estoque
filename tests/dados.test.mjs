@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { resetMockDb, seedDoc, setGetDocsHook } from "./firebase-mock-runtime.mjs";
-import { loadAppData, historyCutoff, JANELA_HISTORICO_DIAS } from "../js/dados.js?v=20261110-2";
+import { loadAppData, historyCutoff, JANELA_HISTORICO_DIAS } from "../js/dados.js?v=20261110-3";
 
 // Hoje fixo (10/11/2026): a janela de 90 dias começa em 12/08/2026.
 const HOJE = new Date(2026, 10, 10, 12, 0, 0);
@@ -91,4 +91,36 @@ test("venda original que não existe mais não derruba a carga", async () => {
   assert.equal(data.saleReturnsAvailable, true);
   assert.equal(data.saleReturns.length, 1);
   assert.equal(data.saleReturns[0].formaPagamentoVenda, undefined);
+});
+
+test("se a consulta com janela for negada, lê a coleção inteira e a tela continua funcionando", async () => {
+  semear();
+  setGetDocsHook(async (_nome, ref) => {
+    if (ref.kind === "query") {
+      const erro = new Error("Missing or insufficient permissions.");
+      erro.code = "permission-denied";
+      throw erro;
+    }
+  });
+  const avisoOriginal = console.warn;
+  console.warn = () => {};
+  let data;
+  try {
+    data = await loadAppData({ now: HOJE });
+  } finally {
+    console.warn = avisoOriginal;
+  }
+
+  assert.equal(data.janelaComFalha, true);
+  assert.equal(data.sales.length, 5);
+  assert.equal(data.entries.length, 2);
+  assert.equal(data.exits.length, 2);
+  assert.equal(data.saleReturns.length, 3);
+  assert.equal(data.saleReturnsAvailable, true);
+});
+
+test("sem falha, a janela não é marcada como comprometida", async () => {
+  semear();
+  const data = await loadAppData({ now: HOJE });
+  assert.equal(data.janelaComFalha, false);
 });

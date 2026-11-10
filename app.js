@@ -8,7 +8,7 @@ import { parseCountValue, describeCount, startInventory as startInventoryService
 import { cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
 
 import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, replaceArray, estadoUi } from "./js/estado.js?v=20261108-1";
-import { loadAppData } from "./js/dados.js?v=20261110-2";
+import { loadAppData } from "./js/dados.js?v=20261110-3";
 import { initScanner } from "./js/ui/scanner.js?v=20261106-7";
 import { initPainelUI, renderDashboard } from "./js/ui/painel.js?v=20261110-2";
 import { renderProducts } from "./js/ui/produtos.js?v=20261106-8";

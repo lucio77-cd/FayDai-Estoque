@@ -116,7 +116,7 @@ export async function getDoc(ref) {
 export async function getDocs(ref) {
   if (ref?.kind !== "collection" && ref?.kind !== "query") throw new TypeError("getDocs exige coleção ou consulta.");
   const snapshot = makeQuerySnapshot(ref);
-  if (getDocsHook) await getDocsHook(ref.name);
+  if (getDocsHook) await getDocsHook(ref.name, ref);
   return snapshot;
 }
 

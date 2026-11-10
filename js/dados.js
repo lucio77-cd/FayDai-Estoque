@@ -38,15 +38,26 @@ async function attachPaymentOfOlderSales(returns, sales) {
 
 export async function loadAppData({ completo = false, now = new Date() } = {}) {
   const cutoff = completo ? null : historyCutoff(JANELA_HISTORICO_DIAS, now);
-  const history = (name) => (cutoff
-    ? query(collection(db, name), where("data", ">=", cutoff))
-    : collection(db, name));
+
+  // Proteção: se o banco recusar a consulta com janela (por exemplo, regras que só liberam leitura da
+  // coleção inteira), lê a coleção inteira em vez de deixar a tela da loja sem dados.
+  let janelaComFalha = false;
+  const readHistory = async (name) => {
+    if (!cutoff) return getDocs(collection(db, name));
+    try {
+      return await getDocs(query(collection(db, name), where("data", ">=", cutoff)));
+    } catch (error) {
+      console.warn(`A consulta com janela de ${JANELA_HISTORICO_DIAS} dias falhou em "${name}"; lendo a coleção inteira.`, error);
+      janelaComFalha = true;
+      return getDocs(collection(db, name));
+    }
+  };
 
   const [productsSnap, entriesSnap, exitsSnap, salesSnap] = await Promise.all([
     getDocs(collection(db, "produtos")),
-    getDocs(history("entradas")),
-    getDocs(history("saidas")),
-    getDocs(history("vendas"))
+    readHistory("entradas"),
+    readHistory("saidas"),
+    readHistory("vendas")
   ]);
 
   const specialIds = new Set([CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID]);
@@ -67,7 +78,7 @@ export async function loadAppData({ completo = false, now = new Date() } = {}) {
   let saleReturnsAvailable = true;
   let returnsError = null;
   try {
-    const returnsSnap = await getDocs(history("devolucoes"));
+    const returnsSnap = await readHistory("devolucoes");
     saleReturns = returnsSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
     if (cutoff) await attachPaymentOfOlderSales(saleReturns, sales);
   } catch (error) {
@@ -113,6 +124,7 @@ export async function loadAppData({ completo = false, now = new Date() } = {}) {
     catalogData,
     storeSettingsData,
     historicoCompleto: !cutoff,
-    historicoDesde: cutoff
+    historicoDesde: cutoff,
+    janelaComFalha
   };
 }
