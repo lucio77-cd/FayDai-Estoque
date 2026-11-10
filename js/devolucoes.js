@@ -182,4 +182,4 @@ export async function registerReturn(sale, requested, reason, returnId) {
     });
   });
   return { total: returnedTotal, alreadySaved };
-                         }
+}

@@ -8,6 +8,11 @@ const esc = (v = "") => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<
 const when = (v) => { const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/); return m ? `${m[3]}/${m[2]}/${m[1]}${m[4]}` : String(v || ""); };
 const autoOn = () => { try { return localStorage.getItem(KEY) !== "no"; } catch (e) { return true; } };
 
+// Arte do topo da nota (PNG na raiz do repositório). O cupom é escrito num iframe sem endereço próprio,
+// então o caminho precisa ser absoluto; se o arquivo não carregar, a imagem some e a nota sai sem ela.
+const LOGO_FILE = "logo01.png";
+const logoUrl = () => { try { return new URL(LOGO_FILE, document.baseURI).href; } catch (e) { return ""; } };
+
 function receiptHtml(sale, store) {
   const items = Array.isArray(sale.itens) && sale.itens.length ? sale.itens
     : [{ produtoNome: sale.produtoNome || "Produto", quantidade: sale.quantidade || 0, precoUnitario: sale.precoUnitario || 0 }];
@@ -20,6 +25,8 @@ function receiptHtml(sale, store) {
     store.telefone && `<div class="c">Tel.: ${esc(store.telefone)}</div>`,
     store.cnpj && `<div class="c">CNPJ: ${esc(store.cnpj)}</div>`
   ].filter(Boolean).join("");
+  const logoSrc = logoUrl();
+  const logo = logoSrc ? `<img class="logo" src="${esc(logoSrc)}" alt="" onerror="this.remove()">` : "";
   const op = String(sale.usuario || "").split("@")[0];
   const cashRows = typeof sale.valorRecebido === "number"
     ? `<div class="row"><span>Recebido</span><span>${money(sale.valorRecebido)}</span></div><div class="row"><span>Troco</span><span>${money(sale.troco)}</span></div>` : "";
@@ -33,7 +40,9 @@ body{width:72mm;margin:0 auto;padding:3mm 0 10mm;font:12.5px/1.35 "Courier New",
 .row{display:flex;justify-content:space-between;gap:2mm}
 .it{margin-bottom:1.5mm;overflow-wrap:anywhere}
 .tot{font-size:1.25em;font-weight:700}
+.logo{display:block;margin:0 auto 2mm;width:auto;height:auto;max-width:56mm;max-height:26mm;object-fit:contain;filter:grayscale(1) contrast(1.3)}
 </style></head><body>
+${logo}
 ${head}
 <div class="sep"></div>
 <div class="c b">CUPOM NÃO FISCAL</div>
@@ -171,4 +180,4 @@ export function initCaixaUI(getStore = () => ({})) {
       total: 14, formaPagamento: "Dinheiro", valorRecebido: 20, troco: 6, usuario: "teste"
     }, getStore());
   });
-                            }
+}

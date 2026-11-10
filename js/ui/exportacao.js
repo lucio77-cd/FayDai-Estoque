@@ -1,5 +1,4 @@
 import { roundMoney, formatDate, formatTimestamp, minStockOf, isLowStock, getRegisteredSalePrice, calcSuggestedPrice, packSizeOf, baseNameOf, saleItemsOf, saleTotalOf, saleDateOf, returnDateOf, inPeriod, yesNo, fieldValue, onEvent, dateToday, wait } from "../utils.js?v=20261104-1";
-import { products, entries, exits, sales, saleReturns } from "../estado.js?v=20261108-1";
 import { excelText, csvNumber, downloadCsv } from "../export.js?v=20261104-1";
 
 const EXIT_REASON_LABELS = { perda: "Perda", devolucao: "Devolução ao fornecedor", uso_interno: "Uso interno", outro: "Outra saída" };
@@ -10,15 +9,17 @@ function getSalePeriodStart(period) {
   if (period === "month") return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`;
   return null;
 }
-function returnedByProduct(saleId) {
+function returnedByProduct(saleReturns, saleId) {
   const map = {};
   saleReturns.filter((entry) => entry.vendaId === saleId).forEach((entry) => (entry.itens || []).forEach((item) => { map[item.produtoId] = (map[item.produtoId] || 0) + (Number(item.quantidade) || 0); }));
   return map;
 }
 
-export function initExportacaoUI({ setFeedback, showToast, explainError, loadData }) {
+// A exportação lê o histórico COMPLETO (loadFullData) e não usa o estado da tela, que só guarda a janela recente.
+export function initExportacaoUI({ setFeedback, showToast, explainError, loadFullData }) {
 // As colunas novas ficam sempre no FINAL, para não deslocar as colunas das planilhas que você já usa.
-function exportProductsCsv() {
+function exportProductsCsv(data) {
+  const { products } = data;
   const rows = [...products]
     .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"))
     .map((product) => [
@@ -36,7 +37,8 @@ function exportProductsCsv() {
     rows);
 }
 
-function exportEntriesCsv() {
+function exportEntriesCsv(data) {
+  const { entries } = data;
   const rows = [...entries]
     .sort((a, b) => String(b.data || "").localeCompare(String(a.data || "")))
     .map((entry) => [
@@ -49,7 +51,8 @@ function exportEntriesCsv() {
   return downloadCsv("entradas", ["Data", "Produto", "Tipo", "Quantidade", "Custo unitário", "Total", "Fornecedor", "Observação", "Fardos", "Unidades por fardo", "Custo do fardo"], rows);
 }
 
-function exportExitsCsv() {
+function exportExitsCsv(data) {
+  const { exits } = data;
   const rows = [...exits]
     .sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || "")))
     .map((exit) => [
@@ -60,7 +63,8 @@ function exportExitsCsv() {
 }
 
 // Uma linha por item vendido; o total da venda se repete em cada linha.
-function exportSalesCsv() {
+function exportSalesCsv(data) {
+  const { sales, saleReturns } = data;
   const start = getSalePeriodStart(fieldValue("#export-period") || "all");
   const today = dateToday();
   const rows = [];
@@ -68,7 +72,7 @@ function exportSalesCsv() {
     .filter((sale) => inPeriod(saleDateOf(sale), start, today))
     .sort((a, b) => String(b.dataHora || "").localeCompare(String(a.dataHora || "")))
     .forEach((sale) => {
-      const returned = returnedByProduct(sale.id);
+      const returned = returnedByProduct(saleReturns, sale.id);
       const cancelled = sale.status === "cancelada";
       saleItemsOf(sale).forEach((item) => {
         rows.push([
@@ -90,7 +94,8 @@ function exportSalesCsv() {
     rows);
 }
 
-function exportReturnsCsv() {
+function exportReturnsCsv(data) {
+  const { saleReturns } = data;
   const start = getSalePeriodStart(fieldValue("#export-period") || "all");
   const today = dateToday();
   const rows = [];
@@ -120,13 +125,13 @@ async function runExport(keys) {
   const feedback = "#export-feedback";
   setFeedback(feedback, "Atualizando dados…");
   try {
-    await loadData();
+    const data = await loadFullData();
     const done = [];
     const empty = [];
     for (const key of keys) {
       const exporter = EXPORTERS[key];
       if (!exporter) continue;
-      if (exporter.run()) done.push(exporter.label);
+      if (exporter.run(data)) done.push(exporter.label);
       else empty.push(exporter.label);
       if (keys.length > 1) await wait(500); // dá tempo ao navegador entre downloads
     }

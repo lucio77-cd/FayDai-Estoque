@@ -84,7 +84,7 @@
               <option value="today">Hoje</option>
               <option value="week">Últimos 7 dias</option>
               <option value="month" selected>Este mês</option>
-              <option value="all">Todo o período</option>
+              <option value="all">Últimos 90 dias</option>
             </select>
           </div>
           <div class="dashboard-grid">
@@ -250,6 +250,7 @@
           <p id="entry-feedback" class="feedback" role="status"></p>
         </form>
         <div class="list-heading"><h3>Histórico de entradas</h3><button id="refresh-entries" class="button quiet" type="button">Atualizar</button></div>
+        <p class="small muted">Mostrando os últimos 90 dias. O histórico completo sai em Configurações → Exportar dados (CSV).</p>
         <label class="history-filter"><input id="show-archived-entries" type="checkbox"> Mostrar produtos arquivados</label>
         <div id="entries-list" class="item-list"><div class="empty-state">Nenhuma entrada carregada.</div></div>
       </section>
@@ -351,6 +352,7 @@
           </div>
 
           <div class="list-heading"><h3>Histórico de vendas</h3><button id="refresh-sales" class="button quiet" type="button">Atualizar</button></div>
+          <p class="small muted">Mostrando os últimos 90 dias. O histórico completo sai em Configurações → Exportar dados (CSV).</p>
           <div id="sales-list" class="item-list"><div class="empty-state">Nenhuma venda registrada ainda.</div></div>
         </div>
       </section>
@@ -386,6 +388,7 @@
           <p id="exit-feedback" class="feedback" role="status"></p>
         </form>
         <div class="list-heading"><h3>Histórico de saídas</h3><button id="refresh-exits" class="button quiet" type="button">Atualizar</button></div>
+        <p class="small muted">Mostrando os últimos 90 dias. O histórico completo sai em Configurações → Exportar dados (CSV).</p>
         <div id="exits-list" class="item-list"><div class="empty-state">Nenhuma saída registrada.</div></div>
         </div>
       </section>
@@ -535,6 +538,6 @@
       }, 10000);
     })();
   </script>
-    <script type="module" src="./app.js?v=20261109-7"></script>
+    <script type="module" src="./app.js?v=20261110-2"></script>
 </body>
               </html>

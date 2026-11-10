@@ -1,5 +1,7 @@
 # Auditoria `main` × `modularizacao`
 
+> **Documento histórico.** A modularização já foi incorporada à `main` (08/11/2026). O texto abaixo registra a comparação feita antes do merge.
+
 Comparação estática (leitura do código, sem rodar o app) entre a `main` (`1c2a270`) e a branch
 `modularizacao` (a partir de `fda75ef`, data 08/11/2026).
 

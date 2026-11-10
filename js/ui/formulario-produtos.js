@@ -453,9 +453,11 @@ async function deleteProduct(productId) {
     || exits.some((item) => item.produtoId === productId)
     || sales.some((sale) => saleItemsOf(sale).some((item) => item.produtoId === productId))
     || saleReturns.some((item) => (item.itens || []).some((line) => line.produtoId === productId));
+  // A tela só carrega o histórico recente; a conferência definitiva (inclusive movimentações antigas)
+  // é feita pelo servidor em deleteProductTransaction, que arquiva em vez de excluir quando houver histórico.
   const message = hasHistory
     ? `O produto "${product.nome}" tem histórico de movimentações.\n\nEle será ARQUIVADO (sai das listas e do Painel, mas o histórico é preservado). Continuar?`
-    : `Excluir o produto "${product.nome}"?\n\nEsta ação não pode ser desfeita.`;
+    : `Remover o produto "${product.nome}"?\n\nSe ele tiver qualquer movimentação registrada (inclusive antiga), será ARQUIVADO e o histórico preservado. Se nunca teve movimentação, será excluído e isso não pode ser desfeito.`;
   if (!window.confirm(message)) return;
   try {
     const operation = await deleteProductTransaction({ productId, archive: hasHistory });

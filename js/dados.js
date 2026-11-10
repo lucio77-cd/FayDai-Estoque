@@ -1,14 +1,52 @@
 // dados.js — leitura do Firestore e normalização dos registros para o estado do aplicativo.
 // Não acessa a interface e não exibe avisos.
-import { db, collection, getDocs } from "./firebase.js?v=20261109-7";
+import { db, collection, getDocs, getDoc, doc, query, where } from "./firebase.js?v=20261109-7";
 import { CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID } from "./constantes.js?v=20261107-1";
+import { toDateString } from "./utils.js?v=20261104-1";
 
-export async function loadAppData() {
+// Janela do histórico carregado na tela: vendas, entradas, saídas e devoluções dos últimos N dias.
+// Produtos e vistorias sempre vêm completos (o saldo está no próprio produto, não no histórico).
+// O histórico inteiro continua no banco e sai por completo na exportação CSV (loadAppData({ completo: true })).
+export const JANELA_HISTORICO_DIAS = 90;
+
+// Primeiro dia (AAAA-MM-DD, horário local) incluído na janela.
+export function historyCutoff(days = JANELA_HISTORICO_DIAS, now = new Date()) {
+  return toDateString(new Date(now.getFullYear(), now.getMonth(), now.getDate() - days));
+}
+
+// Uma devolução recente pode ser de uma venda antiga (fora da janela). O Painel precisa da forma de
+// pagamento da venda original para descontar a devolução do lugar certo, então ela é buscada à parte
+// e guardada na própria devolução em memória (campo formaPagamentoVenda, nunca gravado no banco).
+async function attachPaymentOfOlderSales(returns, sales) {
+  const loaded = new Set(sales.map((sale) => sale.id));
+  const missing = [...new Set(returns.map((item) => item.vendaId).filter((id) => id && !loaded.has(id)))].slice(0, 50);
+  if (!missing.length) return;
+  const found = await Promise.all(missing.map(async (saleId) => {
+    try {
+      const snapshot = await getDoc(doc(db, "vendas", saleId));
+      return snapshot.exists() ? [saleId, snapshot.data().formaPagamento || ""] : null;
+    } catch (error) {
+      console.error("Não foi possível ler a venda original de uma devolução:", error);
+      return null;
+    }
+  }));
+  const payments = new Map(found.filter(Boolean));
+  returns.forEach((item) => {
+    if (payments.has(item.vendaId)) item.formaPagamentoVenda = payments.get(item.vendaId);
+  });
+}
+
+export async function loadAppData({ completo = false, now = new Date() } = {}) {
+  const cutoff = completo ? null : historyCutoff(JANELA_HISTORICO_DIAS, now);
+  const history = (name) => (cutoff
+    ? query(collection(db, name), where("data", ">=", cutoff))
+    : collection(db, name));
+
   const [productsSnap, entriesSnap, exitsSnap, salesSnap] = await Promise.all([
     getDocs(collection(db, "produtos")),
-    getDocs(collection(db, "entradas")),
-    getDocs(collection(db, "saidas")),
-    getDocs(collection(db, "vendas"))
+    getDocs(history("entradas")),
+    getDocs(history("saidas")),
+    getDocs(history("vendas"))
   ]);
 
   const specialIds = new Set([CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID]);
@@ -29,8 +67,9 @@ export async function loadAppData() {
   let saleReturnsAvailable = true;
   let returnsError = null;
   try {
-    const returnsSnap = await getDocs(collection(db, "devolucoes"));
+    const returnsSnap = await getDocs(history("devolucoes"));
     saleReturns = returnsSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
+    if (cutoff) await attachPaymentOfOlderSales(saleReturns, sales);
   } catch (error) {
     saleReturnsAvailable = false;
     returnsError = error;
@@ -72,6 +111,8 @@ export async function loadAppData() {
     inventoryAvailable,
     inventoryError,
     catalogData,
-    storeSettingsData
+    storeSettingsData,
+    historicoCompleto: !cutoff,
+    historicoDesde: cutoff
   };
 }

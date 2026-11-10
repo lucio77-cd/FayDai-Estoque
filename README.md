@@ -2,7 +2,7 @@
 
 Sistema simples de gestão de estoque, entradas, saídas e preços, pensado inicialmente para uma loja de celulares e acessórios. A primeira versão será priorizada para uso no celular e construída para ser demonstrada e validada com o responsável pela loja.
 
-> **Status:** protótipo em desenvolvimento. Já inclui login, painel inicial (dashboard com estoque baixo, rankings e gráfico), produtos (com histórico de alteração de custo e estoque mínimo), entradas, Caixa (vendas com preço ajustável e alertas, cancelamentos e devoluções), Saídas, vistoria física, exportação para CSV e configurações. A vistoria e os cancelamentos/devoluções foram validados em teste real; o dashboard novo e a exportação CSV ainda precisam ser validados no navegador.
+> **Status:** protótipo em desenvolvimento. Já inclui login, painel inicial (dashboard com estoque baixo, rankings e gráfico), produtos (com histórico de alteração de custo e estoque mínimo), entradas, Caixa (vendas com preço ajustável e alertas, cancelamentos e devoluções), Saídas, vistoria física, exportação para CSV e configurações. Validado em uso real: venda, devolução parcial, cancelamento, exportação CSV, Painel e estoque mínimo. Ainda falta testar: leitor de código de barras, vistoria completa e edição de custo (custo anterior).
 
 ## Objetivo
 
@@ -122,7 +122,7 @@ Os indicadores devem ser calculados a partir dos registros reais do sistema. Nã
 **Implementação atual:** o Painel é a primeira aba do sistema.
 - **Estoque** (sempre o do momento): produtos cadastrados, unidades, produtos sem estoque e valor estimado pelo custo.
 - **Estoque baixo:** produtos ativos com mínimo definido e saldo igual ou abaixo dele (os 8 mais urgentes; os demais aparecem em Produtos).
-- **Vendas do período** (hoje, últimos 7 dias, este mês ou todo o período; padrão: este mês): faturamento líquido, diferença bruta estimada, ticket médio (faturamento líquido ÷ número de vendas) e unidades vendidas (vendidas menos devolvidas).
+- **Vendas do período** (hoje, últimos 7 dias, este mês ou últimos 90 dias; padrão: este mês): faturamento líquido, diferença bruta estimada, ticket médio (faturamento líquido ÷ número de vendas) e unidades vendidas (vendidas menos devolvidas).
 - **Mais vendidos no período:** top 5 produtos por unidades líquidas.
 - **Formas de pagamento no período:** faturamento líquido por forma de pagamento; a devolução é descontada da forma usada na venda original.
 - **Vendas por dia:** gráfico de barras dos últimos 7 ou 30 dias (independente do período escolhido); toque em uma barra para ver o valor do dia. Dias em que as devoluções superam as vendas aparecem sem barra.
@@ -139,9 +139,22 @@ Em **Configurações → Exportar dados (CSV)** há um botão para cada arquivo 
 - O filtro de período (hoje, últimos 7 dias, este mês, todo o período) vale só para Vendas e Devoluções; o padrão é "Todo o período".
 - Formato: separador ponto e vírgula, vírgula decimal, datas dd/mm/aaaa e acentos corretos no Excel brasileiro.
 - Os códigos de barras só com dígitos saem protegidos (`="..."`) para o Excel não transformá-los em notação científica. Textos que começam com `=`, `+`, `-` ou `@` recebem um apóstrofo na frente, para impedir que a planilha os trate como fórmula.
-- Antes de gerar, o sistema recarrega os dados do banco. Não há nova gravação nem mudança nas regras do Firestore.
+- Antes de gerar, o sistema lê o histórico **completo** direto do banco: a tela mostra só os últimos 90 dias, mas a exportação não. Não há nova gravação nem mudança nas regras do Firestore.
 - "Exportar tudo" baixa até 5 arquivos seguidos; o navegador pode pedir permissão para múltiplos downloads. Arquivos sem registros não são baixados e o sistema avisa quais foram.
 - As vistorias ainda não são exportadas.
+
+### 9. Janela de 90 dias no histórico
+Para a leitura do banco não crescer junto com a loja, a tela carrega só os **últimos 90 dias** de vendas, entradas, saídas e devoluções (`js/dados.js`, `JANELA_HISTORICO_DIAS`). O filtro é pelo campo `data` (texto `AAAA-MM-DD`).
+
+- Produtos, saldos, vistorias e configurações vêm sempre completos: o saldo está no próprio produto.
+- No Painel, a opção "Últimos 90 dias" substitui "Todo o período". Os históricos de Entradas, Caixa e Saídas mostram um aviso da janela.
+- A **exportação CSV lê o histórico inteiro**, sem a janela. É o caminho para consultar registros antigos.
+- Uma devolução recente de uma venda antiga continua descontando da forma de pagamento certa no Painel: a venda original é buscada por ID.
+- Ao excluir um produto, o servidor confere o histórico completo (inclusive com mais de 90 dias) e arquiva em vez de excluir quando houver qualquer movimentação.
+- A leitura usa consultas `where("data", ">=", ...)`. Veja o que as regras precisam permitir em `docs/colecoes-firestore.md`.
+
+### 10. Logo na nota
+A nota imprime o arquivo `logo01.png` (raiz do repositório) no topo, acima dos dados da loja. A imagem sai em tons de cinza, com no máximo 56 mm de largura e 26 mm de altura; se o arquivo não carregar, a nota sai sem ela. Para trocar a arte, substitua o arquivo mantendo o nome. Para impressora térmica, o ideal é uma versão em preto e branco, de largura próxima de 450 px (56 mm a 203 dpi).
 
 ## Regras gerais de negócio
 
@@ -165,14 +178,14 @@ A primeira demonstração foi construída por etapas:
 4. **Dashboard básico**, com indicadores derivados dos registros.
 5. **Vistoria física**, com contagem por lista e ajustes rastreáveis.
 6. **Cancelamentos e devoluções.**
-7. **Dashboard ampliado, estoque mínimo e exportação CSV** (pacote atual, a validar).
+7. **Dashboard ampliado, estoque mínimo e exportação CSV** (validado em uso real).
 
 Próximos passos previstos: página de administração (licença por data, aviso de vencimento, acompanhamento de acessos e erros) e preparação da conta do cliente. A previsão de duração do estoque fica para depois de algumas semanas de vendas reais.
 
 ## Decisões pendentes
 
 - Validar as regras do Firestore, a autenticação e a persistência no navegador.
-- Validar o dashboard ampliado e a exportação CSV com dados de teste.
+- Testar o leitor de código de barras, a vistoria completa e a edição de custo (custo anterior) em uso real.
 - Confirmar com o responsável pela loja as necessidades adicionais após experimentar o protótipo (por exemplo, forma de reembolso e prazo para cancelar).
 
 ## Critérios para validar a demonstração
@@ -201,8 +214,9 @@ Arquivos:
 - `styles.css` e `caixa.css`: layout responsivo com prioridade para celular (o segundo cuida da tela do Caixa).
 - `app.js`: ponto de entrada. Guarda parte do estado das telas (carrinho, vistoria, devolução) e liga os módulos; a busca de produtos de Entradas e Saídas fica em `js/ui/busca-movimentacoes.js`.
 - `cupom.js`: cupom não fiscal (térmica 80 mm) e apoio da tela do Caixa; não acessa o Firebase.
+- `logo01.png`: arte do topo da nota (veja "Logo na nota").
 - `js/`: módulos ES.
-  - Base: `firebase.js` (conexão, importar só uma vez), `estado.js` (estado compartilhado), `dados.js` (leitura do Firestore), `constantes.js` (IDs dos documentos especiais), `utils.js`, `export.js` e `devolucoes.js` (cancelamento e devolução).
+  - Base: `firebase.js` (conexão, importar só uma vez), `estado.js` (estado compartilhado), `dados.js` (leitura do Firestore, com a janela de 90 dias), `constantes.js` (IDs dos documentos especiais), `utils.js`, `export.js` e `devolucoes.js` (cancelamento e devolução).
   - `servicos/`: regras e gravações no Firestore (produtos, entradas/saídas, vendas, vistoria). Não tocam na interface.
   - `ui/`: telas e eventos (painel, produtos, formulários, histórico de vendas, scanner, exportação, configurações, sessão). Não acessam o Firestore.
 - `tools/verificar-modulos.mjs`: confere imports, versões e ciclos (veja abaixo).
@@ -317,5 +331,13 @@ As regras de segurança são publicadas no **Firebase Console → Firestore Data
 
 - validar `estoqueMinimo` (vazio/nulo ou inteiro maior ou igual a zero), como o aplicativo já faz;
 - em `vendas`, permitir também a atualização dos contadores de devolução (`devolvidoPorProduto`, `valorDevolvido`, `ultimaDevolucaoId`, `ultimaDevolucaoEm`), sempre junto com a criação da devolução correspondente, sem passar do total da venda e nunca em venda cancelada; cancelar só se não houve devolução.
+
+- permitir somente criação em `procura_perdida` ("Cliente pediu e não tinha");
+- em `devolucoes`, aceitar a criação com ID gerado no cliente (`devolucoes/{id}`);
+- em `vistorias`, aceitar também o documento de controle `controle_vistoria_ativa`;
+- em `produtos`, aceitar os documentos especiais `catalogo_opcoes_faydai`, `configuracoes_faydai` e `contador_codigo_interno_faydai`;
+- permitir consultas (`list`) de `entradas`, `saidas`, `vendas` e `devolucoes` filtradas por `data >= ...`, usadas na janela de 90 dias.
+
+O inventário completo das coleções e o passo a passo para versionar as regras estão em `docs/colecoes-firestore.md`.
 
 Não publique o e-mail real da conta autorizada neste repositório.

@@ -90,6 +90,11 @@ function makeQuerySnapshot(ref) {
     .filter(({ data }) => filters.every((filter) => {
       const actual = data?.[filter.field];
       if (filter.operator === "==") return actual === filter.value;
+      if (actual === undefined || actual === null) return false;
+      if (filter.operator === ">=") return actual >= filter.value;
+      if (filter.operator === ">") return actual > filter.value;
+      if (filter.operator === "<=") return actual <= filter.value;
+      if (filter.operator === "<") return actual < filter.value;
       return false;
     }))
     .map(({ id, ref, data }) => ({ id, ref, data: () => data }));

@@ -1,24 +1,24 @@
 import { auth, db, collection, doc } from "./js/firebase.js?v=20261109-7";
 import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, dateToday, formatDate, escapeHtml, normalizeText, cleanOption, uniqueOptions, saleItemsOf, saleTotalOf, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime } from "./js/utils.js?v=20261104-1";
-import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261107-1";
-import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261110-1";
+import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261110-2";
+import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261110-2";
 import { saveEntryTransaction, saveExitTransaction, newEntryId, newExitId, attemptFor } from "./js/servicos/movimentacoes.js?v=20261109-7";
 import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=20261109-7";
 import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261109-7";
 import { cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
 
 import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, replaceArray, estadoUi } from "./js/estado.js?v=20261108-1";
-import { loadAppData } from "./js/dados.js?v=20261107-1";
+import { loadAppData } from "./js/dados.js?v=20261110-2";
 import { initScanner } from "./js/ui/scanner.js?v=20261106-7";
-import { initPainelUI, renderDashboard } from "./js/ui/painel.js?v=20261106-7";
+import { initPainelUI, renderDashboard } from "./js/ui/painel.js?v=20261110-2";
 import { renderProducts } from "./js/ui/produtos.js?v=20261106-8";
 import { initProductCatalogUI, renderCatalogOptions } from "./js/ui/catalogo-produtos.js?v=20261106-19";
 import { saveProductTransaction, deleteProductTransaction } from "./js/servicos/produtos.js?v=20261109-7";
-import { initProductFormUI } from "./js/ui/formulario-produtos.js?v=20261109-3";
+import { initProductFormUI } from "./js/ui/formulario-produtos.js?v=20261110-2";
 import { initSessionUI, switchTab } from "./js/ui/sessao.js?v=20261106-9";
 import { renderSales, returnableRows } from "./js/ui/historico-vendas.js?v=20261106-20";
 import { renderEntries, renderExits } from "./js/ui/movimentacoes.js?v=20261106-18";
-import { initExportacaoUI } from "./js/ui/exportacao.js?v=20261106-13";
+import { initExportacaoUI } from "./js/ui/exportacao.js?v=20261110-2";
 import { initConfiguracoesUI, renderStoreSettings } from "./js/ui/configuracoes.js?v=20261109-2";
 import { initVistoriaUI } from "./js/ui/vistoria.js?v=20261106-14";
 import { initCaixaTelaUI } from "./js/ui/caixa.js?v=20261107-1";
@@ -115,7 +115,7 @@ initVistoriaUI({
     updateInventorySummary();
   }
 });
-initExportacaoUI({ setFeedback, showToast, explainError, loadData });
+initExportacaoUI({ setFeedback, showToast, explainError, loadFullData: () => loadAppData({ completo: true }) });
 
 initPainelUI({ switchTab });
 initProductCatalogUI();

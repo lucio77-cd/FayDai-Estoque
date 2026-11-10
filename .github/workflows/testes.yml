@@ -1,14 +1,10 @@
-name: Testes da branch modularizacao
+name: Testes automatizados
 
 on:
   push:
-    branches:
-      - main
-      - modularizacao
   pull_request:
     branches:
       - main
-      - modularizacao
   workflow_dispatch:
 
 permissions:
@@ -32,5 +28,5 @@ jobs:
       - name: Verificar sintaxe JavaScript
         run: find . -path './.git' -prune -o -name '*.js' -type f -print0 | xargs -0 -n1 node --experimental-default-type=module --check
 
-      - name: Executar testes dos serviços
-        run: node --experimental-default-type=module --experimental-loader ./tests/firebase-mock-loader.mjs --test ./tests/services.test.mjs
+      - name: Executar testes dos serviços e da leitura de dados
+        run: node --experimental-default-type=module --experimental-loader ./tests/firebase-mock-loader.mjs --test ./tests/services.test.mjs ./tests/dados.test.mjs

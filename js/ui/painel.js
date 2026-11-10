@@ -55,7 +55,7 @@ function renderPaymentBreakdown(countedSales, periodReturns) {
   countedSales.forEach((sale) => add(sale.formaPagamento, saleTotalOf(sale)));
   periodReturns.forEach((saleReturn) => {
     const sale = sales.find((item) => item.id === saleReturn.vendaId);
-    add(sale?.formaPagamento, -returnTotalOf(saleReturn));
+    add(sale?.formaPagamento ?? saleReturn.formaPagamentoVenda, -returnTotalOf(saleReturn));
   });
   const rows = [...totals.entries()].filter(([, value]) => value !== 0).sort((a, b) => b[1] - a[1]);
   if (!rows.length) {
