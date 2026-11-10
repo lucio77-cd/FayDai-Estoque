@@ -20,15 +20,26 @@ const SUGGESTED_CATEGORIES = [
   "Outros"
 ];
 
+// Reaplica a seleção anterior se a opção ainda existir depois de reconstruir a lista.
+function keepSelection(select, previousValue) {
+  if (previousValue && [...select.options].some((option) => option.value === previousValue)) {
+    select.value = previousValue;
+  }
+}
+
 export function renderCatalogOptions(brands, categories) {
   const brandSelect = $("#product-brand");
   const categorySelect = $("#product-category");
+  const previousBrand = brandSelect.value;
+  const previousCategory = categorySelect.value;
   brandSelect.innerHTML = '<option value="">Sem marca</option>' +
     uniqueOptions(brands).map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("") +
     `<option value="${NEW_BRAND_VALUE}">+ Cadastrar nova marca</option>`;
   categorySelect.innerHTML = '<option value="">Sem categoria</option>' +
     uniqueOptions([...SUGGESTED_CATEGORIES, ...categories]).map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("") +
     `<option value="${NEW_CATEGORY_VALUE}">+ Cadastrar nova categoria</option>`;
+  keepSelection(brandSelect, previousBrand);
+  keepSelection(categorySelect, previousCategory);
 }
 
 function toggleNewCatalogInput(type) {
