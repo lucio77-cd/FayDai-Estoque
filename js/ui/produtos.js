@@ -9,7 +9,7 @@ export function renderProducts(renderEntryProductResults) {
     list.innerHTML = '<div class="empty-state">Nenhum produto ativo cadastrado.<br>Use o formulário acima para adicionar o primeiro.</div>';
   } else {
     list.innerHTML = [...activeProducts]
-      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
+      .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"))
       .map((product) => {
         const suggested = calcSuggestedPrice(product);
         const minimum = minStockOf(product);
