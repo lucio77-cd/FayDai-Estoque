@@ -52,17 +52,45 @@ ${cashRows}
 </body></html>`;
 }
 
-function printHtml(html) {
+async function printHtml(html) {
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
   frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
   document.body.appendChild(frame);
-  const doc = frame.contentWindow.document;
-  doc.open(); doc.write(html); doc.close();
-  setTimeout(() => {
-    try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch (e) { console.error("Falha ao imprimir o cupom:", e); }
+
+  try {
+    const doc = frame.contentWindow.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    // Aguarda imagens (incluindo o logo, quando integrado) e fontes antes de abrir a impressão.
+    const imagesReady = Array.from(doc.images).map((image) => {
+      if (image.complete) {
+        return typeof image.decode === "function" ? image.decode().catch(() => {}) : Promise.resolve();
+      }
+      return new Promise((resolve) => {
+        const finish = () => resolve();
+        image.addEventListener("load", finish, { once: true });
+        image.addEventListener("error", finish, { once: true });
+      }).then(() => typeof image.decode === "function" ? image.decode().catch(() => {}) : undefined);
+    });
+
+    await Promise.all([
+      Promise.all(imagesReady),
+      doc.fonts?.ready?.catch(() => {}) || Promise.resolve()
+    ]);
+
+    frame.contentWindow.addEventListener("afterprint", () => frame.remove(), { once: true });
+    frame.contentWindow.focus();
+    frame.contentWindow.print();
+
+    // Fallback caso o navegador não dispare afterprint.
     setTimeout(() => frame.remove(), 60000);
-  }, 300);
+  } catch (error) {
+    console.error("Falha ao preparar o cupom para impressão:", error);
+    frame.remove();
+  }
 }
 
 export function printSale(sale, store = {}) { printHtml(receiptHtml(sale, store || {})); }
