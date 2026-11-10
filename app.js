@@ -129,11 +129,19 @@ initSessionUI({
   setFeedback, explainError, showToast, initDateFields, resetProductForm, loadData,
   clearSessionState: () => {
     replaceArray(products); replaceArray(entries); replaceArray(exits); replaceArray(sales); replaceArray(saleReturns);
-    replaceArray(saleCart);
+    replaceArray(saleCart); replaceArray(brands); replaceArray(categories); replaceArray(inventoryHistory);
+    Object.assign(storeSettings, {
+      nome: "", responsavel: "", telefone: "", endereco: "", cnpj: "",
+      codigoInternoAtivo: false, codigoBarrasAtivo: false, caixaAtivo: false, saidasAtivo: true
+    });
     estadoUi.saleCartStartedAt = null; estadoUi.saleAttempt = null; estadoUi.saleInFlight = false;
-    estadoUi.activeVistoria = null; replaceArray(inventoryHistory);
+    estadoUi.activeVistoria = null; estadoUi.saleAction = null;
     estadoUi.vistoriaDraft = {}; estadoUi.vistoriaDraftOwner = null; estadoUi.vistoriaDirty = false;
     estadoUi.selectedEntryProductId = ""; estadoUi.selectedExitProductId = "";
+    // Fecha janelas abertas e limpa os formulários, para nada do usuário anterior ficar na tela.
+    document.querySelectorAll("#sale-action-overlay, #tutorial-overlay").forEach((element) => { element.hidden = true; });
+    document.querySelectorAll("#app-view form").forEach((form) => form.reset());
+    renderAll();
   }
 });
 
@@ -409,7 +417,7 @@ function renderInventoryList() {
   const queryText = normalizeText($("#inventory-search").value);
   const onlyUncounted = $("#inventory-only-uncounted").checked;
   const activeProducts = products.filter((product) => !product.arquivado)
-    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+    .sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
   if (!activeProducts.length) {
     list.innerHTML = '<div class="empty-state">Nenhum produto ativo para contar.</div>';
     return;
@@ -639,13 +647,34 @@ async function finishInventory() {
 
 function currentEmail() { return auth.currentUser?.email || "Usuário não identificado"; }
 
-// Preenche os campos de data (entrada, venda, saída) com a data de hoje quando estiverem vazios.
+// Datas de entrada e saída: preenchidas com hoje e renovadas sozinhas enquanto o usuário não mexer nelas.
+// Data da venda: o campo fica VAZIO de propósito; vazio significa "hoje, no momento de finalizar"
+// (finishSale usa fieldValue("#sale-date") || dateToday()). Assim a primeira venda do dia seguinte
+// nunca é gravada com a data de ontem, mesmo com a tela do Caixa aberta a noite toda.
 function initDateFields(force = false) {
-  ["#entry-date", "#sale-date", "#exit-date"].forEach((selector) => {
+  const today = dateToday();
+  ["#entry-date", "#exit-date"].forEach((selector) => {
     const input = document.querySelector(selector);
-    if (input && (force || !input.value)) input.value = dateToday();
+    if (!input) return;
+    // data-auto = "1" marca que o valor foi preenchido pelo sistema (e não escolhido pelo usuário).
+    if (force || !input.value || input.dataset.auto === "1") {
+      input.value = today;
+      input.dataset.auto = "1";
+    }
   });
+  const saleDate = document.querySelector("#sale-date");
+  if (saleDate) {
+    saleDate.max = today;
+    if (force) saleDate.value = "";
+  }
 }
+
+// Se o usuário escolher uma data, ela deixa de ser renovada automaticamente.
+document.querySelectorAll("#entry-date, #exit-date").forEach((input) => {
+  input.addEventListener("input", () => { input.dataset.auto = ""; });
+});
+// Ao voltar para a aba (ex.: no dia seguinte), renova as datas que o usuário não alterou.
+document.addEventListener("visibilitychange", () => { if (!document.hidden) initDateFields(false); });
 
 // ---------- Carregamento de dados do Firestore ----------
 
@@ -664,7 +693,16 @@ function renderAll() {
   renderDashboard();
 }
 
-async function loadData() {
+// Fila de carregamentos: cada loadData() espera o anterior terminar, para que um resultado
+// mais antigo nunca sobrescreva um mais novo. Quem chama continua usando "await loadData()".
+let loadChain = Promise.resolve();
+function loadData() {
+  const run = loadChain.catch(() => {}).then(doLoadData);
+  loadChain = run;
+  return run;
+}
+
+async function doLoadData() {
   const data = await loadAppData();
   replaceArray(products, data.products);
   replaceArray(entries, data.entries);
@@ -941,4 +979,3 @@ onEvent("#sale-action-form", "submit", async (event) => {
     button.disabled = false;
   }
 });
-
