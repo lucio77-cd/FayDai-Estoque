@@ -76,7 +76,16 @@ export function initSessionUI({ setFeedback, explainError, showToast, initDateFi
     initDateFields(true);
     resetProductForm();
     try { await loadData(); }
-    catch (error) { console.error("Falha ao carregar dados:", error); showToast(explainError(error)); }
+    catch (error) {
+      console.error("Falha ao carregar dados:", error);
+      showToast(explainError(error));
+      // Conta sem autorização no Firestore: sai da conta para não deixar o app aberto e vazio.
+      if (String(error?.code || "").includes("permission-denied")) {
+        try { await signOut(auth); }
+        catch (signOutError) { console.error("Falha ao sair após acesso negado:", signOutError); }
+        return;
+      }
+    }
     switchTab("dashboard");
     showTutorialIfNeeded();
   });
