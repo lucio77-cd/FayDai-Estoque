@@ -5,20 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#172554">
   <title>FayDai Estoque</title>
-  <link rel="stylesheet" href="./styles.css?v=20261023-authfix2">
-  <link rel="stylesheet" href="./caixa.css?v=20261102-1">
+  <link rel="stylesheet" href="./styles.css?v=20261112-1">
+  <link rel="stylesheet" href="./caixa.css?v=20261112-1">
 </head>
 <body>
   <main class="app-shell">
     <section id="auth-loading-view" class="login-wrap" role="status" aria-live="polite">
-      <div class="brand-mark">FD</div>
+      <img class="brand-logo" src="./logo01.png" alt="FayDai" width="160" height="64">
       <p class="eyebrow">GESTÃO SIMPLES</p>
       <h1>FayDai Estoque</h1>
       <p class="muted">Verificando sua sessão…</p>
     </section>
 
     <section id="login-view" class="login-wrap" hidden>
-      <div class="brand-mark">FD</div>
+      <img class="brand-logo" src="./logo01.png" alt="FayDai" width="160" height="64">
       <p class="eyebrow">GESTÃO SIMPLES</p>
       <h1>FayDai Estoque</h1>
       <p class="muted">Produtos e movimentações em um só lugar.</p>
@@ -35,49 +35,31 @@
 
     <section id="app-view" hidden>
       <header class="topbar">
-        <div class="brand-inline"><span class="brand-mark small-mark">FD</span><div><strong>FayDai</strong><span class="muted block">Estoque</span></div></div>
+        <div class="brand-inline"><img class="brand-logo small-mark" src="./logo01.png" alt="FayDai" width="112" height="44"><div><strong>FayDai</strong><span class="muted block">Estoque</span></div></div>
         <button id="logout-button" class="button quiet" type="button">Sair</button>
       </header>
 
-      <section class="welcome">
+      <section id="welcome" class="welcome">
         <p class="eyebrow">CONTROLE DA LOJA</p>
         <h1>Seu estoque, organizado.</h1>
         <p class="muted">Cadastre produtos e controle entradas e saídas.</p>
       </section>
 
-      <nav class="tabs" aria-label="Seções do sistema">
-        <button class="tab active" data-tab="dashboard" type="button">Painel</button>
-        <button class="tab" data-tab="products" type="button">Produtos</button>
-        <button class="tab" data-tab="entries" type="button">Entradas</button>
-        <button class="tab" data-tab="caja" type="button">Caixa</button>
-        <button class="tab" data-tab="exits" type="button">Saídas</button>
-        <button class="tab" data-tab="inventory" type="button">Vistoria</button>
-        <button class="tab" data-tab="settings" type="button">Configurações</button>
-        <button class="tab" data-tab="help" type="button">Ajuda</button>
+      <nav class="tabs" role="tablist" aria-label="Seções do sistema">
+        <button id="tab-dashboard" class="tab active" data-tab="dashboard" type="button" role="tab" aria-controls="dashboard-panel" aria-selected="true">Painel</button>
+        <button id="tab-products" class="tab" data-tab="products" type="button" role="tab" aria-controls="products-panel" aria-selected="false">Produtos</button>
+        <button id="tab-entries" class="tab" data-tab="entries" type="button" role="tab" aria-controls="entries-panel" aria-selected="false">Entradas</button>
+        <button id="tab-caja" class="tab" data-tab="caja" type="button" role="tab" aria-controls="caja-panel" aria-selected="false">Caixa</button>
+        <button id="tab-exits" class="tab" data-tab="exits" type="button" role="tab" aria-controls="exits-panel" aria-selected="false">Saídas</button>
+        <button id="tab-inventory" class="tab" data-tab="inventory" type="button" role="tab" aria-controls="inventory-panel" aria-selected="false">Vistoria</button>
+        <button id="tab-settings" class="tab" data-tab="settings" type="button" role="tab" aria-controls="settings-panel" aria-selected="false">Configurações</button>
+        <button id="tab-help" class="tab" data-tab="help" type="button" role="tab" aria-controls="help-panel" aria-selected="false">Ajuda</button>
       </nav>
 
-      <section id="dashboard-panel" class="tab-panel">
+      <section id="dashboard-panel" class="tab-panel" role="tabpanel" aria-labelledby="tab-dashboard">
         <div class="section-heading"><div><p class="eyebrow">VISÃO GERAL</p><h2>Painel</h2></div></div>
         <div id="dashboard-empty" class="empty-state" hidden>Ainda não há produtos nem vendas registrados.<br>Cadastre o primeiro produto para começar a ver os indicadores.</div>
         <div id="dashboard-stats">
-          <h3 class="dash-heading">Estoque</h3>
-          <div class="dashboard-grid">
-            <article class="stat-card">
-              <span class="stat-label">Produtos cadastrados</span>
-              <strong id="dash-products-count" class="stat-value">0</strong>
-              <small id="dash-units-count" class="stat-sub">0 unidades em estoque</small>
-            </article>
-            <article class="stat-card">
-              <span class="stat-label">Valor estimado do estoque</span>
-              <strong id="dash-stock-value" class="stat-value">R$ 0,00</strong>
-              <small class="stat-sub">Pelo custo cadastrado atual</small>
-            </article>
-          </div>
-          <p id="dash-zero-stock" class="dash-note"></p>
-
-          <h3 class="dash-heading">Estoque baixo</h3>
-          <div id="dash-low-stock"></div>
-
           <div class="dash-heading-row">
             <h3 class="dash-heading">Vendas</h3>
             <select id="dashboard-period" class="dash-period" aria-label="Período das vendas">
@@ -110,7 +92,25 @@
             </article>
           </div>
           <p id="dash-gross-note" class="notice" hidden></p>
-          <p class="notice">O lucro líquido não é apurado: o sistema ainda não registra as despesas da loja. A diferença bruta é apenas uma estimativa. Vendas canceladas ficam fora dos cálculos e as devoluções são descontadas no período em que foram registradas.</p>
+          <p class="notice info">O lucro líquido não é apurado: o sistema ainda não registra as despesas da loja. A diferença bruta é apenas uma estimativa. Vendas canceladas ficam fora dos cálculos e as devoluções são descontadas no período em que foram registradas.</p>
+
+          <h3 class="dash-heading">Estoque baixo</h3>
+          <div id="dash-low-stock"></div>
+
+          <h3 class="dash-heading">Estoque</h3>
+          <div class="dashboard-grid">
+            <article class="stat-card">
+              <span class="stat-label">Produtos cadastrados</span>
+              <strong id="dash-products-count" class="stat-value">0</strong>
+              <small id="dash-units-count" class="stat-sub">0 unidades em estoque</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-label">Valor estimado do estoque</span>
+              <strong id="dash-stock-value" class="stat-value">R$ 0,00</strong>
+              <small class="stat-sub">Pelo custo cadastrado atual</small>
+            </article>
+          </div>
+          <p id="dash-zero-stock" class="dash-note"></p>
 
           <h3 class="dash-heading">Mais vendidos no período</h3>
           <div id="dash-top-products"></div>
@@ -140,10 +140,15 @@
         </div>
       </section>
 
-      <section id="products-panel" class="tab-panel" hidden>
+      <section id="products-panel" class="tab-panel" role="tabpanel" aria-labelledby="tab-products" hidden>
         <div class="section-heading"><div><p class="eyebrow">CATÁLOGO</p><h2>Produtos</h2></div><span id="product-count" class="count-pill">0 itens</span></div>
-        <form id="product-form" class="panel form-stack">
+        <div class="product-list-toolbar">
+          <p class="small muted">Consulte o catálogo ou refine a lista sem alterar nenhum cadastro.</p>
+          <button id="toggle-product-form" class="button primary" type="button" aria-controls="product-form" aria-expanded="false">+ Novo produto</button>
+        </div>
+        <form id="product-form" class="panel form-stack" hidden>
           <h3>Novo produto</h3>
+          <p class="form-section-heading">Identificação</p>
           <label for="product-name">Nome do produto *</label>
           <input id="product-name" maxlength="100" placeholder="Ex.: Carregador USB-C ou Coca-Cola" autocomplete="off" required>
           <div class="form-grid">
@@ -185,6 +190,7 @@
           <input id="product-barcode" inputmode="numeric" maxlength="80" placeholder="Digite ou use um scanner conectado">
           <label for="product-description">Descrição (opcional)</label>
           <textarea id="product-description" rows="2" maxlength="500" placeholder="Marca, modelo ou detalhes"></textarea>
+          <p class="form-section-heading">Preço e embalagem</p>
           <label for="product-pack-size">Unidades por fardo (opcional)</label>
           <input id="product-pack-size" type="number" min="2" step="1" inputmode="numeric" placeholder="Ex.: 12 (deixe vazio se não vem em fardo)">
           <div id="product-pack-cost-wrap" hidden>
@@ -201,6 +207,7 @@
           <input id="product-sale-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Calculado pelo preço sugerido; pode ajustar" required>
           <p id="product-unit-gain" class="small muted"></p>
           <p class="small muted">Este será o preço inicial no Caixa, que ainda pode ser ajustado em cada venda. Você pode definir um preço comercial diferente do sugerido.</p>
+          <p class="form-section-heading">Estoque inicial</p>
           <div id="product-pack-stock" hidden>
             <div class="form-grid">
               <div><label for="product-initial-packs">Fardos fechados</label><input id="product-initial-packs" type="number" min="0" step="1" inputmode="numeric" value="0"></div>
@@ -216,10 +223,16 @@
           <p id="product-feedback" class="feedback" role="status"></p>
         </form>
         <div class="list-heading"><h3>Produtos cadastrados</h3><button id="refresh-products" class="button quiet" type="button">Atualizar</button></div>
+        <div class="product-filters" aria-label="Filtros de produtos">
+          <label class="product-search-field" for="product-list-search">Buscar no catálogo<input id="product-list-search" type="search" placeholder="Nome, marca ou código" autocomplete="off"></label>
+          <label for="product-category-filter">Categoria<select id="product-category-filter"><option value="">Todas as categorias</option></select></label>
+          <label for="product-stock-filter">Estoque<select id="product-stock-filter"><option value="all">Todos</option><option value="low">Estoque baixo</option><option value="zero">Sem estoque</option></select></label>
+          <p id="product-results-count" class="small muted" aria-live="polite"></p>
+        </div>
         <div id="products-list" class="item-list"><div class="empty-state">Carregando produtos…</div></div>
       </section>
 
-      <section id="entries-panel" class="tab-panel" hidden>
+      <section id="entries-panel" class="tab-panel" role="tabpanel" aria-labelledby="tab-entries" hidden>
         <div class="section-heading"><div><p class="eyebrow">REPOSIÇÃO</p><h2>Registrar entrada</h2></div></div>
         <form id="entry-form" class="panel form-stack">
           <label for="entry-product-search">Pesquisar produto por nome ou código *</label>
@@ -256,7 +269,7 @@
       </section>
 
 
-      <section id="caja-panel" class="tab-panel" hidden>
+      <section id="caja-panel" class="tab-panel" role="tabpanel" aria-labelledby="tab-caja" hidden>
         <div id="caja-disabled-notice" class="module-notice" hidden>
           <h3>Caixa não ativado</h3>
           <p>Este módulo está desativado nas configurações. As vendas ainda não podem ser registradas por aqui. As retiradas manuais continuam disponíveis na aba Saídas.</p>
@@ -292,13 +305,13 @@
               </div>
 
               <label>Forma de pagamento *</label>
-              <div class="pay-grid">
-                <button type="button" class="pay-btn" data-pay="Dinheiro">Dinheiro</button>
-                <button type="button" class="pay-btn" data-pay="Pix">Pix</button>
-                <button type="button" class="pay-btn" data-pay="Cartão de débito">Débito</button>
-                <button type="button" class="pay-btn" data-pay="Cartão de crédito">Crédito</button>
-                <button type="button" class="pay-btn" data-pay="Transferência">Transferência</button>
-                <button type="button" class="pay-btn" data-pay="Outro">Outro</button>
+              <div class="pay-grid" role="group" aria-label="Forma de pagamento">
+                <button type="button" class="pay-btn" data-pay="Dinheiro" aria-pressed="false">Dinheiro</button>
+                <button type="button" class="pay-btn" data-pay="Pix" aria-pressed="false">Pix</button>
+                <button type="button" class="pay-btn" data-pay="Cartão de débito" aria-pressed="false">Débito</button>
+                <button type="button" class="pay-btn" data-pay="Cartão de crédito" aria-pressed="false">Crédito</button>
+                <button type="button" class="pay-btn" data-pay="Transferência" aria-pressed="false">Transferência</button>
+                <button type="button" class="pay-btn" data-pay="Outro" aria-pressed="false">Outro</button>
               </div>
               <select id="sale-payment-method" hidden>
                 <option value="">Selecione</option>
@@ -334,16 +347,7 @@
             </div>
           </form>
 
-          <details class="panel pos-printer">
-            <summary>Impressora do cupom (neste computador)</summary>
-            <div class="form-stack">
-              <label class="setting-toggle"><input id="print-auto" type="checkbox" checked> Imprimir o cupom automaticamente ao finalizar a venda</label>
-              <button id="print-test" class="button secondary" type="button">Imprimir cupom de teste (80 mm)</button>
-              <p class="small muted">Na janela de impressão: escolha a TA-TP510L, margens <strong>Nenhuma</strong>, escala <strong>100%</strong> e desmarque "Cabeçalhos e rodapés". Para imprimir sem essa janela, deixe a térmica como impressora padrão do Windows e abra o Chrome por um atalho com <strong>--kiosk-printing</strong> no final do destino.</p>
-            </div>
-          </details>
-
-          <div id="lost-demand-panel" class="panel form-stack">
+                    <div id="lost-demand-panel" class="panel form-stack">
             <h3>Cliente pediu e não tinha</h3>
             <p class="small muted">Registre o que o cliente procurou e não encontrou. Isso ajuda a saber o que comprar. Nenhum dado do cliente é guardado.</p>
             <input id="lost-demand-text" maxlength="120" placeholder="Ex.: Coca-Cola 2 L gelada" autocomplete="off">
@@ -357,7 +361,7 @@
         </div>
       </section>
 
-      <section id="exits-panel" class="tab-panel" hidden>
+      <section id="exits-panel" class="tab-panel" role="tabpanel" aria-labelledby="tab-exits" hidden>
         <div id="exits-disabled-notice" class="module-notice" hidden>
           <h3>Saídas não ativado</h3>
           <p>Este módulo está desativado nas configurações. Ative-o para registrar perdas, devoluções ao fornecedor, uso interno e outras retiradas manuais.</p>
@@ -393,7 +397,7 @@
         </div>
       </section>
 
-      <section id="inventory-panel" class="tab-panel" hidden>
+      <section id="inventory-panel" class="tab-panel" role="tabpanel" aria-labelledby="tab-inventory" hidden>
         <div class="section-heading"><div><p class="eyebrow">CONTAGEM FÍSICA</p><h2>Vistoria</h2></div></div>
         <p id="inventory-feedback" class="feedback" role="status"></p>
 
@@ -429,7 +433,7 @@
         <div id="inventory-history" class="item-list"><div class="empty-state">Nenhuma vistoria concluída ainda.</div></div>
       </section>
 
-      <section id="settings-panel" class="tab-panel" hidden>
+      <section id="settings-panel" class="tab-panel" role="tabpanel" aria-labelledby="tab-settings" hidden>
         <div class="section-heading"><div><p class="eyebrow">DADOS E PREFERÊNCIAS</p><h2>Configurações</h2></div></div>
         <form id="store-settings-form" class="panel form-stack">
           <h3>Dados da loja</h3>
@@ -450,6 +454,15 @@
           <button class="button primary" type="submit">Salvar configurações</button>
           <p id="settings-feedback" class="feedback" role="status"></p>
         </form>
+
+        <details class="panel pos-printer">
+          <summary>Impressão de cupons</summary>
+          <div class="form-stack">
+            <label class="setting-toggle"><input id="print-auto" type="checkbox" checked> Imprimir o cupom automaticamente ao finalizar a venda</label>
+            <button id="print-test" class="button secondary" type="button">Imprimir cupom de teste (80 mm)</button>
+            <p class="small muted">Configuração deste computador. Na janela de impressão, escolha a TA-TP510L, margens <strong>Nenhuma</strong>, escala <strong>100%</strong> e desmarque "Cabeçalhos e rodapés". Para imprimir sem essa janela, deixe a térmica como impressora padrão do Windows e abra o Chrome por um atalho com <strong>--kiosk-printing</strong> no final do destino.</p>
+          </div>
+        </details>
 
         <div id="export-panel" class="panel form-stack export-panel">
           <h3>Exportar dados (CSV)</h3>
@@ -474,7 +487,7 @@
         </div>
       </section>
 
-      <section id="help-panel" class="tab-panel" hidden>
+      <section id="help-panel" class="tab-panel" role="tabpanel" aria-labelledby="tab-help" hidden>
         <div class="section-heading"><div><p class="eyebrow">PRIMEIROS PASSOS</p><h2>Ajuda</h2></div></div>
         <div class="panel help-card">
           <h3>Como usar o FayDai</h3>
@@ -490,7 +503,7 @@
   <div id="tutorial-overlay" class="overlay" hidden>
     <section class="tutorial-card" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
       <button id="tutorial-close" class="icon-button" type="button" aria-label="Fechar tutorial">×</button>
-      <div class="brand-mark">FD</div>
+      <img class="brand-logo" src="./logo01.png" alt="FayDai" width="160" height="64">
       <p class="eyebrow">BEM-VINDO AO SISTEMA</p>
       <h2 id="tutorial-title">Vamos organizar seu estoque?</h2>
       <p class="muted">Você pode consultar este tutorial sempre que precisar.</p>
@@ -538,6 +551,6 @@
       }, 10000);
     })();
   </script>
-    <script type="module" src="./app.js?v=20261110-3"></script>
+    <script type="module" src="./app.js?v=20261112-1"></script>
 </body>
               </html>
