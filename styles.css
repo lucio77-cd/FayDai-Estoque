@@ -544,3 +544,19 @@ input[type=checkbox],input[type=radio]{accent-color:var(--blue)}
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 }
+
+
+/* Ajustes de interface: catálogo, identidade e leitura. */
+.brand-logo{display:block;width:min(160px,48vw);height:64px;object-fit:cover;object-position:center 52%;padding:3px;border-radius:8px;background:#fff}
+.brand-logo.small-mark{width:104px;height:44px;flex:none;object-position:center 52%}
+.form-section-heading{margin:var(--s4) 0 0;padding-bottom:var(--s2);border-bottom:1px solid var(--line);color:var(--navy);font-size:var(--fs-sm);font-weight:750;letter-spacing:.035em;text-transform:uppercase}
+.product-list-toolbar{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);margin:0 0 var(--s4)}
+.product-list-toolbar p{margin:0}
+.product-filters{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(2,minmax(0,1fr));gap:var(--s3);align-items:end;margin:0 0 var(--s4);padding:var(--s4);border:1px solid var(--line);border-radius:var(--r-lg);background:#fff}
+.product-filters label{display:grid;gap:6px;font-size:var(--fs-sm);font-weight:650;color:var(--ink-2)}
+.product-filters input,.product-filters select{width:100%;min-width:0;min-height:46px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:#fff}
+#product-results-count{grid-column:1/-1;margin:0}
+.notice.info{border-color:#c8dafa;background:#eff6ff;color:#214b82}
+.chart-axis span{font-size:.75rem}
+@media(max-width:620px){.product-list-toolbar{align-items:stretch;flex-direction:column}.product-list-toolbar .button{width:100%}.product-filters{grid-template-columns:1fr 1fr}.product-search-field{grid-column:1/-1}}
+@media(hover:none){.pos-keys{display:none}}
