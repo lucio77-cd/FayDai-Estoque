@@ -10,6 +10,9 @@ let transactionQueue = Promise.resolve();
 
 export const db = { __mockFirestore: true };
 
+// Usuário "logado" falso: devolucoes.js lê auth.currentUser?.email ao cancelar ou devolver.
+export const auth = { currentUser: { email: "teste@faydai.local" } };
+
 export function collection(_db, name) {
   return { kind: "collection", name };
 }
