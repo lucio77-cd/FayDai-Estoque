@@ -6,6 +6,7 @@ import { saveEntryTransaction, saveExitTransaction, newEntryId, newExitId, attem
 import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=20261109-7";
 import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261109-7";
 import { cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
+import { acaoRascunho, montarRascunho, lerRascunho } from "./js/rascunho-carrinho.js?v=20261111-1";
 
 import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, replaceArray, estadoUi } from "./js/estado.js?v=20261108-1";
 import { loadAppData } from "./js/dados.js?v=20261110-3";
@@ -23,23 +24,6 @@ import { initConfiguracoesUI, renderStoreSettings } from "./js/ui/configuracoes.
 import { initVistoriaUI } from "./js/ui/vistoria.js?v=20261106-14";
 import { initCaixaTelaUI } from "./js/ui/caixa.js?v=20261107-1";
 import { initMovementSearchUI, selectedEntryProduct, readEntryAmounts, renderEntryProductResults, renderExitProductResults } from "./js/ui/busca-movimentacoes.js?v=20261108-2";
-
-
-
-
-// Instante em que o primeiro item entrou no carrinho (para registrar a duração do atendimento).
-// Idempotência da venda: ID gerado no cliente e reaproveitado enquanto o carrinho não mudar.
-
-
-
-// Vistoria física
-
-
-// Cancelamentos e devoluções de venda
-
-
-// Painel: série diária usada pelo gráfico de vendas por dia
-
 
 function showToast(message) {
   const toast = $("#toast");
@@ -72,16 +56,9 @@ function explainError(error) {
 }
 
 
-// Reserva o próximo código interno DENTRO da transação que salva o produto.
-// A leitura do contador acontece junto com as demais leituras; a gravação do novo
-// valor só é feita por reservation.commit(), na mesma transação que grava o produto.
-// Assim o número só é consumido se o produto for realmente salvo (sem lacunas na sequência).
-
 // ---------- Leitor de código de barras ----------
 // O leitor "digita" o código e termina com Enter (alguns terminam com Tab).
 // Funciona no Caixa, em Entradas, em Saídas, na Vistoria e no cadastro de produto.
-
-// Som curto de confirmação (agudo) ou de erro (grave), gerado pelo navegador, sem arquivo de áudio.
 initScanner({
   getProducts: () => products,
   getEditingProductId: () => getProductEditingId(),
@@ -652,6 +629,8 @@ function currentEmail() { return auth.currentUser?.email || "Usuário não ident
 // O rascunho do Caixa fica somente neste navegador e separado pelo UID da conta autenticada.
 // Não é enviado ao Firestore. O ID da tentativa também é preservado para manter a idempotência
 // se a página fechar depois do envio e antes de o navegador receber a confirmação.
+// As regras (validade de 24 h, conferência com o estoque de agora, quando apagar) ficam em
+// js/rascunho-carrinho.js, que é testado automaticamente.
 let restoredCartUid = null;
 const SALE_CART_STORAGE_PREFIX = "faydai-sale-cart-v1";
 
@@ -662,26 +641,21 @@ function saleCartStorageKey() {
 
 function persistSaleCartDraft() {
   const key = saleCartStorageKey();
-  if (!key || !saleCart.length) return;
-  const draft = {
-    version: 1,
-    savedAt: Date.now(),
+  if (!key) return;
+  const acao = acaoRascunho({
+    carrinhoVazio: saleCart.length === 0,
+    jaRestaurado: restoredCartUid === auth.currentUser?.uid
+  });
+  if (acao === "ignorar") return;
+  if (acao === "apagar") { clearSaleCartDraft(); return; }
+  const draft = montarRascunho({
+    itens: saleCart,
     startedAt: estadoUi.saleCartStartedAt,
-    items: saleCart.map((item) => ({
-      produtoId: item.produtoId,
-      nome: item.nome,
-      codigoInterno: item.codigoInterno || "",
-      codigoBarras: item.codigoBarras || "",
-      quantidade: item.quantidade,
-      precoCadastrado: item.precoCadastrado,
-      precoUnitario: Number.isFinite(item.precoUnitario) ? item.precoUnitario : null,
-      origem: item.origem || "busca"
-    })),
     saleAttempt: estadoUi.saleAttempt,
     saleDate: fieldValue("#sale-date"),
     paymentMethod: fieldValue("#sale-payment-method"),
     cashReceived: fieldValue("#sale-cash-received")
-  };
+  });
   try {
     localStorage.setItem(key, JSON.stringify(draft));
   } catch (error) {
@@ -703,59 +677,58 @@ function restoreSaleCartDraft() {
   const key = saleCartStorageKey();
   if (!key) return;
 
-  let draft;
+  let raw;
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return;
-    draft = JSON.parse(raw);
+    raw = localStorage.getItem(key);
   } catch (error) {
     console.warn("Não foi possível ler o carrinho salvo neste navegador:", error);
     return;
   }
 
-  const validItems = draft?.version === 1 && Array.isArray(draft.items) &&
-    draft.items.every((item) =>
-      item && typeof item.produtoId === "string" && item.produtoId &&
-      typeof item.nome === "string" && Number.isInteger(item.quantidade) && item.quantidade > 0 &&
-      Number.isFinite(item.precoCadastrado) &&
-      (item.precoUnitario === null || Number.isFinite(item.precoUnitario))
-    );
-  if (!validItems || !draft.items.length) {
-    console.warn("O carrinho salvo tem formato inválido e foi mantido sem alterações.");
+  const draft = lerRascunho(raw, { produtos: products, agora: Date.now(), precoAtual: getRegisteredSalePrice });
+  if (draft.estado === "vazio") return;
+  if (draft.estado === "invalido") {
+    console.warn("O carrinho salvo tem formato inválido e foi descartado.");
+    clearSaleCartDraft();
+    return;
+  }
+  if (draft.estado === "expirado") {
+    clearSaleCartDraft();
+    showToast("O carrinho salvo estava parado há mais de 24 horas e foi descartado.");
+    return;
+  }
+  if (draft.estado === "sem-itens") {
+    clearSaleCartDraft();
+    showToast("O carrinho salvo foi descartado: os produtos dele não estão mais disponíveis em estoque.");
     return;
   }
 
-  replaceArray(saleCart, draft.items.map((item) => ({
-    produtoId: item.produtoId,
-    nome: item.nome,
-    codigoInterno: item.codigoInterno || "",
-    codigoBarras: item.codigoBarras || "",
-    quantidade: item.quantidade,
-    precoCadastrado: item.precoCadastrado,
-    precoUnitario: item.precoUnitario === null ? NaN : item.precoUnitario,
-    origem: item.origem || "busca"
-  })));
-  estadoUi.saleCartStartedAt = Number.isFinite(draft.startedAt) ? draft.startedAt : Date.now();
-  estadoUi.saleAttempt = draft.saleAttempt &&
-    typeof draft.saleAttempt.id === "string" &&
-    typeof draft.saleAttempt.fingerprint === "string"
-      ? draft.saleAttempt : null;
+  replaceArray(saleCart, draft.itens);
+  estadoUi.saleCartStartedAt = draft.startedAt;
+  estadoUi.saleAttempt = draft.saleAttempt;
 
   const saleDate = $("#sale-date");
-  if (saleDate && typeof draft.saleDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(draft.saleDate)) {
-    saleDate.value = draft.saleDate;
-  }
+  if (saleDate && draft.saleDate) saleDate.value = draft.saleDate;
   const payment = $("#sale-payment-method");
-  if (payment && typeof draft.paymentMethod === "string") {
+  if (payment && draft.paymentMethod) {
     payment.value = draft.paymentMethod;
     payment.dispatchEvent(new Event("change"));
   }
   const cash = $("#sale-cash-received");
-  if (cash && typeof draft.cashReceived === "string") {
+  if (cash && draft.cashReceived) {
     cash.value = draft.cashReceived;
     cash.dispatchEvent(new Event("input"));
   }
-  showToast("Compra anterior recuperada do navegador. Confira os itens e o estoque antes de finalizar.");
+
+  if (draft.removidos.length || draft.reduzidos.length) {
+    const partes = [];
+    if (draft.removidos.length) partes.push(`sem estoque ou indisponível (removido): ${draft.removidos.join(", ")}`);
+    if (draft.reduzidos.length) partes.push(`quantidade reduzida ao saldo atual: ${draft.reduzidos.join(", ")}`);
+    setFeedback("#sale-feedback", `Compra anterior recuperada com ajustes — ${partes.join("; ")}. Confira também no histórico se essa venda já foi registrada.`, true);
+    showToast("Compra anterior recuperada com ajustes. Confira os itens.");
+  } else {
+    showToast("Compra anterior recuperada do navegador. Confira os itens e o estoque antes de finalizar.");
+  }
 }
 
 // Datas de entrada e saída: preenchidas com hoje e renovadas sozinhas enquanto o usuário não mexer nelas.
@@ -807,6 +780,7 @@ function renderAll() {
 // Fila de carregamentos: cada loadData() espera o anterior terminar, para que um resultado
 // mais antigo nunca sobrescreva um mais novo. Quem chama continua usando "await loadData()".
 let loadChain = Promise.resolve();
+let janelaAvisoMostrado = false;
 function loadData() {
   const run = loadChain.catch(() => {}).then(doLoadData);
   loadChain = run;
@@ -841,6 +815,11 @@ async function doLoadData() {
       estadoUi.inventoryLoadErrorShown = true;
       showToast("Vistoria indisponível: publique as regras do Firestore.");
     }
+  }
+  if (data.janelaComFalha && !janelaAvisoMostrado) {
+    janelaAvisoMostrado = true;
+    console.warn("A consulta por período foi recusada pelo banco; o histórico completo foi carregado.");
+    showToast("O banco recusou a consulta por período; carregando o histórico completo. Veja docs/colecoes-firestore.md.");
   }
   restoreSaleCartDraft();
   renderAll();
