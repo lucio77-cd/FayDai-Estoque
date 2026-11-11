@@ -104,7 +104,7 @@ initScanner({
 initCaixaTelaUI({
   renderSaleProductResults, addProductToSaleCart, setFeedback, renderSaleCart, updateCartRow, updateCartSummary, finishSale,
   isSaleInFlight: () => estadoUi.saleInFlight,
-  onCartCleared: () => { estadoUi.saleAttempt = null; estadoUi.saleCartStartedAt = null; }
+  onCartCleared: () => { estadoUi.saleAttempt = null; estadoUi.saleCartStartedAt = null; clearSaleCartDraft(); }
 });
 initVistoriaUI({
   startInventory, saveInventory, finishInventory, discardInventory, renderInventoryList,
@@ -135,6 +135,7 @@ initSessionUI({
       codigoInternoAtivo: false, codigoBarrasAtivo: false, caixaAtivo: false, saidasAtivo: true
     });
     estadoUi.saleCartStartedAt = null; estadoUi.saleAttempt = null; estadoUi.saleInFlight = false;
+    restoredCartUid = null;
     estadoUi.activeVistoria = null; estadoUi.saleAction = null;
     estadoUi.vistoriaDraft = {}; estadoUi.vistoriaDraftOwner = null; estadoUi.vistoriaDirty = false;
     estadoUi.selectedEntryProductId = ""; estadoUi.selectedExitProductId = "";
@@ -210,6 +211,7 @@ function updateCartSummary() {
   $("#sale-cart-total").textContent = money(cartTotal());
   $("#sale-cart-count").textContent = `${units} ${units === 1 ? "item" : "itens"}`;
   $("#sale-finish-button").disabled = saleCart.length === 0 || cartHasInvalidPrice();
+  persistSaleCartDraft();
   document.dispatchEvent(new CustomEvent("cart:changed", { detail: { total: cartTotal(), units } }));
 }
 
@@ -647,6 +649,115 @@ async function finishInventory() {
 
 function currentEmail() { return auth.currentUser?.email || "Usuário não identificado"; }
 
+// O rascunho do Caixa fica somente neste navegador e separado pelo UID da conta autenticada.
+// Não é enviado ao Firestore. O ID da tentativa também é preservado para manter a idempotência
+// se a página fechar depois do envio e antes de o navegador receber a confirmação.
+let restoredCartUid = null;
+const SALE_CART_STORAGE_PREFIX = "faydai-sale-cart-v1";
+
+function saleCartStorageKey() {
+  const uid = auth.currentUser?.uid;
+  return uid ? `${SALE_CART_STORAGE_PREFIX}:${uid}` : null;
+}
+
+function persistSaleCartDraft() {
+  const key = saleCartStorageKey();
+  if (!key || !saleCart.length) return;
+  const draft = {
+    version: 1,
+    savedAt: Date.now(),
+    startedAt: estadoUi.saleCartStartedAt,
+    items: saleCart.map((item) => ({
+      produtoId: item.produtoId,
+      nome: item.nome,
+      codigoInterno: item.codigoInterno || "",
+      codigoBarras: item.codigoBarras || "",
+      quantidade: item.quantidade,
+      precoCadastrado: item.precoCadastrado,
+      precoUnitario: Number.isFinite(item.precoUnitario) ? item.precoUnitario : null,
+      origem: item.origem || "busca"
+    })),
+    saleAttempt: estadoUi.saleAttempt,
+    saleDate: fieldValue("#sale-date"),
+    paymentMethod: fieldValue("#sale-payment-method"),
+    cashReceived: fieldValue("#sale-cash-received")
+  };
+  try {
+    localStorage.setItem(key, JSON.stringify(draft));
+  } catch (error) {
+    console.warn("Não foi possível salvar o carrinho neste navegador:", error);
+  }
+}
+
+function clearSaleCartDraft() {
+  const key = saleCartStorageKey();
+  if (!key) return;
+  try { localStorage.removeItem(key); }
+  catch (error) { console.warn("Não foi possível limpar o carrinho salvo:", error); }
+}
+
+function restoreSaleCartDraft() {
+  const uid = auth.currentUser?.uid;
+  if (!uid || restoredCartUid === uid) return;
+  restoredCartUid = uid;
+  const key = saleCartStorageKey();
+  if (!key) return;
+
+  let draft;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    draft = JSON.parse(raw);
+  } catch (error) {
+    console.warn("Não foi possível ler o carrinho salvo neste navegador:", error);
+    return;
+  }
+
+  const validItems = draft?.version === 1 && Array.isArray(draft.items) &&
+    draft.items.every((item) =>
+      item && typeof item.produtoId === "string" && item.produtoId &&
+      typeof item.nome === "string" && Number.isInteger(item.quantidade) && item.quantidade > 0 &&
+      Number.isFinite(item.precoCadastrado) &&
+      (item.precoUnitario === null || Number.isFinite(item.precoUnitario))
+    );
+  if (!validItems || !draft.items.length) {
+    console.warn("O carrinho salvo tem formato inválido e foi mantido sem alterações.");
+    return;
+  }
+
+  replaceArray(saleCart, draft.items.map((item) => ({
+    produtoId: item.produtoId,
+    nome: item.nome,
+    codigoInterno: item.codigoInterno || "",
+    codigoBarras: item.codigoBarras || "",
+    quantidade: item.quantidade,
+    precoCadastrado: item.precoCadastrado,
+    precoUnitario: item.precoUnitario === null ? NaN : item.precoUnitario,
+    origem: item.origem || "busca"
+  })));
+  estadoUi.saleCartStartedAt = Number.isFinite(draft.startedAt) ? draft.startedAt : Date.now();
+  estadoUi.saleAttempt = draft.saleAttempt &&
+    typeof draft.saleAttempt.id === "string" &&
+    typeof draft.saleAttempt.fingerprint === "string"
+      ? draft.saleAttempt : null;
+
+  const saleDate = $("#sale-date");
+  if (saleDate && typeof draft.saleDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(draft.saleDate)) {
+    saleDate.value = draft.saleDate;
+  }
+  const payment = $("#sale-payment-method");
+  if (payment && typeof draft.paymentMethod === "string") {
+    payment.value = draft.paymentMethod;
+    payment.dispatchEvent(new Event("change"));
+  }
+  const cash = $("#sale-cash-received");
+  if (cash && typeof draft.cashReceived === "string") {
+    cash.value = draft.cashReceived;
+    cash.dispatchEvent(new Event("input"));
+  }
+  showToast("Compra anterior recuperada do navegador. Confira os itens e o estoque antes de finalizar.");
+}
+
 // Datas de entrada e saída: preenchidas com hoje e renovadas sozinhas enquanto o usuário não mexer nelas.
 // Data da venda: o campo fica VAZIO de propósito; vazio significa "hoje, no momento de finalizar"
 // (finishSale usa fieldValue("#sale-date") || dateToday()). Assim a primeira venda do dia seguinte
@@ -731,6 +842,7 @@ async function doLoadData() {
       showToast("Vistoria indisponível: publique as regras do Firestore.");
     }
   }
+  restoreSaleCartDraft();
   renderAll();
 }
 
@@ -804,6 +916,9 @@ async function finishSale(event) {
   }
   const troco = valorRecebido !== null ? roundMoney(valorRecebido - cartTotal()) : null;
 
+  // Guarda o ID e os dados do envio antes da transação. Se a página fechar durante a resposta,
+  // a próxima sessão reaproveita a mesma tentativa e não cria uma venda duplicada.
+  persistSaleCartDraft();
   estadoUi.saleInFlight = true;
   setSaleBusy(true);
   const button = $("#sale-finish-button");
@@ -834,6 +949,7 @@ async function finishSale(event) {
       formaPagamento, data: date, dataHora: dateTimeFor(date), usuario: currentEmail(),
       ...(valorRecebido !== null ? { valorRecebido, troco } : {})
     };
+    clearSaleCartDraft();
     estadoUi.saleAttempt = null;
     replaceArray(saleCart);
     estadoUi.saleCartStartedAt = null;
@@ -882,6 +998,10 @@ function setSaleBusy(busy) {
 }
 
 initCaixaUI(() => storeSettings);
+["#sale-payment-method", "#sale-date", "#sale-cash-received"].forEach((selector) => {
+  onEvent(selector, "change", persistSaleCartDraft);
+  onEvent(selector, "input", persistSaleCartDraft);
+});
 
 // ---------- Caixa: "Cliente pediu e não tinha" ----------
 // Guarda só o texto do pedido e o momento (sem nenhum dado do cliente).
