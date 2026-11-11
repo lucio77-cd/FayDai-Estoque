@@ -1,5 +1,6 @@
 import { auth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "../firebase.js?v=20261109-7";
 import { $, fieldValue, onEvent } from "../utils.js?v=20261104-1";
+import { historyCutoff } from "../dados.js?v=20261110-3";
 
 function switchTab(tabName) {
   document.querySelectorAll(".tab").forEach((button) => {
@@ -35,6 +36,16 @@ function closeTutorialForNow() {
   $("#tutorial-overlay").hidden = true;
 }
 
+// A tela só carrega os últimos 90 dias. Uma venda, entrada ou saída com data mais antiga seria gravada,
+// mas sumiria da tela. O "min" dos campos de data impede esse lançamento por engano.
+function applyDateLimits() {
+  const earliest = historyCutoff();
+  ["#sale-date", "#entry-date", "#exit-date"].forEach((selector) => {
+    const input = document.querySelector(selector);
+    if (input) input.min = earliest;
+  });
+}
+
 function showApp(isSignedIn) {
   $("#auth-loading-view").hidden = true;
   $("#login-view").hidden = isSignedIn;
@@ -45,6 +56,8 @@ export function initSessionUI({ setFeedback, explainError, showToast, initDateFi
   document.querySelectorAll(".tab").forEach((button) => {
     button.addEventListener("click", () => switchTab(button.dataset.tab));
   });
+  // Se a tela ficar aberta de um dia para o outro, o limite acompanha a data.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) applyDateLimits(); });
   onEvent("#tutorial-close", "click", closeTutorialForNow);
   onEvent("#tutorial-understood", "click", closeTutorialForNow);
   onEvent("#tutorial-never", "click", () => {
@@ -74,6 +87,7 @@ export function initSessionUI({ setFeedback, explainError, showToast, initDateFi
     if (!user) { clearSessionState(); showApp(false); return; }
     showApp(true);
     initDateFields(true);
+    applyDateLimits();
     resetProductForm();
     try { await loadData(); }
     catch (error) {
