@@ -560,3 +560,7 @@ input[type=checkbox],input[type=radio]{accent-color:var(--blue)}
 .chart-axis span{font-size:.75rem}
 @media(max-width:620px){.product-list-toolbar{align-items:stretch;flex-direction:column}.product-list-toolbar .button{width:100%}.product-filters{grid-template-columns:1fr 1fr}.product-search-field{grid-column:1/-1}}
 @media(hover:none){.pos-keys{display:none}}
+
+.product-advanced{margin:var(--s3) 0;padding:var(--s3) var(--s4);border:1px solid var(--line);border-radius:var(--r-md);background:#fbfcff}
+.product-advanced summary{min-height:40px;display:flex;align-items:center;cursor:pointer;color:var(--navy);font-size:var(--fs-sm);font-weight:700}
+.product-advanced[open] summary{margin-bottom:var(--s3);padding-bottom:var(--s2);border-bottom:1px solid var(--line)}
