@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#172554">
   <title>FayDai Estoque</title>
-  <link rel="stylesheet" href="./styles.css?v=20261112-1">
+  <link rel="stylesheet" href="./styles.css?v=20261112-2">
   <link rel="stylesheet" href="./caixa.css?v=20261112-1">
 </head>
 <body>
@@ -63,9 +63,9 @@
           <div class="dash-heading-row">
             <h3 class="dash-heading">Vendas</h3>
             <select id="dashboard-period" class="dash-period" aria-label="Período das vendas">
-              <option value="today">Hoje</option>
+              <option value="today" selected>Hoje</option>
               <option value="week">Últimos 7 dias</option>
-              <option value="month" selected>Este mês</option>
+              <option value="month">Este mês</option>
               <option value="all">Últimos 90 dias</option>
             </select>
           </div>
@@ -184,12 +184,15 @@
             </div>
           </div>
           <p class="small muted">As marcas e categorias novas ficam salvas para os próximos cadastros.</p>
+          <details class="product-advanced">
+            <summary>Mais opções de identificação</summary>
           <label for="product-internal-code">Código interno</label>
           <input id="product-internal-code" readonly placeholder="Gerado automaticamente se ativado">
           <label for="product-barcode">Código de barras (opcional)</label>
           <input id="product-barcode" inputmode="numeric" maxlength="80" placeholder="Digite ou use um scanner conectado">
           <label for="product-description">Descrição (opcional)</label>
           <textarea id="product-description" rows="2" maxlength="500" placeholder="Marca, modelo ou detalhes"></textarea>
+          </details>
           <p class="form-section-heading">Preço e embalagem</p>
           <label for="product-pack-size">Unidades por fardo (opcional)</label>
           <input id="product-pack-size" type="number" min="2" step="1" inputmode="numeric" placeholder="Ex.: 12 (deixe vazio se não vem em fardo)">
