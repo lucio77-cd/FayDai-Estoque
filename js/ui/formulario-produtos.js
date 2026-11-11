@@ -86,6 +86,7 @@ export function initProductFormUI(dependencies) {
 
   function resetProductForm() {
   editingProductId = null;
+  setProductFormOpen(false);
   pendingProductCreationId = null;
   pendingProductCreationFingerprint = null;
   pendingProductCreationEmail = null;
@@ -111,6 +112,18 @@ export function initProductFormUI(dependencies) {
   // Atualiza fardo, preço sugerido, ganho por unidade e a pré-visualização do nome (função da parte 3).
   refreshProductFormUI();
 }
+
+function setProductFormOpen(open) {
+  $("#product-form").hidden = !open;
+  const button = $("#toggle-product-form");
+  if (button) { button.textContent = open ? "Fechar cadastro" : "+ Novo produto"; button.setAttribute("aria-expanded", String(open)); }
+}
+
+onEvent("#toggle-product-form", "click", () => {
+  const opening = $("#product-form").hidden;
+  setProductFormOpen(opening);
+  if (opening) $("#product-form").scrollIntoView({ behavior: "smooth", block: "start" });
+});
 
   function updateSuggestedPrice() {
   const cost = parseDecimal(fieldValue("#product-cost"));
@@ -232,6 +245,7 @@ function setCancelEditVisible(visible) {
   const product = products.find((item) => item.id === productId);
   if (!product) return;
   resetProductForm();
+  setProductFormOpen(true);
   editingProductId = product.id;
   const set = (selector, value) => {
     const element = document.querySelector(selector);
