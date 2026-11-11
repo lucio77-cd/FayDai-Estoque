@@ -45,6 +45,7 @@ A entrada aumenta a quantidade disponível. O custo unitário informado na entra
 ### 3. Saídas e vendas
 - Registrar manualmente as saídas.
 - Para uma venda, registrar produto, quantidade e preço praticado.
+- Manter automaticamente o carrinho em rascunho no armazenamento local do navegador, para recuperá-lo após atualização ou fechamento da página.
 - Bloquear a venda quando a quantidade solicitada superar o saldo disponível.
 - Registrar as movimentações para permitir consultar como o saldo foi alterado.
 - Permitir preço de venda diferente do preço sugerido, exibindo alertas quando o preço praticado estiver abaixo do sugerido ou do custo cadastrado. Esses alertas, por si só, não bloqueiam a venda.
@@ -85,7 +86,7 @@ Cada alteração do custo cadastrado gera um registro imutável na coleção `hi
 - Existe no máximo uma vistoria em andamento por vez. O andamento pode ser salvo e retomado; descartar uma vistoria em andamento a apaga sem alterar nenhum saldo.
 - Ao concluir, a diferença é calculada com o saldo do momento da conclusão (não o de quando a contagem começou), dentro de uma transação.
 - Cada produto contado registra: saldo anterior, quantidade contada, diferença, data e responsável. Os saldos só são alterados nos produtos com diferença.
-- A vistoria concluída não pode ser editada nem apagada. O histórico mostra as 10 últimas vistorias; as demais permanecem salvas.
+- A vistoria concluída não pode ser editada nem apagada. O histórico mostra as 30 últimas vistorias; as demais permanecem salvas.
 - Produtos arquivados ou excluídos durante a contagem são ignorados e ficam registrados como tal.
 - Limite de 400 produtos com diferença por conclusão (limite de escritas de uma transação do Firestore); acima disso, deixe alguns produtos em branco e conclua em partes.
 - Os ajustes ficam registrados na própria vistoria (coleção `vistorias`) e não aparecem nos históricos de Entradas e Saídas.
@@ -244,6 +245,7 @@ Arquivos:
 
 - **Caixa:** módulo opcional para registrar vendas. O preço de cada item começa no preço de venda cadastrado e pode ser ajustado no carrinho (preço cobrado). O sistema baixa automaticamente a quantidade do estoque.
 - **Alertas de preço:** o Caixa avisa quando o preço cobrado está abaixo do preço sugerido ou abaixo do custo cadastrado. Os alertas não bloqueiam a venda; se algum item estiver abaixo do custo, o sistema pede uma confirmação antes de finalizar. Preço vazio ou zero é tratado como erro e impede a finalização.
+- **Carrinho recuperável:** os itens, quantidades e preços do atendimento em andamento são salvos automaticamente no armazenamento local do navegador, separados pelo UID da conta. Se a página for atualizada ou fechada, o carrinho é recuperado depois que os dados dos produtos carregam. A forma de pagamento, a data e o valor recebido também são preservados no rascunho. O carrinho não é enviado ao Firestore nem sincronizado entre aparelhos; limpar a compra ou concluir a venda remove o rascunho. Se o navegador bloquear ou apagar o armazenamento local, a recuperação não estará disponível.
 - **Dados guardados em cada venda:** para cada item, o preço cobrado, o preço cadastrado, o preço sugerido e o custo cadastrado no momento da venda, além de indicadores de preço alterado, abaixo do sugerido e abaixo do custo. Isso mantém o cálculo histórico correto mesmo que o custo mude depois.
 - **Saídas:** registra retiradas manuais que não são vendas: perdas, devoluções ao fornecedor, uso interno e outras saídas.
 - Os dois módulos usam o mesmo cadastro e saldo dos produtos, mas mantêm históricos separados.
@@ -260,6 +262,7 @@ Arquivos:
 5. Confira se a quantidade diminuiu em Produtos e se a venda aparece no histórico do Caixa.
 6. Tente vender mais unidades do que o saldo disponível; o sistema deve bloquear a operação.
 7. No carrinho, altere o preço cobrado para um valor abaixo do sugerido e confira o alerta amarelo. Altere para abaixo do custo e confira o alerta vermelho e a confirmação ao finalizar.
+8. Adicione itens ao carrinho, atualize a página e confirme que itens, quantidades, preços e dados de pagamento são recuperados. Limpe a compra e confirme que ela não reaparece; repita finalizando uma venda de teste.
 9. Em Saídas, teste uma retirada manual com motivo, por exemplo, perda ou uso interno. Confira a baixa e o histórico.
 9. Desative e reative os módulos para confirmar que o histórico permanece.
 
