@@ -4,8 +4,12 @@ import { historyCutoff } from "../dados.js?v=20261110-3";
 
 function switchTab(tabName) {
   document.querySelectorAll(".tab").forEach((button) => {
-    button.classList.toggle("active", button.dataset.tab === tabName);
+    const selected = button.dataset.tab === tabName;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
   });
+  const welcome = $("#welcome");
+  if (welcome) welcome.hidden = tabName !== "dashboard";
   document.querySelectorAll(".tab-panel").forEach((panel) => {
     panel.hidden = panel.id !== `${tabName}-panel`;
   });
