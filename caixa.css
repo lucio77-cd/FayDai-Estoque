@@ -30,3 +30,6 @@
   .pos-cart{position:sticky;top:var(--s4)}
   .pos-cart-list{max-height:calc(100dvh - 560px);min-height:120px}
 }
+
+/* A seleção do pagamento também é comunicada por aria-pressed no botão. */
+.pay-btn:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
