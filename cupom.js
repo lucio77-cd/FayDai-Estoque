@@ -136,7 +136,11 @@ export function initCaixaUI(getStore = () => ({})) {
     change.textContent = diff >= 0 ? `Troco: ${money(diff)}` : `Faltam ${money(-diff)}`;
   };
   syncPay = () => {
-    document.querySelectorAll("[data-pay]").forEach((b) => b.classList.toggle("active", b.dataset.pay === select.value));
+    document.querySelectorAll("[data-pay]").forEach((b) => {
+      const selected = b.dataset.pay === select.value;
+      b.classList.toggle("active", selected);
+      b.setAttribute("aria-pressed", String(selected));
+    });
     const isCash = select.value === "Dinheiro";
     $("#sale-cash-box").hidden = !isCash;
     if (!isCash) cash.value = "";
