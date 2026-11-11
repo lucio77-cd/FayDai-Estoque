@@ -1,5 +1,9 @@
 # FayDai-Estoque
 
+## Manutenção de interface — novembro de 2026
+
+As melhorias de catálogo, navegação, acessibilidade e apresentação visual são restritas à camada de interface. A busca e os filtros consultam os produtos já carregados em memória; não gravam preferências nem alteram documentos. O formulário de cadastro apenas inicia recolhido; seus campos, validações e serviços de gravação permanecem os mesmos. As configurações de impressão continuam locais ao navegador. Nenhuma coleção, campo, regra do Firestore ou rotina de venda, entrada, saída ou vistoria foi modificada nesta manutenção.
+
 Sistema simples de gestão de estoque, entradas, saídas e preços, pensado inicialmente para uma loja de celulares e acessórios. A primeira versão será priorizada para uso no celular e construída para ser demonstrada e validada com o responsável pela loja.
 
 > **Status:** protótipo em desenvolvimento. Já inclui login, painel inicial (dashboard com estoque baixo, rankings e gráfico), produtos (com histórico de alteração de custo e estoque mínimo), entradas, Caixa (vendas com preço ajustável e alertas, cancelamentos e devoluções), Saídas, vistoria física, exportação para CSV e configurações. Validado em uso real: venda, devolução parcial, cancelamento, exportação CSV, Painel e estoque mínimo. Ainda falta testar: leitor de código de barras, vistoria completa e edição de custo (custo anterior).
