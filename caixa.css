@@ -33,3 +33,22 @@
 
 /* A seleção do pagamento também é comunicada por aria-pressed no botão. */
 .pay-btn:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+
+/* Abertura e fechamento de caixa */
+.caixa-box{margin-bottom:var(--s4)}
+.caixa-box h3{margin:0}
+.caixa-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s3);margin:0}
+.caixa-stats div{padding:var(--s3);border:1px solid var(--line);border-radius:var(--r-md);background:var(--blue-50)}
+.caixa-stats dt{font-size:var(--fs-xs);font-weight:700;color:var(--muted)}
+.caixa-stats dd{margin:var(--s1) 0 0;font-size:1.25rem;font-weight:800;font-variant-numeric:tabular-nums}
+@media(min-width:768px){.caixa-stats{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.caixa-summary{display:grid;gap:var(--s2);margin:var(--s3) 0 var(--s4)}
+.caixa-line{display:flex;justify-content:space-between;gap:var(--s3);font-variant-numeric:tabular-nums}
+.caixa-line.strong{padding-top:var(--s2);border-top:1px solid var(--line);font-weight:700}
+.caixa-line.total{padding:var(--s3);border-radius:var(--r-md);background:var(--blue-50);color:var(--navy);font-size:1.15rem;font-weight:800}
+.caixa-sub{margin:var(--s2) 0 0;font-size:var(--fs-sm);color:var(--muted)}
+.caixa-diff{margin:0;font-size:1.1rem;font-weight:800;font-variant-numeric:tabular-nums}
+.caixa-diff:empty{display:none}
+.caixa-diff.ok{color:var(--green)}
+.caixa-diff.short{color:var(--red)}
+.caixa-diff.over{color:var(--amber)}

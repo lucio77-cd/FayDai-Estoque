@@ -21,6 +21,8 @@ export const brands = [];
 export const categories = [];
 export const inventoryHistory = [];
 export const saleReturns = [];
+// Caixas (sessões de abertura e fechamento) dos últimos dias; o caixa aberto fica em estadoUi.caixaAberto.
+export const caixas = [];
 
 export function replaceArray(target, values = []) {
   target.splice(0, target.length, ...values);
@@ -51,5 +53,10 @@ export const estadoUi = {
   // Cancelamentos e devoluções de venda
   saleReturnsAvailable: true,
   returnsLoadErrorShown: false,
-  saleAction: null // { mode: "cancel" | "return", saleId, returnId }
+  saleAction: null, // { mode: "cancel" | "return", saleId, returnId }
+  // Abertura e fechamento de caixa. caixaAberto = documento do caixa aberto (ou null). Se o banco ainda não
+  // liberou a coleção "caixas" (regras), caixasAvailable fica false e as vendas seguem sem exigir caixa aberto.
+  caixaAberto: null,
+  caixasAvailable: true,
+  caixaLoadErrorShown: false
 };

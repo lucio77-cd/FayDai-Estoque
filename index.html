@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#172554">
   <title>FayDai Estoque</title>
   <link rel="stylesheet" href="./styles.css?v=20261112-2">
-  <link rel="stylesheet" href="./caixa.css?v=20261112-1">
+  <link rel="stylesheet" href="./caixa.css?v=20261120-1">
 </head>
 <body>
   <main class="app-shell">
@@ -280,6 +280,39 @@
         <div id="caja-content">
           <div class="section-heading"><div><p class="eyebrow">VENDAS</p><h2>Caixa</h2></div><span class="pos-keys">F2 buscar · F4 finalizar · F8 limpar</span></div>
 
+          <div id="caixa-unavailable" class="module-notice" hidden>
+            <h3>Abertura e fechamento de caixa indisponíveis</h3>
+            <p>O banco ainda não liberou a coleção <strong>caixas</strong>. Publique as regras do Firestore (veja docs/colecoes-firestore.md). Enquanto isso, as vendas continuam normalmente, sem exigir caixa aberto.</p>
+          </div>
+
+          <section id="caixa-closed-box" class="panel form-stack caixa-box" hidden>
+            <div><p class="eyebrow">CAIXA FECHADO</p><h3>Abra o caixa para começar a vender</h3></div>
+            <p class="small muted">Informe quanto dinheiro há na gaveta para dar troco. Esse valor entra na conferência do fechamento.</p>
+            <form id="caixa-open-form" class="form-stack">
+              <label for="caixa-open-value">Dinheiro na gaveta ao abrir (R$) *</label>
+              <input id="caixa-open-value" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00" required>
+              <label for="caixa-open-note">Observação (opcional)</label>
+              <input id="caixa-open-note" maxlength="200" placeholder="Ex.: troco em moedas" autocomplete="off">
+              <button id="caixa-open-button" class="button primary" type="submit">Abrir caixa</button>
+              <p id="caixa-open-feedback" class="feedback" role="status"></p>
+            </form>
+          </section>
+
+          <section id="caixa-open-box" class="panel form-stack caixa-box" hidden>
+            <div class="item-title-row">
+              <div><p class="eyebrow">CAIXA ABERTO</p><h3 id="caixa-open-title">Caixa aberto</h3></div>
+              <button id="caixa-close-start" class="button secondary" type="button">Fechar caixa</button>
+            </div>
+            <p id="caixa-stale" class="notice" hidden></p>
+            <dl class="caixa-stats">
+              <div><dt>Dinheiro na abertura</dt><dd id="caixa-stat-open">R$ 0,00</dd></div>
+              <div><dt>Vendas</dt><dd id="caixa-stat-sales">0</dd></div>
+              <div><dt>Total líquido</dt><dd id="caixa-stat-total">R$ 0,00</dd></div>
+              <div><dt>Dinheiro esperado</dt><dd id="caixa-stat-cash">R$ 0,00</dd></div>
+            </dl>
+            <p id="caixa-close-feedback" class="feedback" role="status"></p>
+          </section>
+
           <div id="sale-done" class="sale-done" role="status" hidden>
             <p id="sale-done-text"></p>
             <div class="sale-done-actions">
@@ -357,6 +390,10 @@
             <button id="lost-demand-button" class="button secondary" type="button">Registrar procura sem estoque</button>
             <p id="lost-demand-feedback" class="feedback" role="status"></p>
           </div>
+
+          <div class="list-heading"><h3>Fechamentos de caixa</h3></div>
+          <p class="small muted">Mostrando os últimos 90 dias.</p>
+          <div id="caixa-history-list" class="item-list"><div class="empty-state">Nenhum fechamento registrado ainda.</div></div>
 
           <div class="list-heading"><h3>Histórico de vendas</h3><button id="refresh-sales" class="button quiet" type="button">Atualizar</button></div>
           <p class="small muted">Mostrando os últimos 90 dias. O histórico completo sai em Configurações → Exportar dados (CSV).</p>
@@ -536,6 +573,24 @@
     </section>
   </div>
 
+  <div id="caixa-close-overlay" class="overlay" hidden>
+    <section class="tutorial-card" role="dialog" aria-modal="true" aria-labelledby="caixa-close-title">
+      <button id="caixa-close-dismiss" class="icon-button" type="button" aria-label="Fechar">×</button>
+      <p class="eyebrow">FECHAMENTO</p>
+      <h2 id="caixa-close-title">Fechar caixa</h2>
+      <div id="caixa-close-summary" class="caixa-summary"></div>
+      <form id="caixa-close-form" class="form-stack">
+        <label for="caixa-close-counted">Dinheiro contado na gaveta (R$) *</label>
+        <input id="caixa-close-counted" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00" required>
+        <p id="caixa-close-diff" class="caixa-diff" aria-live="polite"></p>
+        <label for="caixa-close-note">Observação (opcional)</label>
+        <textarea id="caixa-close-note" rows="2" maxlength="300" placeholder="Ex.: diferença de troco"></textarea>
+        <button id="caixa-close-confirm" class="button primary full" type="submit">Fechar caixa</button>
+        <p id="caixa-close-overlay-feedback" class="feedback" role="status"></p>
+      </form>
+    </section>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script>
     // Aviso de segurança: se o sistema não sair de "Verificando sua sessão…", mostra o motivo provável.
@@ -554,6 +609,6 @@
       }, 10000);
     })();
   </script>
-    <script type="module" src="./app.js?v=20261112-1"></script>
+    <script type="module" src="./app.js?v=20261120-1"></script>
 </body>
               </html>

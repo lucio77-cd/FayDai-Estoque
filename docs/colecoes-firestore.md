@@ -14,6 +14,7 @@ Todas as gravações são feitas pelo navegador, por uma única conta autorizada
 | `vendas` | sim | só cancelamento e contadores de devolução | nunca | `data >= início da janela` |
 | `devolucoes` | sim | nunca | nunca | `data >= início da janela` |
 | `vistorias` | sim | contagens e status | nunca | coleção inteira |
+| `caixas` | sim | só o fechamento (e o documento de controle) | nunca | `data >= início da janela` + controle |
 | `historico_custos` | sim | nunca | nunca | consulta por `produtoId` (ao excluir produto) |
 | `procura_perdida` | sim | nunca | nunca | não é lida |
 
@@ -51,6 +52,12 @@ Todas as gravações são feitas pelo navegador, por uma única conta autorizada
 - **Documento de controle `controle_vistoria_ativa`** (`inventoryId`, `atualizadoEm`, `atualizadoPor`): impede duas vistorias ao mesmo tempo. É um documento da própria coleção, sem `status`.
 - Consulta `where("status", "==", "em_andamento")` ao iniciar.
 
+### `caixas`
+- Abertura e fechamento de caixa. Detalhes e regras sugeridas em `docs/caixa.md`.
+- Criada em `openCaixa` (ID do cliente, `status: "aberto"`); atualizada **uma vez** em `closeCaixa` (`status: "fechado"`, totais, `valorContado`, `diferenca`). Nunca excluída.
+- **Documento de controle `controle_caixa_aberto`** (`caixaId`, `atualizadoEm`, `atualizadoPor`): impede dois caixas abertos ao mesmo tempo. Fica na própria coleção, sem `status` nem `data`.
+- `vendas` ganha o campo opcional `caixaId` (só nas vendas de hoje feitas com o caixa aberto). A venda lê `caixas/{caixaId}` dentro da transação e é recusada se o caixa não estiver aberto.
+
 ### `historico_custos`
 - Criado na edição do produto quando o custo muda. Lido só por `where("produtoId", "==", ...)` com `limit(1)`.
 
@@ -62,6 +69,7 @@ Todas as gravações são feitas pelo navegador, por uma única conta autorizada
 1. Só a conta autorizada (lista de e-mails) lê e grava.
 2. Leitura de `entradas`, `saidas`, `vendas` e `devolucoes` **como consulta** (`list`) com `where("data", ">=", "AAAA-MM-DD")`, além de `get` por ID em `vendas`. O Firestore cria sozinho o índice de campo único para `data`.
 3. Criação em `devolucoes/{id}` e `procura_perdida` (qualquer ID).
+   Em `caixas`: leitura (`get` e `list` por `data >= ...`), criação da abertura, uma atualização de fechamento e o documento de controle (veja `docs/caixa.md`).
 4. Documentos especiais de `produtos` e o documento `vistorias/controle_vistoria_ativa`.
 5. As proteções descritas no README: saldo e valores sem negativo, `entradas`/`saidas`/`historico_custos`/`devolucoes` só com criação, venda cancelada imutável, vistoria concluída imutável, `usuario` igual ao e-mail da conta.
 

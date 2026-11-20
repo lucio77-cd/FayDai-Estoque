@@ -5,11 +5,11 @@ import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v
 import { saveEntryTransaction, saveExitTransaction, newEntryId, newExitId, attemptFor } from "./js/servicos/movimentacoes.js?v=20261109-7";
 import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=20261109-7";
 import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261109-7";
-import { cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261106-4";
+import { cartItemSubtotal as saleCartItemSubtotal, cartTotal as saleCartTotal, cartHasInvalidPrice as saleCartHasInvalidPrice, finishSaleTransaction, registerLostDemand } from "./js/servicos/vendas.js?v=20261120-1";
 import { acaoRascunho, montarRascunho, lerRascunho } from "./js/rascunho-carrinho.js?v=20261111-1";
 
-import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, replaceArray, estadoUi } from "./js/estado.js?v=20261108-1";
-import { loadAppData } from "./js/dados.js?v=20261110-3";
+import { storeSettings, products, entries, exits, sales, saleCart, brands, categories, inventoryHistory, saleReturns, caixas, replaceArray, estadoUi } from "./js/estado.js?v=20261108-1";
+import { loadAppData, historyCutoff } from "./js/dados.js?v=20261110-3";
 import { initScanner } from "./js/ui/scanner.js?v=20261106-7";
 import { initPainelUI, renderDashboard } from "./js/ui/painel.js?v=20261110-2";
 import { renderProducts } from "./js/ui/produtos.js?v=20261112-1";
@@ -23,6 +23,8 @@ import { initExportacaoUI } from "./js/ui/exportacao.js?v=20261110-2";
 import { initConfiguracoesUI, renderStoreSettings } from "./js/ui/configuracoes.js?v=20261109-2";
 import { initVistoriaUI } from "./js/ui/vistoria.js?v=20261106-14";
 import { initCaixaTelaUI } from "./js/ui/caixa.js?v=20261107-1";
+import { initCaixaSessaoUI, renderCaixaSessao, caixaObrigatorio } from "./js/ui/caixa-sessao.js?v=20261120-1";
+import { newCaixaId, openCaixa, closeCaixa, loadCaixas, loadMovimentosCaixa, summarizeCaixa } from "./js/servicos/caixa.js?v=20261120-1";
 import { initMovementSearchUI, selectedEntryProduct, readEntryAmounts, renderEntryProductResults, renderExitProductResults } from "./js/ui/busca-movimentacoes.js?v=20261108-2";
 
 function showToast(message) {
@@ -83,6 +85,10 @@ initCaixaTelaUI({
   isSaleInFlight: () => estadoUi.saleInFlight,
   onCartCleared: () => { estadoUi.saleAttempt = null; estadoUi.saleCartStartedAt = null; clearSaleCartDraft(); }
 });
+initCaixaSessaoUI({
+  summarizeCaixa, newCaixaId, openCaixa, closeCaixa, loadMovimentosCaixa,
+  currentEmail: () => currentEmail(), loadData, setFeedback, showToast, explainError
+});
 initVistoriaUI({
   startInventory, saveInventory, finishInventory, discardInventory, renderInventoryList,
   updateCount: (productId, value) => {
@@ -106,7 +112,7 @@ initSessionUI({
   setFeedback, explainError, showToast, initDateFields, resetProductForm, loadData,
   clearSessionState: () => {
     replaceArray(products); replaceArray(entries); replaceArray(exits); replaceArray(sales); replaceArray(saleReturns);
-    replaceArray(saleCart); replaceArray(brands); replaceArray(categories); replaceArray(inventoryHistory);
+    replaceArray(saleCart); replaceArray(brands); replaceArray(categories); replaceArray(inventoryHistory); replaceArray(caixas);
     Object.assign(storeSettings, {
       nome: "", responsavel: "", telefone: "", endereco: "", cnpj: "",
       codigoInternoAtivo: false, codigoBarrasAtivo: false, caixaAtivo: false, saidasAtivo: true
@@ -114,10 +120,11 @@ initSessionUI({
     estadoUi.saleCartStartedAt = null; estadoUi.saleAttempt = null; estadoUi.saleInFlight = false;
     restoredCartUid = null;
     estadoUi.activeVistoria = null; estadoUi.saleAction = null;
+    estadoUi.caixaAberto = null; estadoUi.caixasAvailable = true; estadoUi.caixaLoadErrorShown = false;
     estadoUi.vistoriaDraft = {}; estadoUi.vistoriaDraftOwner = null; estadoUi.vistoriaDirty = false;
     estadoUi.selectedEntryProductId = ""; estadoUi.selectedExitProductId = "";
     // Fecha janelas abertas e limpa os formulários, para nada do usuário anterior ficar na tela.
-    document.querySelectorAll("#sale-action-overlay, #tutorial-overlay").forEach((element) => { element.hidden = true; });
+    document.querySelectorAll("#sale-action-overlay, #caixa-close-overlay, #tutorial-overlay").forEach((element) => { element.hidden = true; });
     document.querySelectorAll("#app-view form").forEach((form) => form.reset());
     renderAll();
   }
@@ -772,6 +779,7 @@ function renderAll() {
   renderSaleProductResults();
   renderSaleCart();
   renderSales(estadoUi.saleReturnsAvailable);
+  renderCaixaSessao();
   syncInventoryDraft();
   renderInventory();
   renderDashboard();
@@ -821,8 +829,32 @@ async function doLoadData() {
     console.warn("A consulta por período foi recusada pelo banco; o histórico completo foi carregado.");
     showToast("O banco recusou a consulta por período; carregando o histórico completo. Veja docs/colecoes-firestore.md.");
   }
+  await loadCaixaState();
   restoreSaleCartDraft();
   renderAll();
+}
+
+// Caixa aberto e fechamentos recentes. Se o banco ainda não liberou a coleção "caixas" (regras não
+// publicadas), o recurso fica indisponível e as vendas seguem sem exigir caixa aberto. Qualquer outro
+// erro (rede, por exemplo) mantém o que já estava na tela, para não soltar a exigência sem motivo.
+async function loadCaixaState() {
+  try {
+    const data = await loadCaixas({ desde: historyCutoff() });
+    replaceArray(caixas, data.caixas);
+    estadoUi.caixaAberto = data.aberto;
+    estadoUi.caixasAvailable = true;
+  } catch (error) {
+    console.error("Falha ao carregar os caixas:", error);
+    if (String(error?.code || "").includes("permission-denied")) {
+      replaceArray(caixas);
+      estadoUi.caixaAberto = null;
+      estadoUi.caixasAvailable = false;
+    }
+    if (!estadoUi.caixaLoadErrorShown) {
+      estadoUi.caixaLoadErrorShown = true;
+      showToast("Abertura e fechamento de caixa indisponíveis: publique as regras do Firestore.");
+    }
+  }
 }
 
 // Botões "Atualizar" de cada aba.
@@ -857,6 +889,13 @@ async function finishSale(event) {
   const formaPagamento = fieldValue("#sale-payment-method");
   if (!formaPagamento) return setFeedback("#sale-feedback", "Selecione a forma de pagamento.", true);
   const date = fieldValue("#sale-date") || dateToday();
+  // Venda de hoje exige caixa aberto (quando a coleção "caixas" está liberada no banco). Venda com data de
+  // outro dia nunca entra em um caixa: ela não recebe caixaId.
+  const retroactive = date !== dateToday();
+  if (caixaObrigatorio() && !retroactive && !estadoUi.caixaAberto) {
+    return setFeedback("#sale-feedback", "Abra o caixa antes de registrar vendas.", true);
+  }
+  const caixaId = !retroactive && estadoUi.caixasAvailable && estadoUi.caixaAberto ? estadoUi.caixaAberto.id : null;
 
   const belowCost = saleCart.filter((item) => {
     const product = products.find((entry) => entry.id === item.produtoId);
@@ -873,7 +912,6 @@ async function finishSale(event) {
   const saleHour = clock.getHours();
   const saleWeekday = new Date(`${date}T12:00:00`).getDay();
   const durationSeconds = estadoUi.saleCartStartedAt ? Math.max(0, Math.round((Date.now() - estadoUi.saleCartStartedAt) / 1000)) : null;
-  const retroactive = date !== dateToday();
 
   // Idempotência: o ID da venda é gerado no cliente ANTES da transação e só muda quando o conteúdo
   // da venda muda. Se a resposta da rede se perder e o usuário tentar de novo, o mesmo ID é reutilizado
@@ -916,7 +954,8 @@ async function finishSale(event) {
       retroactive,
       valorRecebido,
       troco,
-      dateTime: dateTimeFor(date)
+      dateTime: dateTimeFor(date),
+      caixaId
     });
     const savedItems = cartSnapshot.map((item) => ({
       produtoNome: item.nome, quantidade: item.quantidade, precoUnitario: item.precoUnitario,
@@ -957,6 +996,8 @@ async function finishSale(event) {
   } catch (error) {
     console.error("Falha ao registrar venda:", error);
     setFeedback("#sale-feedback", explainError(error), true);
+    // Caixa fechado em outro aparelho: atualiza a tela para mostrar o estado real.
+    if (error?.code === "caixa-fechado") loadData().catch((refreshError) => console.error("Falha ao atualizar o caixa:", refreshError));
   } finally {
     estadoUi.saleInFlight = false;
     renderSaleCart();

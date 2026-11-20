@@ -24,7 +24,8 @@ export async function finishSaleTransaction({
   retroactive,
   valorRecebido = null,
   troco = null,
-  dateTime
+  dateTime,
+  caixaId = null
 }) {
   const saleRef = doc(db, "vendas", saleId);
   let alreadySaved = false;
@@ -35,6 +36,17 @@ export async function finishSaleTransaction({
     if (existingSale.exists()) {
       alreadySaved = true;
       return;
+    }
+
+    // Venda com caixa: o caixa precisa estar aberto no momento da gravação. Se foi fechado em outro
+    // aparelho, a venda é recusada e nada muda (a leitura vem antes de qualquer escrita).
+    if (caixaId) {
+      const caixaSnapshot = await transaction.get(doc(db, "caixas", caixaId));
+      if (!caixaSnapshot.exists() || caixaSnapshot.data().status !== "aberto") {
+        const error = new Error("O caixa foi fechado. Abra o caixa para registrar a venda.");
+        error.code = "caixa-fechado";
+        throw error;
+      }
     }
 
     const snapshots = [];
@@ -97,6 +109,7 @@ export async function finishSaleTransaction({
       totalUnidades: itens.reduce((sum, item) => sum + item.quantidade, 0),
       lancamentoRetroativo: retroactive,
       ...(valorRecebido !== null ? { valorRecebido, troco } : {}),
+      ...(caixaId ? { caixaId } : {}),
       criadoEm: serverTimestamp()
     });
   });
