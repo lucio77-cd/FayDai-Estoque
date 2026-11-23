@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 
 import { resetMockDb, seedDoc, readDoc, dumpCollection } from "./firebase-mock-runtime.mjs";
 import {
-  CAIXA_CONTROLE_ID, openCaixa, closeCaixa, loadCaixas, loadMovimentosCaixa, summarizeCaixa, returnInCaixa
-} from "../js/servicos/caixa.js?v=20261120-1";
+  CAIXA_CONTROLE_ID, openCaixa, closeCaixa, loadCaixas, loadMovimentosCaixa, summarizeCaixa, returnInCaixa,
+  variacaoPercentual, diasAntes, summarizeDia, diaAnteriorComVendas, buildComparativo
+} from "../js/servicos/caixa.js?v=20261123-1";
+import { caixaAberturaHtml, caixaFechamentoHtml } from "../cupom.js?v=20261123-1";
 import { finishSaleTransaction } from "../js/servicos/vendas.js?v=20261120-1";
 import { registerReturn } from "../js/devolucoes.js?v=20261110-2";
 
@@ -181,4 +183,129 @@ test("loadCaixas sem caixa aberto devolve aberto nulo", async () => {
   const data = await loadCaixas({ desde: "2026-11-01" });
   assert.equal(data.aberto, null);
   assert.deepEqual(data.caixas, []);
+});
+
+// ---------- Comparação com o dia anterior e notas ----------
+
+test("variação percentual: soma, queda, igual e sem base", () => {
+  assert.equal(variacaoPercentual(150, 100), 50);
+  assert.equal(variacaoPercentual(80, 100), -20);
+  assert.equal(variacaoPercentual(100, 100), 0);
+  assert.equal(variacaoPercentual(10, 3), 233.3);
+  assert.equal(variacaoPercentual(50, 0), null);
+  assert.equal(variacaoPercentual(50, undefined), null);
+});
+
+test("diasAntes volta datas corretamente na virada de mês e de ano", () => {
+  assert.equal(diasAntes("2026-11-20", 1), "2026-11-19");
+  assert.equal(diasAntes("2026-03-02", 3), "2026-02-27");
+  assert.equal(diasAntes("2026-01-02", 7), "2025-12-26");
+});
+
+test("summarizeDia: vendas do dia sem canceladas, menos devoluções do dia", () => {
+  const vendas = [
+    { id: "a", data: "2026-11-19", total: 100 },
+    { id: "b", data: "2026-11-19", total: 50 },
+    { id: "c", data: "2026-11-19", total: 999, status: "cancelada" },
+    { id: "d", data: "2026-11-18", total: 70 }
+  ];
+  const devolucoes = [{ id: "x", data: "2026-11-19", totalDevolvido: 20 }, { id: "y", data: "2026-11-18", totalDevolvido: 5 }];
+  const dia = summarizeDia({ data: "2026-11-19", vendas, devolucoes });
+  assert.equal(dia.numeroVendas, 2);
+  assert.equal(dia.totalVendas, 150);
+  assert.equal(dia.totalDevolucoes, 20);
+  assert.equal(dia.totalLiquido, 130);
+  assert.equal(dia.ticketMedio, 75);
+});
+
+test("dia anterior: pula dias sem venda e ignora o próprio dia do caixa", () => {
+  const caixa = { id: "c1", data: "2026-11-20" };
+  const vendas = [
+    { id: "a", data: "2026-11-20", total: 10, caixaId: "c1" },
+    { id: "b", data: "2026-11-18", total: 200 },
+    { id: "c", data: "2026-11-16", total: 40 }
+  ];
+  assert.equal(diaAnteriorComVendas({ caixa, vendas, devolucoes: [] }).data, "2026-11-18");
+  assert.equal(diaAnteriorComVendas({ caixa, vendas: [{ id: "z", data: "2026-11-20", total: 1 }], devolucoes: [] }), null);
+});
+
+test("comparativo: hoje x dia anterior em % (valores, vendas e ticket médio)", () => {
+  const resumo = { totalVendas: 300, totalLiquido: 270, numeroVendas: 3 };
+  const anterior = { data: "2026-11-19", totalLiquido: 200, numeroVendas: 4, ticketMedio: 50 };
+  const comp = buildComparativo({ resumo, anterior });
+  assert.equal(comp.dataAnterior, "2026-11-19");
+  assert.deepEqual(comp.totalLiquido, { atual: 270, anterior: 200, variacao: 35 });
+  assert.deepEqual(comp.numeroVendas, { atual: 3, anterior: 4, variacao: -25 });
+  assert.deepEqual(comp.ticketMedio, { atual: 100, anterior: 50, variacao: 100 });
+  assert.equal(buildComparativo({ resumo, anterior: null }), null);
+});
+
+test("loadMovimentosCaixa enxerga o dia anterior e o comparativo sai do banco", async () => {
+  seedProduct("p1");
+  await vender("venda-ontem", "Pix", { date: "2026-11-19", dateTime: "2026-11-19 10:00" });
+  await abrir({ date: "2026-11-20", dateTime: "2026-11-20 08:00" });
+  await vender("venda-hoje", "Dinheiro", { caixaId: "caixa-1" });
+  const caixa = { id: "caixa-1", ...readDoc("caixas", "caixa-1") };
+  const movimentos = await loadMovimentosCaixa(caixa);
+  const resumo = summarizeCaixa({ caixa, ...movimentos });
+  assert.equal(resumo.numeroVendas, 1);
+  const comp = buildComparativo({ resumo, anterior: diaAnteriorComVendas({ caixa, ...movimentos }) });
+  assert.equal(comp.dataAnterior, "2026-11-19");
+  assert.equal(comp.totalLiquido.atual, 10);
+  assert.equal(comp.totalLiquido.anterior, 10);
+  assert.equal(comp.totalLiquido.variacao, 0);
+});
+
+test("fechar o caixa grava o comparativo e devolve os campos gravados", async () => {
+  await abrir();
+  const resumo = { esperadoDinheiro: 100, totalVendas: 0, totalDevolucoes: 0, totalLiquido: 0, numeroVendas: 0, numeroVendasCanceladas: 0, numeroDevolucoes: 0, formas: [] };
+  const comparativo = { dataAnterior: "2026-11-19", totalLiquido: { atual: 0, anterior: 50, variacao: -100 } };
+  const result = await closeCaixa({ caixaId: "caixa-1", fechamentoId: "f1", valorContado: 100, resumo, comparativo, date: "2026-11-20", dateTime: "2026-11-20 18:00" });
+  assert.deepEqual(readDoc("caixas", "caixa-1").comparativo, comparativo);
+  assert.equal(result.fechamento.status, "fechado");
+  assert.equal(result.fechamento.valorContado, 100);
+  await abrir({ caixaId: "caixa-2", date: "2026-11-21", dateTime: "2026-11-21 08:00" });
+  await closeCaixa({ caixaId: "caixa-2", fechamentoId: "f2", valorContado: 100, resumo, date: "2026-11-21", dateTime: "2026-11-21 18:00" });
+  assert.equal(readDoc("caixas", "caixa-2").comparativo, null);
+});
+
+test("nota de abertura mostra dinheiro, operador e o caixa anterior com variação", () => {
+  const html = caixaAberturaHtml(
+    { id: "abc123xyz", dataHora: "2026-11-20 08:00", abertoPor: "ana@loja.com", valorAbertura: 120, observacaoAbertura: "moedas" },
+    { data: "2026-11-19", valorAbertura: 100, variacaoAbertura: 20, valorContado: 480, diferenca: -2, totalLiquido: 900 },
+    { nome: "Loja <FayDai>" }
+  );
+  assert.match(html, /ABERTURA DE CAIXA/);
+  assert.match(html, /#123XYZ/);
+  assert.match(html, /20\/11\/2026 08:00/);
+  assert.match(html, /Operador: ana/);
+  assert.match(html, /R\$\s?120,00/);
+  assert.match(html, /\+20,0%/);
+  assert.match(html, /Loja &lt;FayDai&gt;/);
+  assert.match(html, /Obs\.: moedas/);
+  assert.doesNotMatch(caixaAberturaHtml({ id: "a", dataHora: "2026-11-20 08:00", valorAbertura: 0 }, null), /CAIXA ANTERIOR/);
+});
+
+test("nota de fechamento traz totais, formas, conferência e comparativo em %", () => {
+  const html = caixaFechamentoHtml({
+    id: "abc123xyz", dataHora: "2026-11-20 08:00", abertoPor: "ana@loja.com", dataHoraFechamento: "2026-11-20 18:00", fechadoPor: "ana@loja.com",
+    valorAbertura: 100, numeroVendas: 3, totalVendas: 300, numeroDevolucoes: 1, totalDevolucoes: 30, totalLiquido: 270,
+    formas: [{ forma: "Dinheiro", liquido: 170 }, { forma: "Pix", liquido: 100 }],
+    esperadoDinheiro: 270, valorContado: 265, diferenca: -5,
+    comparativo: {
+      dataAnterior: "2026-11-19",
+      totalLiquido: { atual: 270, anterior: 200, variacao: 35 },
+      numeroVendas: { atual: 3, anterior: 4, variacao: -25 },
+      ticketMedio: { atual: 100, anterior: 50, variacao: null }
+    }
+  });
+  assert.match(html, /FECHAMENTO DE CAIXA/);
+  assert.match(html, /TOTAL LÍQUIDO/);
+  assert.match(html, /Pix/);
+  assert.match(html, /Faltam R\$\s?5,00/);
+  assert.match(html, /COMPARADO COM 19\/11\/2026/);
+  assert.match(html, /\+35,0%/);
+  assert.match(html, /-25,0%/);
+  assert.match(html, /sem base/);
+  assert.match(caixaFechamentoHtml({ id: "a", valorAbertura: 0, formas: [], comparativo: null }), /Sem dia anterior com vendas/);
 });

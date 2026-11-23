@@ -46,6 +46,10 @@ function renderHistory() {
       <p>Dinheiro: abertura ${money(caixa.valorAbertura)} · esperado ${money(caixa.esperadoDinheiro)} · contado ${money(caixa.valorContado)}</p>
       ${caixa.observacaoAbertura ? `<p>Abertura: ${escapeHtml(caixa.observacaoAbertura)}</p>` : ""}
       ${caixa.observacaoFechamento ? `<p>Fechamento: ${escapeHtml(caixa.observacaoFechamento)}</p>` : ""}
+      <p class="caixa-print-row">
+        <button class="button quiet" type="button" data-caixa-print-open="${escapeHtml(caixa.id)}">Reimprimir abertura</button>
+        <button class="button quiet" type="button" data-caixa-print-close="${escapeHtml(caixa.id)}">Reimprimir fechamento</button>
+      </p>
     </article>`;
   }).join("");
 }
@@ -78,6 +82,8 @@ export function renderCaixaSessao() {
 export function initCaixaSessaoUI(dependencies) {
   const {
     summarizeCaixa, newCaixaId, openCaixa, closeCaixa, loadMovimentosCaixa,
+    diaAnteriorComVendas, buildComparativo, variacaoPercentual,
+    printAbertura, printFechamento, autoPrint,
     currentEmail, loadData, setFeedback, showToast, explainError
   } = dependencies;
   summarize = summarizeCaixa;
@@ -86,6 +92,27 @@ export function initCaixaSessaoUI(dependencies) {
   let closing = false;
   let openAttempt = null; // { id, fingerprint }
   let closeAttempt = null; // { id, caixaId, resumo }
+
+  // Último caixa fechado antes deste (para a nota de abertura comparar). Usa o que já está na memória da tela.
+  function ultimoFechado(caixa) {
+    const anterior = caixas
+      .filter((item) => item.status === "fechado" && item.id !== caixa.id && String(item.dataHora || "") < String(caixa.dataHora || ""))
+      .sort((a, b) => String(b.dataHoraFechamento || "").localeCompare(String(a.dataHoraFechamento || "")))[0];
+    if (!anterior) return null;
+    return {
+      data: anterior.data,
+      valorAbertura: anterior.valorAbertura,
+      valorContado: anterior.valorContado,
+      diferenca: anterior.diferenca,
+      totalLiquido: anterior.totalLiquido,
+      variacaoAbertura: variacaoPercentual(caixa.valorAbertura, anterior.valorAbertura)
+    };
+  }
+
+  // A impressão nunca pode parecer falha de gravação: o caixa já foi salvo.
+  function imprimir(funcao) {
+    try { funcao(); } catch (error) { console.error("Falha ao imprimir a nota do caixa:", error); showToast("Caixa salvo, mas a nota não pôde ser impressa. Use Reimprimir."); }
+  }
 
   async function refreshAfter(message) {
     try {
@@ -120,8 +147,13 @@ export function initCaixaSessaoUI(dependencies) {
       const result = await openCaixa({
         caixaId: openAttempt.id, valorAbertura, observacao, date, dateTime: dateTimeFor(date), userEmail: currentEmail()
       });
+      const aberto = {
+        id: openAttempt.id, valorAbertura, observacaoAbertura: observacao,
+        data: date, dataHora: dateTimeFor(date), abertoPor: currentEmail()
+      };
       openAttempt = null;
       $("#caixa-open-form").reset();
+      if (!result?.alreadySaved && autoPrint()) imprimir(() => printAbertura(aberto, ultimoFechado(aberto)));
       setFeedback("#caixa-open-feedback", "");
       showToast(result?.alreadySaved ? "Este caixa já estava aberto." : "Caixa aberto.");
       await refreshAfter("Caixa aberto. Atualize a página para continuar.");
@@ -136,7 +168,22 @@ export function initCaixaSessaoUI(dependencies) {
   });
 
   // ----- Fechamento: primeiro mostra o resumo, depois confirma -----
-  function renderClosingSummary(resumo) {
+  function comparativoHtml(comparativo) {
+    if (!comparativo) return '<p class="caixa-sub">Sem dia anterior com vendas para comparar.</p>';
+    const linhaCmp = (rotulo, item, formatar) => {
+      const variacao = item.variacao;
+      const texto = variacao === null ? "sem base" : `${variacao > 0 ? "+" : ""}${variacao.toFixed(1).replace(".", ",")}%`;
+      const classe = variacao === null || variacao === 0 ? "" : (variacao > 0 ? "up" : "down");
+      return `<div class="caixa-line"><span>${rotulo}</span><strong class="${classe}">${texto}</strong></div>
+        <p class="caixa-sub">${formatar(item.atual)} hoje x ${formatar(item.anterior)}</p>`;
+    };
+    return `<div class="caixa-cmp"><p class="caixa-sub">Comparado com ${escapeHtml(formatDate(comparativo.dataAnterior))} (último dia anterior com vendas)</p>
+      ${linhaCmp("Total líquido", comparativo.totalLiquido, money)}
+      ${linhaCmp("Nº de vendas", comparativo.numeroVendas, String)}
+      ${linhaCmp("Ticket médio", comparativo.ticketMedio, money)}</div>`;
+  }
+
+  function renderClosingSummary(resumo, comparativo) {
     const line = (label, value, cls = "") => `<div class="caixa-line ${cls}"><span>${label}</span><strong>${value}</strong></div>`;
     const forms = resumo.formas.map((item) => line(escapeHtml(item.forma), money(item.liquido))).join("");
     $("#caixa-close-summary").innerHTML = `
@@ -147,7 +194,8 @@ export function initCaixaSessaoUI(dependencies) {
       ${forms ? `<p class="caixa-sub">Por forma de pagamento (já descontadas as devoluções)</p>${forms}` : ""}
       ${resumo.numeroVendasCanceladas ? `<p class="caixa-sub">${resumo.numeroVendasCanceladas} venda(s) cancelada(s) ficaram fora dos totais.</p>` : ""}
       ${line("Dinheiro esperado na gaveta", money(resumo.esperadoDinheiro), "total")}
-      <p class="caixa-sub">Esperado = dinheiro da abertura + vendas em dinheiro − devoluções de vendas em dinheiro.</p>`;
+      <p class="caixa-sub">Esperado = dinheiro da abertura + vendas em dinheiro − devoluções de vendas em dinheiro.</p>
+      ${comparativoHtml(comparativo)}`;
   }
 
   function updateDifference() {
@@ -188,8 +236,9 @@ export function initCaixaSessaoUI(dependencies) {
       // Lê o banco de novo: o fechamento não pode depender do que estava na tela.
       const movimentos = await loadMovimentosCaixa(open);
       const resumo = summarizeCaixa({ caixa: open, ...movimentos });
-      closeAttempt = { id: newCaixaId(), caixaId: open.id, resumo };
-      renderClosingSummary(resumo);
+      const comparativo = buildComparativo({ resumo, anterior: diaAnteriorComVendas({ caixa: open, ...movimentos }) });
+      closeAttempt = { id: newCaixaId(), caixaId: open.id, resumo, comparativo, caixa: open };
+      renderClosingSummary(resumo, comparativo);
       $("#caixa-close-form").reset();
       $("#caixa-close-diff").textContent = "";
       setFeedback("#caixa-close-overlay-feedback", "");
@@ -236,12 +285,15 @@ export function initCaixaSessaoUI(dependencies) {
         valorContado,
         observacao: cleanOption(fieldValue("#caixa-close-note")),
         resumo: closeAttempt.resumo,
+        comparativo: closeAttempt.comparativo,
         date,
         dateTime: dateTimeFor(date),
         userEmail: currentEmail()
       });
+      const fechado = { ...closeAttempt.caixa, ...result.fechamento };
       closeOverlay();
       showToast(result.alreadySaved ? "Este caixa já estava fechado." : "Caixa fechado.");
+      if (!result.alreadySaved && autoPrint()) imprimir(() => printFechamento(fechado));
       await refreshAfter("Caixa fechado. Atualize a página para continuar.");
     } catch (error) {
       console.error("Falha ao fechar o caixa:", error);
@@ -251,5 +303,19 @@ export function initCaixaSessaoUI(dependencies) {
       button.disabled = false;
     }
   });
-}
 
+  // ----- Reimpressão das notas -----
+  onEvent("#caixa-print-open", "click", () => {
+    const aberto = estadoUi.caixaAberto;
+    if (aberto) imprimir(() => printAbertura(aberto, ultimoFechado(aberto)));
+  });
+  onEvent("#caixa-history-list", "click", (event) => {
+    const abertura = event.target.closest("[data-caixa-print-open]");
+    const fechamento = event.target.closest("[data-caixa-print-close]");
+    const id = abertura?.dataset.caixaPrintOpen || fechamento?.dataset.caixaPrintClose;
+    const caixa = caixas.find((item) => item.id === id);
+    if (!caixa) return;
+    if (abertura) imprimir(() => printAbertura(caixa, ultimoFechado(caixa)));
+    else imprimir(() => printFechamento(caixa));
+  });
+}

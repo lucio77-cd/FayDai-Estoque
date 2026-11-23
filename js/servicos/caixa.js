@@ -96,6 +96,65 @@ export function summarizeCaixa({ caixa, vendas = [], devolucoes = [] }) {
   };
 }
 
+// ---------- Comparação com o dia anterior (funções puras) ----------
+
+// Quantos dias para trás a leitura procura o "dia anterior" com vendas (cobre fim de semana e feriado).
+export const DIAS_COMPARACAO = 7;
+
+export function diasAntes(data, dias) {
+  const [ano, mes, dia] = String(data).split("-").map(Number);
+  return new Date(Date.UTC(ano, mes - 1, dia - dias)).toISOString().slice(0, 10);
+}
+
+// Variação em % de "atual" em relação a "anterior", com uma casa decimal. Sem base (anterior zero): null.
+export function variacaoPercentual(atual, anterior) {
+  const base = Number(anterior);
+  if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(Number(atual))) return null;
+  return Math.round(((Number(atual) - base) / base) * 1000) / 10;
+}
+
+const ticketMedio = (total, numero) => (numero > 0 ? roundMoney(total / numero) : 0);
+
+// Totais de um dia inteiro (vendas não canceladas menos devoluções registradas naquele dia).
+export function summarizeDia({ data, vendas = [], devolucoes = [] }) {
+  const doDia = vendas.filter((sale) => sale.data === data && sale.status !== "cancelada");
+  const totalVendas = roundMoney(doDia.reduce((soma, sale) => soma + saleTotalOf(sale), 0));
+  const totalDevolucoes = roundMoney(devolucoes
+    .filter((saleReturn) => saleReturn.data === data)
+    .reduce((soma, saleReturn) => soma + returnTotalOf(saleReturn), 0));
+  return {
+    data,
+    numeroVendas: doDia.length,
+    totalVendas,
+    totalDevolucoes,
+    totalLiquido: roundMoney(totalVendas - totalDevolucoes),
+    ticketMedio: ticketMedio(totalVendas, doDia.length)
+  };
+}
+
+// Último dia ANTERIOR à abertura do caixa que teve vendas (dentro da janela lida). Sem vendas: null.
+export function diaAnteriorComVendas({ caixa, vendas = [], devolucoes = [] }) {
+  const datas = vendas
+    .filter((sale) => sale.status !== "cancelada" && typeof sale.data === "string" && sale.data < caixa.data)
+    .map((sale) => sale.data);
+  if (!datas.length) return null;
+  return summarizeDia({ data: datas.reduce((a, b) => (a > b ? a : b)), vendas, devolucoes });
+}
+
+// Comparativo gravado no fechamento: hoje (o caixa) contra o dia anterior, em valores e em %.
+// Retorna null quando não há dia anterior com vendas.
+export function buildComparativo({ resumo, anterior }) {
+  if (!anterior) return null;
+  const atualTicket = ticketMedio(resumo.totalVendas, resumo.numeroVendas);
+  const item = (atual, base) => ({ atual, anterior: base, variacao: variacaoPercentual(atual, base) });
+  return {
+    dataAnterior: anterior.data,
+    totalLiquido: item(resumo.totalLiquido, anterior.totalLiquido),
+    numeroVendas: item(resumo.numeroVendas, anterior.numeroVendas),
+    ticketMedio: item(atualTicket, anterior.ticketMedio)
+  };
+}
+
 // ---------- Leitura ----------
 
 // Caixa aberto (se houver) e os caixas dos últimos dias (a partir de "desde", AAAA-MM-DD).
@@ -117,9 +176,11 @@ export async function loadCaixas({ desde }) {
 // Usa as mesmas consultas por "data" que o aplicativo já faz. A venda original de uma devolução que não
 // veio na consulta é buscada por ID, porque a forma de pagamento dela decide de onde sai o dinheiro.
 export async function loadMovimentosCaixa(caixa) {
+  // Lê também os dias anteriores (DIAS_COMPARACAO) para o comparativo do fechamento.
+  const desde = diasAntes(caixa.data, DIAS_COMPARACAO);
   const [vendasSnap, devolucoesSnap] = await Promise.all([
-    getDocs(query(collection(db, "vendas"), where("data", ">=", caixa.data))),
-    getDocs(query(collection(db, "devolucoes"), where("data", ">=", caixa.data)))
+    getDocs(query(collection(db, "vendas"), where("data", ">=", desde))),
+    getDocs(query(collection(db, "devolucoes"), where("data", ">=", desde)))
   ]);
   const vendas = vendasSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
   const devolucoes = devolucoesSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
@@ -180,7 +241,7 @@ export async function openCaixa({ caixaId, valorAbertura, observacao = "", date,
 
 // resumo: resultado de summarizeCaixa calculado com dados lidos do banco logo antes do fechamento.
 // fechamentoId: gerado ao calcular o resumo e reaproveitado em reenvios, para o fechamento ser idempotente.
-export async function closeCaixa({ caixaId, fechamentoId, valorContado, observacao = "", resumo, date, dateTime, userEmail = null }) {
+export async function closeCaixa({ caixaId, fechamentoId, valorContado, observacao = "", resumo, comparativo = null, date, dateTime, userEmail = null }) {
   if (!caixaId || !fechamentoId) throw new Error("Identificador do fechamento não informado. Feche a janela e tente de novo.");
   if (!valorValido(valorContado)) throw new Error("Informe o dinheiro contado na gaveta (zero ou mais).");
   if (!resumo || !Number.isFinite(resumo.esperadoDinheiro)) throw new Error("O resumo do fechamento não foi calculado. Tente de novo.");
@@ -189,6 +250,32 @@ export async function closeCaixa({ caixaId, fechamentoId, valorContado, observac
   const contado = roundMoney(valorContado);
   const diferenca = roundMoney(contado - resumo.esperadoDinheiro);
   let alreadySaved = false;
+  // Campos gravados no fechamento (sem os carimbos do servidor). Também voltam para quem chamou, para a
+  // nota de fechamento sair exatamente com o que foi gravado.
+  const fechamento = {
+    status: "fechado",
+    fechamentoId,
+    fechadoPor: userEmail,
+    dataFechamento: date,
+    dataHoraFechamento: dateTime,
+    valorContado: contado,
+    esperadoDinheiro: roundMoney(resumo.esperadoDinheiro),
+    diferenca,
+    totalVendas: roundMoney(resumo.totalVendas),
+    totalDevolucoes: roundMoney(resumo.totalDevolucoes),
+    totalLiquido: roundMoney(resumo.totalLiquido),
+    numeroVendas: resumo.numeroVendas,
+    numeroVendasCanceladas: resumo.numeroVendasCanceladas,
+    numeroDevolucoes: resumo.numeroDevolucoes,
+    formas: resumo.formas.map((item) => ({
+      forma: item.forma,
+      vendas: roundMoney(item.vendas),
+      devolucoes: roundMoney(item.devolucoes),
+      liquido: roundMoney(item.liquido)
+    })),
+    comparativo: comparativo || null,
+    observacaoFechamento: observacao
+  };
 
   await runTransaction(db, async (transaction) => {
     alreadySaved = false;
@@ -201,30 +288,7 @@ export async function closeCaixa({ caixaId, fechamentoId, valorContado, observac
     }
     const controle = await transaction.get(controleRef);
 
-    transaction.update(caixaRef, {
-      status: "fechado",
-      fechamentoId,
-      fechadoPor: userEmail,
-      fechadoEm: serverTimestamp(),
-      dataFechamento: date,
-      dataHoraFechamento: dateTime,
-      valorContado: contado,
-      esperadoDinheiro: roundMoney(resumo.esperadoDinheiro),
-      diferenca,
-      totalVendas: roundMoney(resumo.totalVendas),
-      totalDevolucoes: roundMoney(resumo.totalDevolucoes),
-      totalLiquido: roundMoney(resumo.totalLiquido),
-      numeroVendas: resumo.numeroVendas,
-      numeroVendasCanceladas: resumo.numeroVendasCanceladas,
-      numeroDevolucoes: resumo.numeroDevolucoes,
-      formas: resumo.formas.map((item) => ({
-        forma: item.forma,
-        vendas: roundMoney(item.vendas),
-        devolucoes: roundMoney(item.devolucoes),
-        liquido: roundMoney(item.liquido)
-      })),
-      observacaoFechamento: observacao
-    });
+    transaction.update(caixaRef, { ...fechamento, fechadoEm: serverTimestamp() });
     if (controle.exists() && controle.data().caixaId === caixaId) {
       transaction.set(controleRef, {
         caixaId: null,
@@ -233,5 +297,5 @@ export async function closeCaixa({ caixaId, fechamentoId, valorContado, observac
       });
     }
   });
-  return { alreadySaved, diferenca };
+  return { alreadySaved, diferenca, fechamento };
 }

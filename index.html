@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#172554">
   <title>FayDai Estoque</title>
   <link rel="stylesheet" href="./styles.css?v=20261112-2">
-  <link rel="stylesheet" href="./caixa.css?v=20261120-1">
+  <link rel="stylesheet" href="./caixa.css?v=20261123-1">
 </head>
 <body>
   <main class="app-shell">
@@ -301,7 +301,7 @@
           <section id="caixa-open-box" class="panel form-stack caixa-box" hidden>
             <div class="item-title-row">
               <div><p class="eyebrow">CAIXA ABERTO</p><h3 id="caixa-open-title">Caixa aberto</h3></div>
-              <button id="caixa-close-start" class="button secondary" type="button">Fechar caixa</button>
+              <div class="caixa-actions"><button id="caixa-print-open" class="button quiet" type="button">Reimprimir abertura</button><button id="caixa-close-start" class="button secondary" type="button">Fechar caixa</button></div>
             </div>
             <p id="caixa-stale" class="notice" hidden></p>
             <dl class="caixa-stats">
@@ -499,6 +499,7 @@
           <summary>Impressão de cupons</summary>
           <div class="form-stack">
             <label class="setting-toggle"><input id="print-auto" type="checkbox" checked> Imprimir o cupom automaticamente ao finalizar a venda</label>
+            <label class="setting-toggle"><input id="print-caixa-auto" type="checkbox" checked> Imprimir a nota ao abrir e ao fechar o caixa</label>
             <button id="print-test" class="button secondary" type="button">Imprimir cupom de teste (80 mm)</button>
             <p class="small muted">Configuração deste computador. Na janela de impressão, escolha a TA-TP510L, margens <strong>Nenhuma</strong>, escala <strong>100%</strong> e desmarque "Cabeçalhos e rodapés". Para imprimir sem essa janela, deixe a térmica como impressora padrão do Windows e abra o Chrome por um atalho com <strong>--kiosk-printing</strong> no final do destino.</p>
           </div>
@@ -609,6 +610,6 @@
       }, 10000);
     })();
   </script>
-    <script type="module" src="./app.js?v=20261120-1"></script>
+    <script type="module" src="./app.js?v=20261123-1"></script>
 </body>
               </html>

@@ -9,6 +9,15 @@ Fica na aba **Caixa**, acima da tela de vendas. O módulo Caixa precisa estar at
 - **Fechar caixa:** o sistema lê o banco de novo e mostra o resumo (vendas por forma de pagamento, devoluções, dinheiro esperado). Você informa o **dinheiro contado**; o sistema mostra se confere, se falta ou se sobra, e pede confirmação quando há diferença. Depois do fechamento o caixa não muda mais.
 - Os fechamentos dos últimos 90 dias aparecem em **Fechamentos de caixa**.
 
+## Notas impressas (80 mm, não fiscais)
+
+- **Ao abrir o caixa** sai a nota de abertura: dinheiro da gaveta, operador, observação e, se houver, o caixa anterior (abertura, contado no fechamento, diferença, vendas líquidas) com a variação % da abertura.
+- **Ao fechar o caixa** sai a nota de fechamento: totais, formas de pagamento, conferência do dinheiro (esperado, contado, resultado) e o **comparativo com o dia anterior em %** (total líquido, nº de vendas e ticket médio).
+- **Dia anterior** = o último dia antes da abertura que teve vendas, procurado até 7 dias para trás (cobre fim de semana e feriado). A data usada aparece na nota. Sem dia anterior com vendas, a nota avisa que não há o que comparar. Se o dia anterior tem valor zero, a variação sai como "sem base".
+- O comparativo fica gravado no documento do caixa (`comparativo`), então a nota de fechamento pode ser **reimpressa** pelo histórico exatamente como saiu.
+- Em Configurações há a opção "Imprimir a nota ao abrir e ao fechar o caixa" (por computador). Os botões **Reimprimir abertura** e **Reimprimir fechamento** funcionam sempre.
+- Se a impressão falhar, o caixa continua salvo; a tela avisa e basta reimprimir.
+
 ## Regras
 
 - Só existe **um caixa aberto por vez** (documento de controle `controle_caixa_aberto`, como na vistoria).

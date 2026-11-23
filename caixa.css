@@ -52,3 +52,7 @@
 .caixa-diff.ok{color:var(--green)}
 .caixa-diff.short{color:var(--red)}
 .caixa-diff.over{color:var(--amber)}
+.caixa-actions{display:flex;flex-wrap:wrap;gap:var(--s2);justify-content:flex-end}
+.caixa-cmp{display:grid;gap:var(--s1);padding:var(--s3);border:1px solid var(--line);border-radius:var(--r-md)}
+.caixa-cmp .up{color:var(--green)}.caixa-cmp .down{color:var(--red)}
+.caixa-print-row{margin-top:var(--s2)}

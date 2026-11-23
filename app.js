@@ -1,7 +1,7 @@
 import { auth, db, collection, doc } from "./js/firebase.js?v=20261109-7";
 import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, dateToday, formatDate, escapeHtml, normalizeText, cleanOption, uniqueOptions, saleItemsOf, saleTotalOf, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime } from "./js/utils.js?v=20261104-1";
 import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261110-2";
-import { printSale, initCaixaUI, showSaleDone, resetCaixaUI } from "./cupom.js?v=20261112-1";
+import { printSale, initCaixaUI, showSaleDone, resetCaixaUI, printCaixaAbertura, printCaixaFechamento, caixaNotaAuto } from "./cupom.js?v=20261123-1";
 import { saveEntryTransaction, saveExitTransaction, newEntryId, newExitId, attemptFor } from "./js/servicos/movimentacoes.js?v=20261109-7";
 import { initMovementFormsUI } from "./js/ui/formularios-movimentacoes.js?v=20261109-7";
 import { parseCountValue, describeCount, startInventory as startInventoryService, saveInventory as saveInventoryService, discardInventory as discardInventoryService, finishInventory as finishInventoryService, MAX_INVENTORY_ADJUSTMENTS } from "./js/servicos/vistoria.js?v=20261109-7";
@@ -23,8 +23,8 @@ import { initExportacaoUI } from "./js/ui/exportacao.js?v=20261110-2";
 import { initConfiguracoesUI, renderStoreSettings } from "./js/ui/configuracoes.js?v=20261109-2";
 import { initVistoriaUI } from "./js/ui/vistoria.js?v=20261106-14";
 import { initCaixaTelaUI } from "./js/ui/caixa.js?v=20261107-1";
-import { initCaixaSessaoUI, renderCaixaSessao, caixaObrigatorio } from "./js/ui/caixa-sessao.js?v=20261120-1";
-import { newCaixaId, openCaixa, closeCaixa, loadCaixas, loadMovimentosCaixa, summarizeCaixa } from "./js/servicos/caixa.js?v=20261120-1";
+import { initCaixaSessaoUI, renderCaixaSessao, caixaObrigatorio } from "./js/ui/caixa-sessao.js?v=20261123-1";
+import { newCaixaId, openCaixa, closeCaixa, loadCaixas, loadMovimentosCaixa, summarizeCaixa, diaAnteriorComVendas, buildComparativo, variacaoPercentual } from "./js/servicos/caixa.js?v=20261123-1";
 import { initMovementSearchUI, selectedEntryProduct, readEntryAmounts, renderEntryProductResults, renderExitProductResults } from "./js/ui/busca-movimentacoes.js?v=20261108-2";
 
 function showToast(message) {
@@ -87,6 +87,10 @@ initCaixaTelaUI({
 });
 initCaixaSessaoUI({
   summarizeCaixa, newCaixaId, openCaixa, closeCaixa, loadMovimentosCaixa,
+  diaAnteriorComVendas, buildComparativo, variacaoPercentual,
+  printAbertura: (caixa, ultimo) => printCaixaAbertura(caixa, ultimo, storeSettings),
+  printFechamento: (caixa) => printCaixaFechamento(caixa, storeSettings),
+  autoPrint: caixaNotaAuto,
   currentEmail: () => currentEmail(), loadData, setFeedback, showToast, explainError
 });
 initVistoriaUI({
