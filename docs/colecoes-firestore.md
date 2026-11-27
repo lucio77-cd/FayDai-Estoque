@@ -17,6 +17,7 @@ Todas as gravações são feitas pelo navegador, por uma única conta autorizada
 | `caixas` | sim | só o fechamento (e o documento de controle) | nunca | `data >= início da janela` + controle |
 | `historico_custos` | sim | nunca | nunca | consulta por `produtoId` (ao excluir produto) |
 | `procura_perdida` | sim | nunca | nunca | não é lida |
+| `feedback` | sim | nunca | nunca | não é lida na tela principal (só em `resultados.html`, pelo administrador) |
 
 "Janela" = últimos 90 dias (`JANELA_HISTORICO_DIAS` em `js/dados.js`). A exportação CSV lê as coleções inteiras.
 
@@ -60,6 +61,10 @@ Todas as gravações são feitas pelo navegador, por uma única conta autorizada
 
 ### `historico_custos`
 - Criado na edição do produto quando o custo muda. Lido só por `where("produtoId", "==", ...)` com `limit(1)`.
+
+### `feedback`
+- Criada pela pesquisa de opinião (`enviarFeedback`, `js/feedback.js`): `perguntaId`, `pergunta`, `tipo`, `nota`, `comentario`, `usuario`, `versaoGuia`, `diasDeUso`, `data`, `dataHora`, `criadoEm`. Nunca alterada.
+- Lida por `resultados.html` (`orderBy("criadoEm", "desc")` com `limit(500)`; índice de campo único, criado sozinho pelo Firestore). Regras sugeridas em `docs/feedback.md`.
 
 ### `procura_perdida`
 - Criada por `registerLostDemand` ("Cliente pediu e não tinha"): `descricao`, `data`, `dataHora`, `hora`, `diaSemana`, `usuario`, `criadoEm`. A tela não lê esta coleção.

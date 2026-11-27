@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#172554">
+  <title>FayDai · Resultados da pesquisa</title>
+  <link rel="stylesheet" href="./styles.css?v=20261127-1">
+</head>
+<body>
+  <main class="app-shell">
+    <section id="res-loading" class="login-wrap" role="status" aria-live="polite">
+      <p class="eyebrow">PESQUISA DE OPINIÃO</p>
+      <h1>Resultados</h1>
+      <p class="muted">Verificando sua sessão…</p>
+    </section>
+
+    <section id="res-login" class="login-wrap" hidden>
+      <p class="eyebrow">PESQUISA DE OPINIÃO</p>
+      <h1>Resultados</h1>
+      <p class="muted">Área do desenvolvedor. Entre com a conta de administrador.</p>
+      <form id="res-login-form" class="panel form-stack">
+        <label for="res-email">E-mail</label>
+        <input id="res-email" type="email" autocomplete="username" required>
+        <label for="res-senha">Senha</label>
+        <input id="res-senha" type="password" autocomplete="current-password" required>
+        <button class="button primary" type="submit">Entrar</button>
+        <p id="res-login-erro" class="feedback error" role="alert"></p>
+      </form>
+    </section>
+
+    <section id="res-app" hidden>
+      <header class="topbar">
+        <div class="brand-inline"><div><strong>FayDai</strong><span class="muted block">Resultados da pesquisa</span></div></div>
+        <button id="res-sair" class="button quiet" type="button">Sair</button>
+      </header>
+
+      <div class="section-heading"><div><p class="eyebrow">OPINIÃO DE USO</p><h2>O que o cliente respondeu</h2></div></div>
+      <div class="dashboard-shortcuts">
+        <button id="res-atualizar" class="button secondary" type="button">Atualizar</button>
+        <button id="res-csv" class="button secondary" type="button">Baixar CSV</button>
+      </div>
+      <p id="res-status" class="feedback" role="status"></p>
+
+      <div id="res-totais" class="dashboard-grid"></div>
+      <div id="res-perguntas" class="res-lista"></div>
+      <p id="res-vazio" class="empty-state" hidden>Ainda não há respostas. A pergunta aparece de vez em quando, depois dos primeiros dias de uso, e só uma por vez.</p>
+    </section>
+  </main>
+  <script type="module" src="./js/resultados.js?v=20261127-1"></script>
+</body>
+</html>

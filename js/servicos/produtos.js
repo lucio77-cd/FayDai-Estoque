@@ -2,7 +2,7 @@
 // Este módulo não acessa a interface nem exibe mensagens.
 import {
   db, collection, doc, getDoc, getDocs, runTransaction, serverTimestamp, arrayUnion, writeBatch, query, where, limit
-} from "../firebase.js?v=20261109-7";
+} from "../firebase.js?v=20261127-1";
 import { roundMoney, normalizeText } from "../utils.js?v=20261104-1";
 import { CATALOG_OPTIONS_ID, STORE_SETTINGS_ID, INTERNAL_COUNTER_ID } from "../constantes.js?v=20261107-1";
 

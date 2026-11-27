@@ -502,6 +502,74 @@ input[type=checkbox],input[type=radio]{accent-color:var(--blue)}
 .footer-note{padding:var(--s7) 0 0;text-align:center;color:var(--muted);font-size:var(--fs-xs)}
 #product-form{scroll-margin-top:84px}
 
+/* ---------- 15b. ORIENTAÇÃO: GUIA, DIAS DE USO, PESQUISA E AJUDA ---------- */
+.welcome .welcome-days{margin:var(--s2) 0 0;font-size:var(--fs-sm);font-weight:600;color:var(--blue-700)}
+.welcome-days[hidden]{display:none}
+
+.feedback-card{margin-top:var(--s5);display:flex;flex-direction:column;gap:var(--s3);border-color:var(--blue-300);background:var(--blue-50)}
+.feedback-card[hidden]{display:none}
+.feedback-card .eyebrow{margin:0}
+.feedback-question{margin:0;font-size:var(--fs-lg);font-weight:700;line-height:1.35;color:var(--ink);letter-spacing:-.01em}
+.feedback-scale{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--s2)}
+.feedback-nota{
+  min-height:52px;border:1.5px solid var(--line-strong);border-radius:var(--r-md);background:#fff;
+  color:var(--navy);font:inherit;font-size:var(--fs-lg);font-weight:800;cursor:pointer;
+  transition:background var(--t) var(--ease),border-color var(--t) var(--ease),color var(--t) var(--ease);
+}
+.feedback-nota[aria-pressed="true"]{background:var(--blue);border-color:var(--blue);color:#fff}
+@media(hover:hover){.feedback-nota:hover{border-color:var(--blue);background:var(--blue-100)}.feedback-nota[aria-pressed="true"]:hover{background:var(--blue-700)}}
+.feedback-scale-labels{display:flex;justify-content:space-between;gap:var(--s3);margin:calc(var(--s1) * -1) 0 0}
+.feedback-scale[hidden],.feedback-scale-labels[hidden],.feedback-card .form-stack[hidden],#feedback-later[hidden]{display:none}
+.feedback-card .form-stack{gap:var(--s2)}
+.feedback-card .feedback{margin:0}
+#feedback-later{align-self:flex-start;min-height:44px}
+
+.guia-card .brand-logo{margin:0 0 var(--s3)}
+.guia-card .eyebrow{margin:0 0 var(--s1)}
+.guia-card h2{margin:0 0 var(--s2)}
+.guia-texto{margin:0 0 var(--s3);font-size:var(--fs-base);line-height:1.6;color:var(--ink-2)}
+.guia-lista{margin:0 0 var(--s4);padding:0;list-style:none;display:flex;flex-direction:column;gap:var(--s2)}
+.guia-lista li{position:relative;padding:var(--s3) var(--s3) var(--s3) 38px;border-radius:var(--r-md);background:var(--blue-50);font-size:var(--fs-sm);line-height:1.55;color:var(--ink)}
+.guia-lista li::before{content:"";position:absolute;left:14px;top:18px;width:10px;height:10px;border-radius:50%;background:var(--blue)}
+.guia-nav{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);margin-top:var(--s2)}
+.guia-nav .button{margin-top:0}
+.guia-nav #guia-voltar[hidden]{display:none}
+.guia-nav #guia-proximo{grid-column:2}
+.guia-nav #guia-voltar[hidden]+#guia-proximo{grid-column:1 / -1}
+.guia-pontos{display:flex;justify-content:center;gap:6px;margin:var(--s4) 0 var(--s1)}
+.guia-pontos span{width:8px;height:8px;border-radius:50%;background:var(--line-strong)}
+.guia-pontos span.ativo{width:22px;border-radius:var(--r-pill);background:var(--blue)}
+
+.help-top{margin-bottom:var(--s4)}
+.faq-list{display:flex;flex-direction:column;gap:var(--s2)}
+.faq-item{border:1px solid var(--line);border-radius:var(--r-md);background:#fff;box-shadow:var(--sh-1)}
+.faq-item[hidden]{display:none}
+.faq-item summary{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--s3);min-height:56px;padding:var(--s3) var(--s4);
+  font-weight:700;font-size:var(--fs-base);line-height:1.35;color:var(--ink);cursor:pointer;list-style:none;
+}
+.faq-item summary::-webkit-details-marker{display:none}
+.faq-item summary::after{content:"+";flex:0 0 auto;font-size:var(--fs-xl);font-weight:500;color:var(--blue)}
+.faq-item[open] summary::after{content:"–"}
+.faq-item[open]{border-color:var(--blue-300)}
+.faq-item ol{margin:0;padding:0 var(--s4) var(--s3) 38px;font-size:var(--fs-base);line-height:1.7;color:var(--ink-2)}
+.faq-item li{margin-bottom:var(--s2);padding-left:4px}
+.faq-item li strong{color:var(--ink)}
+.faq-item .small{margin:0;padding:0 var(--s4) var(--s4)}
+
+/* Página resultados.html (pesquisa de opinião, só leitura) */
+#res-app .section-heading{margin-top:var(--s6)}
+.res-lista{display:flex;flex-direction:column;gap:var(--s3);margin-top:var(--s5)}
+.res-pergunta h3{margin:0 0 var(--s1);font-size:var(--fs-lg)}
+.res-pergunta>.small{margin:0 0 var(--s3)}
+.res-barra{display:grid;grid-template-columns:18px 1fr 32px;align-items:center;gap:var(--s2);margin-bottom:6px;font-size:var(--fs-sm)}
+.res-nota{font-weight:800;color:var(--navy)}
+.res-trilho{display:block;height:12px;border-radius:var(--r-pill);background:var(--blue-100);overflow:hidden}
+.res-preenchido{display:block;height:100%;border-radius:var(--r-pill);background:var(--blue)}
+.res-qtd{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+.res-comentarios{margin:var(--s4) 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:var(--s2)}
+.res-comentarios li{padding:var(--s3);border-radius:var(--r-md);background:var(--blue-50);font-size:var(--fs-sm);line-height:1.55;overflow-wrap:anywhere}
+
 /* ---------- 16. RESPONSIVO ---------- */
 @media(max-width:400px){
   .form-grid{grid-template-columns:1fr}

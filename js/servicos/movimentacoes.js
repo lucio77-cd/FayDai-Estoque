@@ -1,7 +1,7 @@
 // movimentacoes.js — transações de entradas e saídas de estoque.
 // Este módulo não acessa a tela, não exibe avisos e não mantém estado da interface.
 // Recebe dados simples e preserva as validações e mensagens das transações originais.
-import { db, collection, doc, runTransaction, serverTimestamp } from "../firebase.js?v=20261109-7";
+import { db, collection, doc, runTransaction, serverTimestamp } from "../firebase.js?v=20261127-1";
 import { dateTimeFor, packSizeOf } from "../utils.js?v=20261104-1";
 
 // Identificadores gerados no cliente: repetir o envio da MESMA tentativa reaproveita o ID e não duplica o saldo.

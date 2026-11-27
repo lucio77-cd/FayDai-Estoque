@@ -1,4 +1,4 @@
-import { auth, db, collection, doc } from "./js/firebase.js?v=20261109-7";
+import { auth, db, collection, doc } from "./js/firebase.js?v=20261127-1";
 import { $, money, roundMoney, calcSuggestedPrice, getRegisteredSalePrice, dateToday, formatDate, escapeHtml, normalizeText, cleanOption, uniqueOptions, saleItemsOf, saleTotalOf, fieldValue, onEvent, parseDecimal, dateTimeFor, nowDateTime } from "./js/utils.js?v=20261104-1";
 import { cancelSale, registerReturn } from "./js/devolucoes.js?v=20261110-2";
 import { printSale, initCaixaUI, showSaleDone, resetCaixaUI, printCaixaAbertura, printCaixaFechamento, caixaNotaAuto } from "./cupom.js?v=20261123-1";
@@ -16,7 +16,7 @@ import { renderProducts } from "./js/ui/produtos.js?v=20261112-1";
 import { initProductCatalogUI, renderCatalogOptions } from "./js/ui/catalogo-produtos.js?v=20261106-19";
 import { saveProductTransaction, deleteProductTransaction } from "./js/servicos/produtos.js?v=20261109-7";
 import { initProductFormUI } from "./js/ui/formulario-produtos.js?v=20261112-1";
-import { initSessionUI, switchTab } from "./js/ui/sessao.js?v=20261112-1";
+import { initSessionUI, switchTab } from "./js/ui/sessao.js?v=20261127-1";
 import { renderSales, returnableRows } from "./js/ui/historico-vendas.js?v=20261106-20";
 import { renderEntries, renderExits } from "./js/ui/movimentacoes.js?v=20261106-18";
 import { initExportacaoUI } from "./js/ui/exportacao.js?v=20261110-2";
@@ -128,7 +128,7 @@ initSessionUI({
     estadoUi.vistoriaDraft = {}; estadoUi.vistoriaDraftOwner = null; estadoUi.vistoriaDirty = false;
     estadoUi.selectedEntryProductId = ""; estadoUi.selectedExitProductId = "";
     // Fecha janelas abertas e limpa os formulários, para nada do usuário anterior ficar na tela.
-    document.querySelectorAll("#sale-action-overlay, #caixa-close-overlay, #tutorial-overlay").forEach((element) => { element.hidden = true; });
+    document.querySelectorAll("#sale-action-overlay, #caixa-close-overlay, #guia-overlay, #feedback-card").forEach((element) => { element.hidden = true; });
     document.querySelectorAll("#app-view form").forEach((form) => form.reset());
     renderAll();
   }

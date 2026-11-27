@@ -44,6 +44,11 @@ export function limit(count) {
   return { type: "limit", count };
 }
 
+// A ordenação não é simulada: a restrição é aceita e ignorada (os testes não dependem da ordem).
+export function orderBy(field, direction = "asc") {
+  return { type: "orderBy", field, direction };
+}
+
 export function query(collectionRef, ...constraints) {
   return { kind: "query", name: collectionRef.name, constraints };
 }

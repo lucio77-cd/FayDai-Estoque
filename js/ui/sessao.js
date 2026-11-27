@@ -1,6 +1,7 @@
-import { auth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "../firebase.js?v=20261109-7";
+import { auth, signInWithEmailAndPassword, onAuthStateChanged, signOut, sendPasswordResetEmail } from "../firebase.js?v=20261127-1";
 import { $, fieldValue, onEvent } from "../utils.js?v=20261104-1";
 import { historyCutoff } from "../dados.js?v=20261110-3";
+import { initOrientacaoUI, mostrarOrientacao } from "./orientacao.js?v=20261127-1";
 
 function switchTab(tabName) {
   document.querySelectorAll(".tab").forEach((button) => {
@@ -26,20 +27,6 @@ function switchTab(tabName) {
   }
 }
 
-function showTutorialIfNeeded() {
-  let dismissed = false;
-  try {
-    dismissed = localStorage.getItem("faydai-tutorial-dismissed") === "yes";
-  } catch (error) {
-    console.warn("Não foi possível ler a preferência do tutorial:", error);
-  }
-  if (!dismissed) $("#tutorial-overlay").hidden = false;
-}
-
-function closeTutorialForNow() {
-  $("#tutorial-overlay").hidden = true;
-}
-
 // A tela só carrega os últimos 90 dias. Uma venda, entrada ou saída com data mais antiga seria gravada,
 // mas sumiria da tela. O "min" dos campos de data impede esse lançamento por engano.
 function applyDateLimits() {
@@ -62,14 +49,26 @@ export function initSessionUI({ setFeedback, explainError, showToast, initDateFi
   });
   // Se a tela ficar aberta de um dia para o outro, o limite acompanha a data.
   document.addEventListener("visibilitychange", () => { if (!document.hidden) applyDateLimits(); });
-  onEvent("#tutorial-close", "click", closeTutorialForNow);
-  onEvent("#tutorial-understood", "click", closeTutorialForNow);
-  onEvent("#tutorial-never", "click", () => {
-    try { localStorage.setItem("faydai-tutorial-dismissed", "yes"); }
-    catch (error) { console.warn("Não foi possível salvar a preferência do tutorial:", error); }
-    closeTutorialForNow();
+  initOrientacaoUI({ irParaAba: switchTab });
+  onEvent("#forgot-password", "click", async () => {
+    const email = fieldValue("#login-email").trim();
+    if (!email) {
+      setFeedback("#login-error", "Digite seu e-mail no campo acima e toque de novo em “Esqueci minha senha”.", true);
+      return;
+    }
+    const botao = $("#forgot-password");
+    botao.disabled = true;
+    try {
+      await sendPasswordResetEmail(auth, email);
+      // A mesma resposta vale para e-mail existente ou não, para não revelar quem tem conta.
+      setFeedback("#login-error", "Se este e-mail tiver conta, enviamos um link para criar uma nova senha. Confira também a caixa de spam.");
+    } catch (error) {
+      console.error("Falha ao pedir nova senha:", error);
+      const code = String(error?.code || "");
+      if (code === "auth/user-not-found") setFeedback("#login-error", "Se este e-mail tiver conta, enviamos um link para criar uma nova senha. Confira também a caixa de spam.");
+      else setFeedback("#login-error", explainError(error), true);
+    } finally { botao.disabled = false; }
   });
-  onEvent("#show-tutorial", "click", () => { $("#tutorial-overlay").hidden = false; });
   onEvent("#login-form", "submit", async (event) => {
     event.preventDefault();
     const submit = $("#login-form button[type=submit]");
@@ -105,7 +104,7 @@ export function initSessionUI({ setFeedback, explainError, showToast, initDateFi
       }
     }
     switchTab("dashboard");
-    showTutorialIfNeeded();
+    mostrarOrientacao(user);
   });
 }
 

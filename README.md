@@ -215,7 +215,8 @@ As funcionalidades e regras deste documento poderão evoluir com base nessa vali
 ## Protótipo atual
 
 Arquivos:
-- `index.html`: telas de login, painel, produtos, entradas, Caixa, saídas, vistoria, configurações (com exportação), ajuda, tutorial e painel de cancelamento/devolução.
+- `index.html`: telas de login, painel, produtos, entradas, Caixa, saídas, vistoria, configurações (com exportação), ajuda (com busca), guia passo a passo e painel de cancelamento/devolução.
+- `resultados.html`: página do desenvolvedor com as respostas da pesquisa de opinião (veja `docs/feedback.md`).
 - `styles.css` e `caixa.css`: layout responsivo com prioridade para celular (o segundo cuida da tela do Caixa).
 - `app.js`: ponto de entrada. Guarda parte do estado das telas (carrinho, vistoria, devolução) e liga os módulos; a busca de produtos de Entradas e Saídas fica em `js/ui/busca-movimentacoes.js`.
 - `cupom.js`: cupom não fiscal (térmica 80 mm) e apoio da tela do Caixa; não acessa o Firebase.
@@ -242,7 +243,7 @@ Arquivos:
 3. Confira o preço sugerido e o saldo no catálogo.
 4. Registre uma entrada adicional e confira se o saldo aumenta.
 5. Atualize a página e confirme que o produto e o histórico continuam disponíveis.
-6. Teste o tutorial: fechar ou escolher “Entendi, começar” só o fecha naquela sessão; “Não mostrar novamente” impede a abertura automática neste navegador. A opção de Ajuda permite abri-lo novamente.
+6. Teste o guia passo a passo: ele abre uma única vez por navegador para cada versão (`GUIA_VERSAO`), mesmo que seja fechado no “×”. Em Ajuda, “Rever o passo a passo” abre de novo. Veja `docs/feedback.md` para a pesquisa de opinião e a mensagem de dias de uso.
 
 
 ## Módulos Caixa e Saídas
@@ -340,6 +341,7 @@ As regras de segurança são publicadas no **Firebase Console → Firestore Data
 - em `vendas`, permitir também a atualização dos contadores de devolução (`devolvidoPorProduto`, `valorDevolvido`, `ultimaDevolucaoId`, `ultimaDevolucaoEm`), sempre junto com a criação da devolução correspondente, sem passar do total da venda e nunca em venda cancelada; cancelar só se não houve devolução.
 
 - permitir somente criação em `procura_perdida` ("Cliente pediu e não tinha");
+- em `feedback` (pesquisa de opinião), permitir somente criação pela conta da loja e leitura apenas pela conta de administrador (bloco sugerido em `docs/feedback.md`);
 - em `devolucoes`, aceitar a criação com ID gerado no cliente (`devolucoes/{id}`);
 - em `vistorias`, aceitar também o documento de controle `controle_vistoria_ativa`;
 - em `produtos`, aceitar os documentos especiais `catalogo_opcoes_faydai`, `configuracoes_faydai` e `contador_codigo_interno_faydai`;

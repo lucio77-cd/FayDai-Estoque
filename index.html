@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#172554">
   <title>FayDai Estoque</title>
-  <link rel="stylesheet" href="./styles.css?v=20261112-2">
+  <link rel="stylesheet" href="./styles.css?v=20261127-1">
   <link rel="stylesheet" href="./caixa.css?v=20261123-1">
 </head>
 <body>
@@ -28,9 +28,10 @@
         <label for="login-password">Senha</label>
         <input id="login-password" type="password" autocomplete="current-password" required>
         <button class="button primary" type="submit">Entrar</button>
+        <button id="forgot-password" class="button quiet" type="button">Esqueci minha senha</button>
         <p id="login-error" class="feedback error" role="alert"></p>
       </form>
-      <p class="small muted">Entre com a conta já criada no Firebase Authentication.</p>
+      <p class="small muted">Use o e-mail e a senha que o responsável criou para a sua loja.</p>
     </section>
 
     <section id="app-view" hidden>
@@ -43,6 +44,20 @@
         <p class="eyebrow">CONTROLE DA LOJA</p>
         <h1>Seu estoque, organizado.</h1>
         <p class="muted">Cadastre produtos e controle entradas e saídas.</p>
+        <p id="welcome-days" class="welcome-days" hidden></p>
+        <aside id="feedback-card" class="panel feedback-card" aria-labelledby="feedback-question" hidden>
+          <p class="eyebrow">SUA OPINIÃO</p>
+          <p id="feedback-question" class="feedback-question"></p>
+          <div id="feedback-scale" class="feedback-scale" role="group" aria-label="Escolha uma nota de 1 a 5"></div>
+          <p id="feedback-scale-labels" class="feedback-scale-labels small muted"><span id="feedback-label-min"></span><span id="feedback-label-max"></span></p>
+          <form id="feedback-form" class="form-stack" hidden>
+            <label id="feedback-comment-label" for="feedback-comment">Quer explicar? (opcional)</label>
+            <textarea id="feedback-comment" rows="3" maxlength="500"></textarea>
+            <button id="feedback-send" class="button primary" type="submit">Enviar</button>
+          </form>
+          <p id="feedback-status" class="feedback" role="status"></p>
+          <button id="feedback-later" class="button quiet" type="button">Agora não</button>
+        </aside>
       </section>
 
       <nav class="tabs" role="tablist" aria-label="Seções do sistema">
@@ -529,31 +544,62 @@
       </section>
 
       <section id="help-panel" class="tab-panel" role="tabpanel" aria-labelledby="tab-help" hidden>
-        <div class="section-heading"><div><p class="eyebrow">PRIMEIROS PASSOS</p><h2>Ajuda</h2></div></div>
-        <div class="panel help-card">
-          <h3>Como usar o FayDai</h3>
-          <ol><li>Cadastre o produto com custo, percentual de ganho, preço de venda e quantidade inicial. Se quiser receber aviso de reposição, informe o estoque mínimo. Se o custo mudar depois, o custo anterior fica registrado no histórico.</li><li>Para bebidas e outros itens de conveniência, informe o volume (ex.: 350 ml) e, se o produto vem em fardo, as unidades por fardo e o custo do fardo: o sistema calcula o custo de cada unidade. Produtos de tamanhos diferentes são cadastrados separadamente.</li><li>Quando chegar uma compra, registre a entrada. Se o produto vem em fardo, informe quantos fardos chegaram e o custo do fardo; o saldo é somado em unidades.</li><li>Ative o módulo Caixa em Configurações para registrar vendas. O preço de cada item pode ser ajustado no carrinho, com alertas de preço abaixo do sugerido ou do custo; o estoque é baixado automaticamente. Se o cliente pedir algo que não tem, use "Cliente pediu e não tinha".</li><li>Para desfazer uma venda, abra o histórico do Caixa: use <strong>Devolver itens</strong> para devolver só alguns itens ou <strong>Cancelar venda</strong> para cancelar a venda inteira (só se ela não teve devolução). Em ambos os casos o estoque volta automaticamente.</li><li>Use Saídas para perdas, devoluções ao fornecedor e uso interno.</li><li>Use a Vistoria para contar o estoque físico: campo vazio mantém o saldo; digite 0 quando contar e não houver unidade. Você pode salvar o andamento e concluir depois.</li><li>No Painel, acompanhe o valor do estoque, os produtos abaixo do mínimo, o faturamento, o ticket médio, os mais vendidos, as formas de pagamento e as vendas por dia.</li><li>Em Configurações → Exportar dados, baixe planilhas CSV de produtos, vendas, devoluções, entradas e saídas. Faça isso de tempos em tempos como cópia de segurança.</li></ol>
-          <p class="muted small">Cancelamentos e devoluções não podem ser desfeitos e ficam registrados no histórico.</p>
-          <button id="show-tutorial" class="button secondary" type="button">Ver tutorial inicial</button>
+        <div class="section-heading"><div><p class="eyebrow">AJUDA E DÚVIDAS</p><h2>Como posso ajudar?</h2></div></div>
+        <div class="panel form-stack help-top">
+          <label for="faq-busca">Procure sua dúvida</label>
+          <input id="faq-busca" type="search" autocomplete="off" placeholder="Ex.: caixa, devolução, senha, impressora">
+          <button id="show-guia" class="button secondary" type="button">Rever o passo a passo</button>
         </div>
+        <div id="faq-lista" class="faq-list">
+          <details class="faq-item"><summary>Como abro o caixa e faço uma venda?</summary>
+            <ol><li>Na primeira vez, abra Configurações, marque <strong>Ativar módulo Caixa (vendas)</strong> e toque em Salvar configurações.</li><li>Abra a aba <strong>Caixa</strong>, digite quanto dinheiro há na gaveta e toque em <strong>Abrir caixa</strong>.</li><li>Leia o código de barras ou digite o nome do produto e toque nele para colocar na compra.</li><li>Escolha a forma de pagamento. Se for dinheiro, digite o valor recebido: o sistema mostra o troco.</li><li>Toque em <strong>Finalizar venda</strong> (ou tecle F4). O estoque baixa sozinho e o cupom é impresso.</li></ol></details>
+          <details class="faq-item"><summary>Como fecho o caixa no fim do dia?</summary>
+            <ol><li>Na aba Caixa, finalize ou limpe a compra em andamento e toque em <strong>Fechar caixa</strong>.</li><li>Conte o dinheiro da gaveta e digite o valor. O sistema avisa se confere, se falta ou se sobra.</li><li>Toque em <strong>Fechar caixa</strong>. A nota impressa traz os totais, as formas de pagamento e a comparação em % com o dia anterior.</li><li>Para imprimir de novo, use <strong>Reimprimir fechamento</strong> na lista Fechamentos de caixa.</li></ol></details>
+          <details class="faq-item"><summary>Errei uma venda ou o cliente devolveu um produto</summary>
+            <ol><li>Na aba Caixa, ache a venda no <strong>Histórico de vendas</strong>.</li><li>Use <strong>Devolver itens</strong> quando o cliente devolve só alguns itens, ou <strong>Cancelar venda</strong> para desfazer a venda inteira (só vale se ela não teve devolução).</li><li>Escreva o motivo e confirme. O estoque volta sozinho.</li></ol>
+            <p class="small muted">Cancelamentos e devoluções não podem ser desfeitos e ficam registrados no histórico.</p></details>
+          <details class="faq-item"><summary>Como cadastro um produto?</summary>
+            <ol><li>Abra <strong>Produtos</strong> e toque em <strong>+ Novo produto</strong>.</li><li>Informe o nome, o custo e o ganho desejado em %. O sistema sugere o preço de venda, que você pode ajustar.</li><li>Digite a quantidade que você tem agora e, se quiser aviso de reposição, o estoque mínimo.</li><li>Se o produto vem em fardo, informe as unidades por fardo e o custo do fardo: o sistema calcula o custo de cada unidade.</li><li>Toque em <strong>Salvar produto</strong>.</li></ol></details>
+          <details class="faq-item"><summary>Chegou mercadoria: como dou entrada?</summary>
+            <ol><li>Abra <strong>Entradas</strong> e pesquise o produto pelo nome ou leia o código de barras.</li><li>Informe a quantidade recebida, o custo desta compra e a data. O fornecedor é opcional.</li><li>Toque em <strong>Registrar entrada</strong>. O saldo é somado.</li></ol>
+            <p class="small muted">O custo da compra fica no histórico e não muda sozinho o custo cadastrado do produto.</p></details>
+          <details class="faq-item"><summary>Perdi, quebrei ou usei um produto: como dou baixa?</summary>
+            <ol><li>Abra <strong>Saídas</strong> e pesquise o produto.</li><li>Informe a quantidade e escolha o motivo: perda, devolução ao fornecedor, uso interno ou outro.</li><li>Toque em <strong>Confirmar saída</strong>. O sistema não deixa baixar mais do que existe no estoque.</li></ol></details>
+          <details class="faq-item"><summary>O estoque do sistema está diferente do que tenho na prateleira</summary>
+            <ol><li>Abra <strong>Vistoria</strong> e toque em <strong>Iniciar vistoria</strong>.</li><li>Conte os produtos e digite a quantidade de cada um. Com o leitor, cada leitura soma 1.</li><li>Deixe o campo vazio nos produtos que não contou: o saldo deles não muda. Digite 0 quando contar e não houver nenhuma unidade.</li><li>Pode tocar em <strong>Salvar andamento</strong> e continuar depois. Ao terminar, toque em <strong>Concluir vistoria</strong>.</li></ol></details>
+          <details class="faq-item"><summary>O que significam os números do Painel?</summary>
+            <ol><li><strong>Faturamento</strong>: total vendido no período, já descontando devoluções.</li><li><strong>Diferença bruta estimada</strong>: preço cobrado menos o custo cadastrado. Não é o lucro, porque o sistema ainda não registra as despesas da loja.</li><li><strong>Ticket médio</strong>: faturamento dividido pelo número de vendas.</li><li><strong>Estoque baixo</strong>: produtos com saldo igual ou abaixo do mínimo que você definiu.</li><li><strong>Mais vendidos</strong>: o que mais saiu no período escolhido.</li></ol></details>
+          <details class="faq-item"><summary>Como uso o leitor de código de barras?</summary>
+            <ol><li>Em Configurações, marque <strong>Usar código de barras</strong> e salve.</li><li>Cadastre o código no produto (em “Mais opções de identificação”).</li><li>Nos campos de busca do Caixa, de Entradas, de Saídas e da Vistoria, basta ler o código: o produto aparece na hora.</li></ol>
+            <p class="small muted">Serve leitor USB ou Bluetooth que funcione como teclado. Cada código só pode pertencer a um produto.</p></details>
+          <details class="faq-item"><summary>A nota não imprime ou sai cortada</summary>
+            <ol><li>Em Configurações, abra <strong>Impressão de cupons</strong> e toque em <strong>Imprimir cupom de teste</strong>.</li><li>Na janela de impressão, escolha a impressora térmica (TA-TP510L), margens <strong>Nenhuma</strong>, escala <strong>100%</strong> e desmarque “Cabeçalhos e rodapés”.</li><li>Para não precisar confirmar a cada nota, deixe a térmica como impressora padrão e abra o Chrome por um atalho com <strong>--kiosk-printing</strong> no final do destino.</li></ol></details>
+          <details class="faq-item"><summary>Como faço uma cópia de segurança dos meus dados?</summary>
+            <ol><li>Abra Configurações e vá em <strong>Exportar dados (CSV)</strong>.</li><li>Escolha o período e baixe cada planilha, ou toque em <strong>Exportar tudo</strong> (baixa 5 arquivos; se o navegador perguntar, permita).</li><li>Guarde os arquivos em um lugar seguro. Eles abrem no Excel ou nas Planilhas Google. Faça isso de tempos em tempos.</li></ol></details>
+          <details class="faq-item"><summary>Esqueci a senha ou não consigo entrar</summary>
+            <ol><li>Na tela de entrada, digite seu e-mail e toque em <strong>Esqueci minha senha</strong>. Chega um e-mail com o link para criar uma nova (olhe também o spam).</li><li>Se a tela ficar parada em “Verificando sua sessão”, confira a internet e atualize a página.</li><li>Se continuar, fale com o responsável pelo sistema.</li></ol></details>
+        </div>
+        <p id="faq-vazio" class="empty-state" hidden>Nenhuma dúvida encontrada com essa palavra. Tente outra, como “caixa”, “estoque” ou “senha”.</p>
       </section>
       <footer class="footer-note">FayDai Estoque · Protótipo em validação</footer>
     </section>
   </main>
 
-  <div id="tutorial-overlay" class="overlay" hidden>
-    <section class="tutorial-card" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
-      <button id="tutorial-close" class="icon-button" type="button" aria-label="Fechar tutorial">×</button>
+  <div id="guia-overlay" class="overlay" hidden>
+    <section class="tutorial-card guia-card" role="dialog" aria-modal="true" aria-labelledby="guia-titulo">
+      <button id="guia-close" class="icon-button" type="button" aria-label="Fechar o guia">×</button>
       <img class="brand-logo" src="./logo01.png" alt="FayDai" width="160" height="64">
-      <p class="eyebrow">BEM-VINDO AO SISTEMA</p>
-      <h2 id="tutorial-title">Vamos organizar seu estoque?</h2>
-      <p class="muted">Você pode consultar este tutorial sempre que precisar.</p>
-      <div class="tutorial-step"><span>1</span><div><strong>Cadastre os produtos</strong><p>Informe nome, volume, marca, categoria, custo (ou custo do fardo), ganho desejado, quantidade inicial e, se quiser, o estoque mínimo.</p></div></div>
-      <div class="tutorial-step"><span>2</span><div><strong>Registre as entradas</strong><p>Quando receber mercadoria, registre quantidade (ou fardos), custo da compra e fornecedor.</p></div></div>
-      <div class="tutorial-step"><span>3</span><div><strong>Venda e dê baixa</strong><p>No Caixa, registre vendas e ajuste o preço se precisar; em Saídas, perdas e uso interno. O saldo é atualizado sozinho.</p></div></div>
-      <div class="tutorial-step"><span>4</span><div><strong>Acompanhe e confira</strong><p>O Painel mostra estoque baixo, vendas e rankings. Na Vistoria, conte o estoque físico e ajuste os saldos. Em Configurações, exporte seus dados em planilha.</p></div></div>
-      <button id="tutorial-understood" class="button primary full" type="button">Entendi, começar</button>
-      <button id="tutorial-never" class="button quiet full" type="button">Não mostrar novamente</button>
+      <p id="guia-progresso" class="eyebrow"></p>
+      <h2 id="guia-titulo"></h2>
+      <p id="guia-texto" class="guia-texto"></p>
+      <ul id="guia-lista" class="guia-lista"></ul>
+      <button id="guia-abrir-aba" class="button secondary full" type="button" hidden></button>
+      <div class="guia-nav">
+        <button id="guia-voltar" class="button quiet" type="button">Voltar</button>
+        <button id="guia-proximo" class="button primary" type="button">Próximo</button>
+      </div>
+      <div id="guia-pontos" class="guia-pontos" aria-hidden="true"></div>
+      <button id="guia-pular" class="button quiet full" type="button">Pular o guia</button>
     </section>
   </div>
 
@@ -610,6 +656,6 @@
       }, 10000);
     })();
   </script>
-    <script type="module" src="./app.js?v=20261123-1"></script>
+    <script type="module" src="./app.js?v=20261127-1"></script>
 </body>
               </html>

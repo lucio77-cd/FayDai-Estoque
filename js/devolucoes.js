@@ -3,7 +3,7 @@
 // documento de devolução já existir, nada é gravado nem o estoque é alterado de novo.
 // Só fala com o Firestore: não lê a tela nem o estado do app.js. O app.js chama cancelSale e registerReturn.
 // Os imports usam o MESMO ?v= do app.js para o navegador carregar cada módulo uma única vez.
-import { auth, db, collection, getDocs, doc, runTransaction, serverTimestamp, query, where } from "./firebase.js?v=20261109-7";
+import { auth, db, collection, getDocs, doc, runTransaction, serverTimestamp, query, where } from "./firebase.js?v=20261127-1";
 import { roundMoney, dateToday } from "./utils.js?v=20261104-1";
 
 // Soma unidades de volta ao estoque dentro de uma transação (todas as leituras antes das escritas).

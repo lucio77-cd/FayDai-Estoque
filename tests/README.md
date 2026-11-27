@@ -9,7 +9,7 @@ Na raiz do repositório, com Node.js 22:
 ```bash
 node tools/verificar-modulos.mjs
 find . -path './.git' -prune -o -name '*.js' -type f -print0 | xargs -0 -n1 node --experimental-default-type=module --check
-node --experimental-default-type=module --experimental-loader ./tests/firebase-mock-loader.mjs --test ./tests/services.test.mjs ./tests/dados.test.mjs ./tests/vendas-devolucoes.test.mjs ./tests/rascunho-carrinho.test.mjs
+node --experimental-default-type=module --experimental-loader ./tests/firebase-mock-loader.mjs --test ./tests/services.test.mjs ./tests/dados.test.mjs ./tests/vendas-devolucoes.test.mjs ./tests/rascunho-carrinho.test.mjs ./tests/caixa.test.mjs ./tests/orientacao.test.mjs
 ```
 
 Esses testes não substituem testes de integração com o Firestore Emulator nem testes autenticados no projeto Firebase publicado. A validação de permissões, transações concorrentes reais e comportamento do navegador deve ocorrer separadamente, com uma conta e registros de teste.

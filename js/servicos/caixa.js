@@ -5,7 +5,7 @@
 // abertura) e é fechado uma única vez (dinheiro contado, esperado e diferença). O documento de controle
 // "controle_caixa_aberto" garante que só exista um caixa aberto por vez (mesmo padrão da vistoria).
 // As vendas feitas com o caixa aberto guardam o campo caixaId; as devoluções entram no caixa pelo horário.
-import { db, collection, doc, getDoc, getDocs, runTransaction, serverTimestamp, query, where } from "../firebase.js?v=20261109-7";
+import { db, collection, doc, getDoc, getDocs, runTransaction, serverTimestamp, query, where } from "../firebase.js?v=20261127-1";
 import { roundMoney, saleTotalOf, returnTotalOf } from "../utils.js?v=20261104-1";
 
 // O Firestore reserva IDs no formato __nome__, por isso o documento de controle não usa esse formato.
