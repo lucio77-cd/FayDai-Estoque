@@ -80,7 +80,7 @@ Todas as gravações são feitas pelo navegador, por uma única conta autorizada
 
 ## Versionar as regras
 
-O repositório não tem `firestore.rules` de propósito: o arquivo precisa refletir exatamente o que está publicado. Para versionar, copie o texto de **Firestore Database → Regras** para `firestore.rules` na raiz, **trocando os e-mails reais por um marcador** (por exemplo `EMAIL_AUTORIZADO`), e confira os itens do checklist acima.
+O arquivo `firestore.rules` na raiz é a cópia das regras publicadas em 27/11/2026, já com o bloco `feedback`. Como o repositório é público, os e-mails reais foram trocados por marcadores (`EMAIL_DA_LOJA` e `EMAIL_DO_ADMINISTRADOR`). Para publicar, copie o arquivo, troque os marcadores pelos e-mails reais e cole em **Firestore Database → Regras**. O arquivo precisa refletir o que está publicado: sempre que mudar as regras no Console, atualize esta cópia e confira os itens do checklist acima.
 
 ## Registros sem o campo `data`
 

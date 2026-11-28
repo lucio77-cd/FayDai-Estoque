@@ -328,7 +328,7 @@ Use poucos produtos de teste.
 
 ## Regras do Firestore
 
-As regras de segurança são publicadas no **Firebase Console → Firestore Database → Regras** e não ficam neste repositório. Elas devem:
+As regras de segurança são publicadas no **Firebase Console → Firestore Database → Regras**. O arquivo `firestore.rules` guarda uma cópia (com marcadores no lugar dos e-mails; veja `docs/colecoes-firestore.md`). Elas devem:
 - aceitar apenas contas cujo e-mail esteja em uma lista de e-mails autorizados;
 - impedir saldo negativo e valores de custo ou preço negativos;
 - permitir somente criação (nunca edição ou exclusão) em `entradas`, `saidas`, `historico_custos` e `devolucoes`;

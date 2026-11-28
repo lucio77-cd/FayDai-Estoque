@@ -54,7 +54,7 @@ Nenhum dado de cliente final é guardado, só o que o lojista respondeu.
 
 ### Regras do Firestore (publicar no Console)
 
-As regras ficam só no Console. Acrescente o bloco abaixo, **adaptando** os e-mails e o mesmo padrão de conta autorizada que você já usa nas outras coleções. **Não foi testado aqui**: use o "Simulador de regras" do Console antes de publicar.
+O arquivo completo, com este bloco já encaixado nas regras publicadas, está em `firestore.rules` (com marcadores no lugar dos e-mails). O bloco abaixo é só a parte nova, em versão simplificada. **Não foi testado em um emulador**: use o "Simulador de regras" do Console antes de publicar.
 
 ```
 match /feedback/{id} {

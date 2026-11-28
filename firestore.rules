@@ -1,0 +1,164 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- auxiliares ----------
+    function autorizado() {
+      return request.auth != null
+        && request.auth.token.email in [
+        'EMAIL_DA_LOJA',
+        'EMAIL_DO_ADMINISTRADOR'
+        ];
+    }
+    function souEu(campo) {
+      return request.resource.data[campo] == request.auth.token.email;
+    }
+    function naoNegativo(d, campo) {
+      return d.get(campo, null) == null
+        || (d[campo] is number && d[campo] >= 0);
+    }
+
+    // ---------- produtos (inclui os 3 documentos especiais) ----------
+    match /produtos/{produtoId} {
+      allow get, list: if autorizado();
+      allow create, update: if autorizado()
+        && naoNegativo(request.resource.data, 'quantidade')
+        && naoNegativo(request.resource.data, 'custo')
+        && naoNegativo(request.resource.data, 'precoVenda')
+        && naoNegativo(request.resource.data, 'percentualGanho')
+        && (request.resource.data.get('estoqueMinimo', null) == null
+            || (request.resource.data.estoqueMinimo is int
+                && request.resource.data.estoqueMinimo >= 0));
+      allow delete: if autorizado() && resource.data.get('quantidade', 0) == 0;
+    }
+
+    // ---------- entradas (só criação) ----------
+    match /entradas/{id} {
+      allow get, list: if autorizado();
+      allow create: if autorizado()
+        && naoNegativo(request.resource.data, 'quantidade')
+        && naoNegativo(request.resource.data, 'custoUnitario');
+      allow update, delete: if false;
+    }
+
+    // ---------- saídas (só criação) ----------
+    match /saidas/{id} {
+      allow get, list: if autorizado();
+      allow create: if autorizado()
+        && souEu('usuario')
+        && naoNegativo(request.resource.data, 'quantidade');
+      allow update, delete: if false;
+    }
+
+    // ---------- vendas ----------
+    match /vendas/{vendaId} {
+      allow get, list: if autorizado();
+
+      allow create: if autorizado()
+        && souEu('usuario')
+        && naoNegativo(request.resource.data, 'total');
+
+      // cancelamento: só venda não cancelada e sem devolução
+      allow update: if autorizado()
+        && resource.data.get('status', '') != 'cancelada'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'canceladaEm', 'canceladaPor', 'motivoCancelamento'])
+        && request.resource.data.status == 'cancelada'
+        && request.resource.data.canceladaPor == request.auth.token.email
+        && resource.data.get('valorDevolvido', 0) == 0;
+
+      // devolução: contadores atualizados junto com a criação da devolução
+      allow update: if autorizado()
+        && resource.data.get('status', '') != 'cancelada'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['devolvidoPorProduto', 'valorDevolvido', 'ultimaDevolucaoId', 'ultimaDevolucaoEm'])
+        && request.resource.data.valorDevolvido is number
+        && request.resource.data.valorDevolvido >= 0
+        && request.resource.data.valorDevolvido <= resource.data.total + 0.005
+        && existsAfter(/databases/$(database)/documents/devolucoes/$(request.resource.data.ultimaDevolucaoId));
+
+      allow delete: if false;
+    }
+
+    // ---------- devoluções (só criação) ----------
+    match /devolucoes/{devolucaoId} {
+      allow get, list: if autorizado();
+      allow create: if autorizado()
+        && souEu('usuario')
+        && naoNegativo(request.resource.data, 'totalDevolvido');
+      allow update, delete: if false;
+    }
+
+    // ---------- vistorias ----------
+    match /vistorias/{vistoriaId} {
+      allow get, list: if autorizado();
+      // documento de controle
+      allow create, update: if autorizado() && vistoriaId == 'controle_vistoria_ativa';
+      // vistoria nova
+      allow create: if autorizado()
+        && vistoriaId != 'controle_vistoria_ativa'
+        && request.resource.data.status == 'em_andamento';
+      // salvar, concluir ou descartar só enquanto em andamento
+      allow update: if autorizado()
+        && vistoriaId != 'controle_vistoria_ativa'
+        && resource.data.status == 'em_andamento';
+      allow delete: if false;
+    }
+
+    // ---------- histórico de custos (só criação) ----------
+    match /historico_custos/{id} {
+      allow get, list: if autorizado();
+      allow create: if autorizado();
+      allow update, delete: if false;
+    }
+
+    // ---------- "cliente pediu e não tinha" (só criação, não é lida) ----------
+    match /procura_perdida/{id} {
+      allow create: if autorizado();
+      allow read, update, delete: if false;
+    }
+
+    // ---------- caixas (abertura e fechamento) ----------
+    match /caixas/{caixaId} {
+      allow get, list: if autorizado();
+
+      // documento de controle (impede dois caixas abertos)
+      allow create, update: if autorizado() && caixaId == 'controle_caixa_aberto';
+
+      // abertura
+      allow create: if autorizado() && caixaId != 'controle_caixa_aberto'
+        && request.resource.data.status == 'aberto'
+        && request.resource.data.valorAbertura is number
+        && request.resource.data.valorAbertura >= 0
+        && request.resource.data.abertoPor == request.auth.token.email;
+
+      // fechamento: só um caixa aberto vira fechado; fechado nunca mais muda
+      allow update: if autorizado() && caixaId != 'controle_caixa_aberto'
+        && resource.data.status == 'aberto'
+        && request.resource.data.status == 'fechado'
+        && request.resource.data.valorContado is number
+        && request.resource.data.valorContado >= 0
+        && request.resource.data.fechadoPor == request.auth.token.email;
+
+      allow delete: if false;
+    }
+
+    // ---------- feedback (pesquisa de opinião) ----------
+    // A loja só cria a própria resposta; ninguém altera nem apaga; só o administrador lê.
+    match /feedback/{id} {
+      allow create: if autorizado()
+        && souEu('usuario')
+        && request.resource.data.keys().hasOnly(['perguntaId', 'pergunta', 'tipo', 'nota', 'comentario', 'usuario', 'versaoGuia', 'diasDeUso', 'data', 'dataHora', 'criadoEm'])
+        && request.resource.data.tipo in ['nota', 'texto']
+        && (request.resource.data.nota == null
+            || (request.resource.data.nota is int
+                && request.resource.data.nota >= 1
+                && request.resource.data.nota <= 5))
+        && request.resource.data.comentario is string
+        && request.resource.data.comentario.size() <= 500;
+      allow read: if request.auth != null
+        && request.auth.token.email == 'EMAIL_DO_ADMINISTRADOR';
+      allow update, delete: if false;
+    }
+  }
+}
